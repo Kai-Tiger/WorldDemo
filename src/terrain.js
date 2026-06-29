@@ -9,10 +9,14 @@ const HALF_MAP_SIZE = MAP_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const HEIGHT_SMOOTHING_ENABLED = true;
+const HEIGHT_DITHER_AMPLITUDE = 0.35;
+const HEIGHT_DITHER_FREQUENCY = 0.65;
 const HEIGHT_SMOOTHING_KERNEL = [
-  [1, 2, 1],
-  [2, 4, 2],
-  [1, 2, 1],
+  [1, 4, 6, 4, 1],
+  [4, 16, 24, 16, 4],
+  [6, 24, 36, 24, 6],
+  [4, 16, 24, 16, 4],
+  [1, 4, 6, 4, 1],
 ];
 
 export class Terrain {
@@ -123,8 +127,9 @@ export class Terrain {
     const h11 = this.getSampledPixelHeight(x1, y1);
     const top = THREE.MathUtils.lerp(h00, h10, tx);
     const bottom = THREE.MathUtils.lerp(h01, h11, tx);
+    const height = THREE.MathUtils.lerp(top, bottom, ty) + getHeightDither(x, z);
 
-    return THREE.MathUtils.lerp(top, bottom, ty);
+    return THREE.MathUtils.clamp(height, 0, MAX_HEIGHT);
   }
 
   getSampledPixelHeight(x, y) {
@@ -135,11 +140,13 @@ export class Terrain {
     let weightedHeight = 0;
     let totalWeight = 0;
 
-    for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+    const kernelRadius = Math.floor(HEIGHT_SMOOTHING_KERNEL.length / 2);
+
+    for (let offsetY = -kernelRadius; offsetY <= kernelRadius; offsetY += 1) {
+      for (let offsetX = -kernelRadius; offsetX <= kernelRadius; offsetX += 1) {
         const sampleX = THREE.MathUtils.clamp(x + offsetX, 0, this.width - 1);
         const sampleY = THREE.MathUtils.clamp(y + offsetY, 0, this.height - 1);
-        const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + 1][offsetX + 1];
+        const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + kernelRadius][offsetX + kernelRadius];
 
         weightedHeight += this.getPixelHeight(sampleX, sampleY) * weight;
         totalWeight += weight;
@@ -215,4 +222,34 @@ async function loadHeightMap(path) {
     width: canvas.width,
     height: canvas.height,
   };
+}
+
+function getHeightDither(x, z) {
+  return valueNoise(x * HEIGHT_DITHER_FREQUENCY, z * HEIGHT_DITHER_FREQUENCY)
+    * HEIGHT_DITHER_AMPLITUDE;
+}
+
+function valueNoise(x, z) {
+  const x0 = Math.floor(x);
+  const z0 = Math.floor(z);
+  const tx = smoothstep(x - x0);
+  const tz = smoothstep(z - z0);
+  const a = random2d(x0, z0);
+  const b = random2d(x0 + 1, z0);
+  const c = random2d(x0, z0 + 1);
+  const d = random2d(x0 + 1, z0 + 1);
+  const top = THREE.MathUtils.lerp(a, b, tx);
+  const bottom = THREE.MathUtils.lerp(c, d, tx);
+
+  return THREE.MathUtils.lerp(top, bottom, tz) * 2 - 1;
+}
+
+function smoothstep(value) {
+  return value * value * (3 - 2 * value);
+}
+
+function random2d(x, z) {
+  const value = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
+
+  return value - Math.floor(value);
 }
