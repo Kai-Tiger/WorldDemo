@@ -17,7 +17,7 @@ const HIGHLAND_FADE_START = 10;
 const HIGHLAND_FADE_END = 18;
 const PATH_SAMPLE_COUNT = 260;
 const WATER_WIDTH = 4.8;
-const WATER_HEIGHT_OFFSET = 0.25;
+const WATER_LEVEL_ABOVE_BED = 1.6;
 const WATER_LONGITUDINAL_STEP = 0.6;
 const WATER_LATERAL_SEGMENTS = 8;
 const WET_BANK_WIDTH = 0.85;
@@ -56,7 +56,7 @@ export function createRiverWaterMesh(terrain) {
     HALF_WATER_WIDTH,
     WATER_LONGITUDINAL_STEP,
     WATER_LATERAL_SEGMENTS,
-    WATER_HEIGHT_OFFSET,
+    getFlatWaterHeight,
   );
   const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
 
@@ -76,7 +76,7 @@ export function createWetBankMesh(terrain) {
       -HALF_WATER_WIDTH,
       WATER_LONGITUDINAL_STEP,
       2,
-      WET_BANK_HEIGHT_OFFSET,
+      getTerrainFollowingHeight,
     ),
     material,
   );
@@ -87,7 +87,7 @@ export function createWetBankMesh(terrain) {
       HALF_WATER_WIDTH,
       WATER_LONGITUDINAL_STEP,
       2,
-      WET_BANK_HEIGHT_OFFSET,
+      getTerrainFollowingHeight,
     ),
     material,
   );
@@ -120,7 +120,7 @@ function createChannelStripGeometry(
   maxLateral,
   longitudinalStep,
   lateralSegments,
-  heightOffset,
+  getVertexHeight,
 ) {
   const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
   const verticesPerRow = lateralSegments + 1;
@@ -137,13 +137,14 @@ function createChannelStripGeometry(
     const center = channelCurve.getPointAt(t);
     const tangent = channelCurve.getTangentAt(t).normalize();
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const rowHeight = getWaterRowHeight(terrain, center.x, center.z);
 
     for (let j = 0; j <= lateralSegments; j += 1) {
       const lateralT = j / lateralSegments;
       const lateral = THREE.MathUtils.lerp(minLateral, maxLateral, lateralT);
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
-      const y = terrain.getHeightAt(x, z) + heightOffset;
+      const y = getVertexHeight(terrain, x, z, rowHeight);
 
       positions[positionOffset] = x;
       positions[positionOffset + 1] = y;
@@ -185,6 +186,18 @@ function createChannelStripGeometry(
   return geometry;
 }
 
+function getFlatWaterHeight(_terrain, _x, _z, rowHeight) {
+  return rowHeight;
+}
+
+function getTerrainFollowingHeight(terrain, x, z) {
+  return terrain.getHeightAt(x, z) + WET_BANK_HEIGHT_OFFSET;
+}
+
+function getWaterRowHeight(terrain, x, z) {
+  return terrain.getHeightAt(x, z) + WATER_LEVEL_ABOVE_BED;
+}
+
 function createRiverWaterMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
@@ -209,12 +222,7 @@ function createRiverWaterMaterial() {
       void main() {
         vUv = uv;
 
-        float center = 1.0 - abs(uv.y - 0.5) * 2.0;
         vec3 transformed = position;
-        transformed.y += (
-          sin(uv.x * 4.8 - uTime * 1.4)
-          + sin(uv.x * 9.2 + uv.y * 7.0 - uTime * 2.1) * 0.45
-        ) * 0.035 * center;
 
         vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
         vWorldPosition = worldPosition.xyz;
