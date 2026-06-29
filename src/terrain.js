@@ -8,6 +8,12 @@ const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
+const HEIGHT_SMOOTHING_ENABLED = true;
+const HEIGHT_SMOOTHING_KERNEL = [
+  [1, 2, 1],
+  [2, 4, 2],
+  [1, 2, 1],
+];
 
 export class Terrain {
   constructor(heightData, width, height) {
@@ -111,14 +117,36 @@ export class Terrain {
     const tx = imageX - x0;
     const ty = imageY - y0;
 
-    const h00 = this.getPixelHeight(x0, y0);
-    const h10 = this.getPixelHeight(x1, y0);
-    const h01 = this.getPixelHeight(x0, y1);
-    const h11 = this.getPixelHeight(x1, y1);
+    const h00 = this.getSampledPixelHeight(x0, y0);
+    const h10 = this.getSampledPixelHeight(x1, y0);
+    const h01 = this.getSampledPixelHeight(x0, y1);
+    const h11 = this.getSampledPixelHeight(x1, y1);
     const top = THREE.MathUtils.lerp(h00, h10, tx);
     const bottom = THREE.MathUtils.lerp(h01, h11, tx);
 
     return THREE.MathUtils.lerp(top, bottom, ty);
+  }
+
+  getSampledPixelHeight(x, y) {
+    if (!HEIGHT_SMOOTHING_ENABLED) {
+      return this.getPixelHeight(x, y);
+    }
+
+    let weightedHeight = 0;
+    let totalWeight = 0;
+
+    for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        const sampleX = THREE.MathUtils.clamp(x + offsetX, 0, this.width - 1);
+        const sampleY = THREE.MathUtils.clamp(y + offsetY, 0, this.height - 1);
+        const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + 1][offsetX + 1];
+
+        weightedHeight += this.getPixelHeight(sampleX, sampleY) * weight;
+        totalWeight += weight;
+      }
+    }
+
+    return weightedHeight / totalWeight;
   }
 
   getNormalAt(x, z) {
