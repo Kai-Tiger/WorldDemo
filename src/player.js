@@ -10,6 +10,11 @@ const GROUND_OFFSET = 0.03;
 const MIN_WALKABLE_NORMAL_Y = Math.cos(THREE.MathUtils.degToRad(50));
 const GROUND_SPEED = 5;
 const AIR_SPEED = 60;
+const GRAVITY = 30;
+const MAX_FALL_SPEED = 55;
+const GROUND_SNAP_DISTANCE = 0.08;
+const LEDGE_DROP_THRESHOLD = 0.45;
+const LEDGE_PROBE_DISTANCE = PLAYER_RADIUS + 0.35;
 const ACTION_FADE_DURATION = 0.2;
 
 export class Player {
@@ -22,6 +27,8 @@ export class Player {
     this.idleAction = null;
     this.walkAction = null;
     this.currentAction = null;
+    this.verticalVelocity = 0;
+    this.isDroppingFromLedge = false;
 
     this.loadModel();
   }
@@ -139,20 +146,22 @@ export class Player {
     if (input.isKeyDown('KeyD')) this.moveDirection.add(this.cameraRight);
 
     const isMovingHorizontally = this.moveDirection.lengthSq() > 0;
-    const groundHeight = this.getGroundHeight(terrain, this.group.position.x, this.group.position.z);
+    const groundHeight = this.getActiveGroundHeight(terrain, this.group.position.x, this.group.position.z);
     const isAscending = input.isKeyDown('AltLeft') || input.isKeyDown('AltRight');
     const isDescending = input.isKeyDown('ControlLeft') || input.isKeyDown('ControlRight');
 
     if (isAscending) {
       this.group.position.y += AIR_SPEED * deltaTime;
+      this.verticalVelocity = 0;
+      this.isDroppingFromLedge = false;
+    } else if (isDescending) {
+      this.group.position.y = Math.max(this.group.position.y - AIR_SPEED * deltaTime, groundHeight);
+      this.verticalVelocity = 0;
+    } else {
+      this.updateVerticalMotion(deltaTime, groundHeight);
     }
 
-    if (isDescending) {
-      this.group.position.y -= AIR_SPEED * deltaTime;
-    }
-
-    this.group.position.y = Math.max(this.group.position.y, groundHeight);
-    const isAirborne = this.group.position.y > groundHeight + 0.001;
+    const isAirborne = this.group.position.y > groundHeight + GROUND_SNAP_DISTANCE;
 
     if (isMovingHorizontally) {
       this.setAction(this.walkAction);
@@ -161,8 +170,9 @@ export class Player {
       const speed = isAirborne ? AIR_SPEED : GROUND_SPEED;
       const nextX = this.group.position.x + this.moveDirection.x * speed * deltaTime;
       const nextZ = this.group.position.z + this.moveDirection.z * speed * deltaTime;
+      const isDroppingOffEdge = this.isDroppingOffEdge(terrain, nextX, nextZ);
 
-      if (!isAirborne && !this.canStandAt(terrain, nextX, nextZ)) {
+      if (!isAirborne && !isDroppingOffEdge && !this.canStandAt(terrain, nextX, nextZ)) {
         this.setAction(this.idleAction);
         return;
       }
@@ -170,10 +180,22 @@ export class Player {
       this.group.position.x = nextX;
       this.group.position.z = nextZ;
 
-      const nextGroundHeight = this.getGroundHeight(terrain, nextX, nextZ);
-      this.group.position.y = isAirborne
-        ? Math.max(this.group.position.y, nextGroundHeight)
-        : nextGroundHeight;
+      if (isDroppingOffEdge) {
+        this.isDroppingFromLedge = true;
+        this.verticalVelocity = Math.min(this.verticalVelocity, 0);
+      }
+
+      const nextGroundHeight = this.getActiveGroundHeight(terrain, nextX, nextZ);
+
+      if (!isAirborne && !isDroppingOffEdge) {
+        this.group.position.y = nextGroundHeight;
+        this.verticalVelocity = 0;
+        this.isDroppingFromLedge = false;
+      } else if (this.group.position.y <= nextGroundHeight) {
+        this.group.position.y = nextGroundHeight;
+        this.verticalVelocity = 0;
+        this.isDroppingFromLedge = false;
+      }
 
       this.group.rotation.y = Math.atan2(this.moveDirection.x, this.moveDirection.z);
       return;
@@ -184,6 +206,58 @@ export class Player {
 
   canStandAt(terrain, x, z) {
     return terrain.getNormalAt(x, z).y >= MIN_WALKABLE_NORMAL_Y;
+  }
+
+  isDroppingOffEdge(terrain, nextX, nextZ) {
+    const currentGroundHeight = this.getCenterGroundHeight(
+      terrain,
+      this.group.position.x,
+      this.group.position.z,
+    );
+    const nextCenterHeight = this.getCenterGroundHeight(terrain, nextX, nextZ);
+    const nextFrontHeight = this.getCenterGroundHeight(
+      terrain,
+      nextX + this.moveDirection.x * LEDGE_PROBE_DISTANCE,
+      nextZ + this.moveDirection.z * LEDGE_PROBE_DISTANCE,
+    );
+    const nextGroundHeight = Math.min(nextCenterHeight, nextFrontHeight);
+
+    return nextGroundHeight < currentGroundHeight - LEDGE_DROP_THRESHOLD;
+  }
+
+  updateVerticalMotion(deltaTime, groundHeight) {
+    const isNearGround = this.group.position.y <= groundHeight + GROUND_SNAP_DISTANCE;
+
+    if (isNearGround && this.verticalVelocity <= 0) {
+      this.group.position.y = groundHeight;
+      this.verticalVelocity = 0;
+      this.isDroppingFromLedge = false;
+      return;
+    }
+
+    this.verticalVelocity = Math.max(
+      this.verticalVelocity - GRAVITY * deltaTime,
+      -MAX_FALL_SPEED,
+    );
+    this.group.position.y += this.verticalVelocity * deltaTime;
+
+    if (this.group.position.y <= groundHeight) {
+      this.group.position.y = groundHeight;
+      this.verticalVelocity = 0;
+      this.isDroppingFromLedge = false;
+    }
+  }
+
+  getActiveGroundHeight(terrain, x, z) {
+    if (this.isDroppingFromLedge) {
+      return this.getCenterGroundHeight(terrain, x, z);
+    }
+
+    return this.getGroundHeight(terrain, x, z);
+  }
+
+  getCenterGroundHeight(terrain, x, z) {
+    return terrain.getHeightAt(x, z) + GROUND_OFFSET;
   }
 
   getGroundHeight(terrain, x, z) {
