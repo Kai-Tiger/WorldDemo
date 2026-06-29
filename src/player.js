@@ -29,6 +29,7 @@ export class Player {
     this.currentAction = null;
     this.verticalVelocity = 0;
     this.isDroppingFromLedge = false;
+    this.isHovering = false;
 
     this.loadModel();
   }
@@ -154,9 +155,13 @@ export class Player {
       this.group.position.y += AIR_SPEED * deltaTime;
       this.verticalVelocity = 0;
       this.isDroppingFromLedge = false;
+      this.isHovering = true;
     } else if (isDescending) {
       this.group.position.y = Math.max(this.group.position.y - AIR_SPEED * deltaTime, groundHeight);
       this.verticalVelocity = 0;
+      this.updateHoverLanding(groundHeight);
+    } else if (this.isHovering) {
+      this.holdHover(groundHeight);
     } else {
       this.updateVerticalMotion(deltaTime, groundHeight);
     }
@@ -170,7 +175,7 @@ export class Player {
       const speed = isAirborne ? AIR_SPEED : GROUND_SPEED;
       const nextX = this.group.position.x + this.moveDirection.x * speed * deltaTime;
       const nextZ = this.group.position.z + this.moveDirection.z * speed * deltaTime;
-      const isDroppingOffEdge = this.isDroppingOffEdge(terrain, nextX, nextZ);
+      const isDroppingOffEdge = !this.isHovering && this.isDroppingOffEdge(terrain, nextX, nextZ);
 
       if (!isAirborne && !isDroppingOffEdge && !this.canStandAt(terrain, nextX, nextZ)) {
         this.setAction(this.idleAction);
@@ -182,6 +187,7 @@ export class Player {
 
       if (isDroppingOffEdge) {
         this.isDroppingFromLedge = true;
+        this.isHovering = false;
         this.verticalVelocity = Math.min(this.verticalVelocity, 0);
       }
 
@@ -191,10 +197,12 @@ export class Player {
         this.group.position.y = nextGroundHeight;
         this.verticalVelocity = 0;
         this.isDroppingFromLedge = false;
+        this.isHovering = false;
       } else if (this.group.position.y <= nextGroundHeight) {
         this.group.position.y = nextGroundHeight;
         this.verticalVelocity = 0;
         this.isDroppingFromLedge = false;
+        this.isHovering = false;
       }
 
       this.group.rotation.y = Math.atan2(this.moveDirection.x, this.moveDirection.z);
@@ -232,6 +240,7 @@ export class Player {
       this.group.position.y = groundHeight;
       this.verticalVelocity = 0;
       this.isDroppingFromLedge = false;
+      this.isHovering = false;
       return;
     }
 
@@ -245,7 +254,22 @@ export class Player {
       this.group.position.y = groundHeight;
       this.verticalVelocity = 0;
       this.isDroppingFromLedge = false;
+      this.isHovering = false;
     }
+  }
+
+  holdHover(groundHeight) {
+    this.verticalVelocity = 0;
+    this.isDroppingFromLedge = false;
+    this.updateHoverLanding(groundHeight);
+  }
+
+  updateHoverLanding(groundHeight) {
+    if (this.group.position.y > groundHeight + GROUND_SNAP_DISTANCE) return;
+
+    this.group.position.y = groundHeight;
+    this.isHovering = false;
+    this.isDroppingFromLedge = false;
   }
 
   getActiveGroundHeight(terrain, x, z) {
