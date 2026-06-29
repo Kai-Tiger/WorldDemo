@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyRiverChannel } from './riverChannel.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const MAP_SIZE = 2048;
@@ -110,6 +111,10 @@ export class Terrain {
   }
 
   getHeightAt(x, z) {
+    return applyRiverChannel(this.getBaseHeightAt(x, z), x, z);
+  }
+
+  getBaseHeightAt(x, z) {
     const u = THREE.MathUtils.clamp((x + HALF_MAP_SIZE) / MAP_SIZE, 0, 1);
     const v = THREE.MathUtils.clamp((z + HALF_MAP_SIZE) / MAP_SIZE, 0, 1);
     const imageX = u * (this.width - 1);
