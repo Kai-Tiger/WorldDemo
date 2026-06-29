@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { loadPngHeightMap } from './pngHeightMap.js';
 
-const HEIGHT_MAP_PATH = '/assets/terrain/height.png';
+const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const MAP_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
@@ -33,7 +32,7 @@ export class Terrain {
   }
 
   static async create() {
-    const { data, width, height } = await loadPngHeightMap(HEIGHT_MAP_PATH);
+    const { data, width, height } = await loadHeightMap(HEIGHT_MAP_PATH);
     return new Terrain(data, width, height);
   }
 
@@ -187,6 +186,33 @@ export class Terrain {
   }
 
   getPixelHeight(x, y) {
-    return (this.heightData[y * this.width + x] / 65535) * MAX_HEIGHT;
+    const index = (y * this.width + x) * 4;
+    const r = this.heightData[index];
+    const g = this.heightData[index + 1];
+    const b = this.heightData[index + 2];
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+    return luminance * MAX_HEIGHT;
   }
+}
+
+async function loadHeightMap(path) {
+  const image = new Image();
+  image.src = path;
+  await image.decode();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+
+  return {
+    data: imageData.data,
+    width: canvas.width,
+    height: canvas.height,
+  };
 }
