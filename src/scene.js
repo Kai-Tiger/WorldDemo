@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createRiverWaterMesh, createWetBankMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
 
 export async function createScene() {
@@ -7,6 +8,10 @@ export async function createScene() {
 
   const terrain = await Terrain.create();
   scene.add(terrain.group);
+  const wetBanks = createWetBankMesh(terrain);
+  const water = createRiverWaterMesh(terrain);
+  scene.add(wetBanks);
+  scene.add(water);
 
   const hemisphereLight = new THREE.HemisphereLight(0xddeeff, 0x4d5d3b, 1.8);
   scene.add(hemisphereLight);
@@ -23,5 +28,5 @@ export async function createScene() {
   directionalLight.shadow.camera.far = 600;
   scene.add(directionalLight);
 
-  return { scene, terrain };
+  return { scene, terrain, water, wetBanks };
 }

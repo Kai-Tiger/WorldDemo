@@ -1,14 +1,13 @@
 import * as THREE from 'three';
 
 const CHANNEL_POINTS = [
-  new THREE.Vector3(415, 0, -430),
+  new THREE.Vector3(420, 0, -423),
   new THREE.Vector3(430, 0, -417),
   new THREE.Vector3(455, 0, -398),
   new THREE.Vector3(500, 0, -375),
-  new THREE.Vector3(535, 0, -335),
-  new THREE.Vector3(585, 0, -300),
-  new THREE.Vector3(610, 0, -280),
-  new THREE.Vector3(625, 0, -265),
+  new THREE.Vector3(560, 0, -335),
+  new THREE.Vector3(590, 0, -302),
+  new THREE.Vector3(605, 0, -284),
 ];
 
 const CHANNEL_WIDTH = 8;
@@ -17,11 +16,16 @@ const INFLUENCE_RADIUS = 7;
 const HIGHLAND_FADE_START = 10;
 const HIGHLAND_FADE_END = 18;
 const PATH_SAMPLE_COUNT = 260;
-const RIVERBED_STEP = 0.5;
-const RIVERBED_HEIGHT_OFFSET = 0.04;
+const WATER_WIDTH = 4.8;
+const WATER_HEIGHT_OFFSET = 0.25;
+const WATER_LONGITUDINAL_STEP = 0.6;
+const WATER_LATERAL_SEGMENTS = 8;
+const WET_BANK_WIDTH = 0.85;
+const WET_BANK_HEIGHT_OFFSET = 0.08;
 const END_TAPER_LENGTH = 10;
 
 const HALF_CHANNEL_WIDTH = CHANNEL_WIDTH * 0.5;
+const HALF_WATER_WIDTH = WATER_WIDTH * 0.5;
 const channelCurve = new THREE.CatmullRomCurve3(CHANNEL_POINTS, false, 'centripetal');
 const channelSamples = createChannelSamples();
 const channelLength = channelSamples[channelSamples.length - 1].distance;
@@ -45,9 +49,80 @@ export function applyRiverChannel(baseHeight, x, z) {
   return baseHeight - carveDepth;
 }
 
-export function createRiverbedMesh(terrain) {
-  const longitudinalSegments = Math.ceil(channelLength / RIVERBED_STEP);
-  const lateralSegments = Math.ceil((INFLUENCE_RADIUS * 2) / RIVERBED_STEP);
+export function createRiverWaterMesh(terrain) {
+  const geometry = createChannelStripGeometry(
+    terrain,
+    -HALF_WATER_WIDTH,
+    HALF_WATER_WIDTH,
+    WATER_LONGITUDINAL_STEP,
+    WATER_LATERAL_SEGMENTS,
+    WATER_HEIGHT_OFFSET,
+  );
+  const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
+
+  mesh.name = 'RiverWater';
+  mesh.renderOrder = 20;
+
+  return mesh;
+}
+
+export function createWetBankMesh(terrain) {
+  const group = new THREE.Group();
+  const material = createWetBankMaterial();
+  const left = new THREE.Mesh(
+    createChannelStripGeometry(
+      terrain,
+      -HALF_WATER_WIDTH - WET_BANK_WIDTH,
+      -HALF_WATER_WIDTH,
+      WATER_LONGITUDINAL_STEP,
+      2,
+      WET_BANK_HEIGHT_OFFSET,
+    ),
+    material,
+  );
+  const right = new THREE.Mesh(
+    createChannelStripGeometry(
+      terrain,
+      HALF_WATER_WIDTH + WET_BANK_WIDTH,
+      HALF_WATER_WIDTH,
+      WATER_LONGITUDINAL_STEP,
+      2,
+      WET_BANK_HEIGHT_OFFSET,
+    ),
+    material,
+  );
+
+  left.name = 'RiverWetBankLeft';
+  right.name = 'RiverWetBankRight';
+  group.name = 'RiverWetBanks';
+  group.renderOrder = 15;
+  group.add(left, right);
+
+  return group;
+}
+
+export function updateRiverVisuals(water, wetBanks, camera, elapsedTime) {
+  if (water?.material?.uniforms) {
+    water.material.uniforms.uTime.value = elapsedTime;
+    water.material.uniforms.uCameraPosition.value.copy(camera.position);
+  }
+
+  for (const bank of wetBanks?.children ?? []) {
+    if (bank.material?.uniforms) {
+      bank.material.uniforms.uTime.value = elapsedTime;
+    }
+  }
+}
+
+function createChannelStripGeometry(
+  terrain,
+  minLateral,
+  maxLateral,
+  longitudinalStep,
+  lateralSegments,
+  heightOffset,
+) {
+  const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
   const verticesPerRow = lateralSegments + 1;
   const vertexCount = (longitudinalSegments + 1) * verticesPerRow;
   const positions = new Float32Array(vertexCount * 3);
@@ -65,10 +140,10 @@ export function createRiverbedMesh(terrain) {
 
     for (let j = 0; j <= lateralSegments; j += 1) {
       const lateralT = j / lateralSegments;
-      const lateral = THREE.MathUtils.lerp(-INFLUENCE_RADIUS, INFLUENCE_RADIUS, lateralT);
+      const lateral = THREE.MathUtils.lerp(minLateral, maxLateral, lateralT);
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
-      const y = terrain.getHeightAt(x, z) + RIVERBED_HEIGHT_OFFSET;
+      const y = terrain.getHeightAt(x, z) + heightOffset;
 
       positions[positionOffset] = x;
       positions[positionOffset + 1] = y;
@@ -107,16 +182,186 @@ export function createRiverbedMesh(terrain) {
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x4f3b2a,
-    roughness: 0.96,
-    metalness: 0,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'ValleyRiverbed';
-  mesh.receiveShadow = true;
+  return geometry;
+}
 
-  return mesh;
+function createRiverWaterMaterial() {
+  return new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    uniforms: {
+      uTime: { value: 0 },
+      uShallowColor: { value: new THREE.Color(0x5f9f86) },
+      uDeepColor: { value: new THREE.Color(0x07343e) },
+      uFoamColor: { value: new THREE.Color(0xf1fbff) },
+      uReflectionColor: { value: new THREE.Color(0x9bc9ee) },
+      uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
+      uCameraPosition: { value: new THREE.Vector3() },
+    },
+    vertexShader: `
+      uniform float uTime;
+
+      varying vec2 vUv;
+      varying vec3 vWorldPosition;
+
+      void main() {
+        vUv = uv;
+
+        float center = 1.0 - abs(uv.y - 0.5) * 2.0;
+        vec3 transformed = position;
+        transformed.y += (
+          sin(uv.x * 4.8 - uTime * 1.4)
+          + sin(uv.x * 9.2 + uv.y * 7.0 - uTime * 2.1) * 0.45
+        ) * 0.035 * center;
+
+        vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uShallowColor;
+      uniform vec3 uDeepColor;
+      uniform vec3 uFoamColor;
+      uniform vec3 uReflectionColor;
+      uniform vec3 uSunDirection;
+      uniform vec3 uCameraPosition;
+
+      varying vec2 vUv;
+      varying vec3 vWorldPosition;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+
+        return mix(a, b, u.x)
+          + (c - a) * u.y * (1.0 - u.x)
+          + (d - b) * u.x * u.y;
+      }
+
+      vec3 getWaterNormal(vec2 uv, float center) {
+        float w1 = sin(uv.x * 24.0 - uTime * 2.0);
+        float w2 = sin(uv.x * 13.0 + uv.y * 18.0 - uTime * 1.3);
+        float w3 = sin(uv.x * 42.0 - uv.y * 12.0 - uTime * 2.8);
+
+        return normalize(vec3(
+          (w1 + w2 * 0.5) * 0.075 * center,
+          1.0,
+          w3 * 0.08 * center
+        ));
+      }
+
+      void main() {
+        float edge = min(vUv.y, 1.0 - vUv.y);
+        float center = 1.0 - abs(vUv.y - 0.5) * 2.0;
+        float edgeAlpha = smoothstep(0.012, 0.18, edge);
+        float alpha = mix(0.08, 0.76, edgeAlpha);
+
+        vec3 riverBedColor = vec3(0.34, 0.29, 0.20);
+        vec3 waterColor = mix(uShallowColor, uDeepColor, center);
+        float shallowMask = 1.0 - smoothstep(0.08, 0.32, edge);
+        waterColor = mix(waterColor, riverBedColor, shallowMask * 0.23);
+
+        float flowSpeed = mix(0.15, 0.5, center);
+        vec2 waveUv = vUv * vec2(5.0, 2.0);
+        waveUv.x -= uTime * flowSpeed;
+        vec3 normal = getWaterNormal(waveUv, center);
+
+        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
+        waterColor = mix(waterColor, uReflectionColor, fresnel * 0.38);
+
+        vec3 lightDir = normalize(uSunDirection);
+        vec3 halfDir = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(normal, halfDir), 0.0), 82.0);
+        float sparkle = smoothstep(0.62, 1.0, noise(vUv * vec2(78.0, 18.0) + vec2(-uTime * 1.25, uTime * 0.08)));
+        waterColor += vec3(1.0, 0.95, 0.78) * spec * (0.36 + sparkle * 0.25);
+
+        float foamBase = 1.0 - smoothstep(0.018, 0.13, edge);
+        vec2 bigFoamUv = vUv * vec2(8.0, 28.0);
+        bigFoamUv.x -= uTime * 0.18;
+        vec2 smallFoamUv = vUv * vec2(32.0, 85.0);
+        smallFoamUv.x -= uTime * 0.48;
+        float bigFoam = smoothstep(0.45, 0.82, noise(bigFoamUv));
+        float smallFoam = smoothstep(0.55, 0.9, noise(smallFoamUv));
+        float foam = foamBase * max(bigFoam * 0.72, smallFoam * 0.45);
+
+        waterColor = mix(waterColor, uFoamColor, foam * 0.74);
+        alpha = max(alpha, foam * 0.62);
+
+        gl_FragColor = vec4(waterColor, alpha);
+      }
+    `,
+  });
+}
+
+function createWetBankMaterial() {
+  return new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    uniforms: {
+      uTime: { value: 0 },
+      uWetColor: { value: new THREE.Color(0x252217) },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vWorldPosition;
+
+      void main() {
+        vUv = uv;
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uWetColor;
+
+      varying vec2 vUv;
+      varying vec3 vWorldPosition;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+
+        return mix(a, b, u.x)
+          + (c - a) * u.y * (1.0 - u.x)
+          + (d - b) * u.x * u.y;
+      }
+
+      void main() {
+        float innerFade = smoothstep(0.0, 1.0, vUv.y);
+        float brokenEdge = smoothstep(0.22, 0.82, noise(vWorldPosition.xz * 2.3 + vec2(uTime * 0.03, 0.0)));
+        float alpha = innerFade * brokenEdge * 0.22;
+
+        gl_FragColor = vec4(uWetColor, alpha);
+      }
+    `,
+  });
 }
 
 function getChannelFrameAt(x, z) {

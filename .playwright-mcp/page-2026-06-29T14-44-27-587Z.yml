@@ -1,0 +1,5 @@
+- generic [active] [ref=e1]:
+  - generic "Player position":
+    - generic: "x: 0.00"
+    - generic: "z: 0.00"
+    - generic: "y: 0.00"
