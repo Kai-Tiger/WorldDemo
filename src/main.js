@@ -10,6 +10,7 @@ const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const { scene, terrain } = await createScene();
+const PLAYER_SPAWN_POSITION = { x: 513, z: -348 };
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -21,6 +22,8 @@ const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerH
 
 const input = new Input(canvas);
 const player = new Player();
+player.position.x = PLAYER_SPAWN_POSITION.x;
+player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
 scene.add(player.group);
 
