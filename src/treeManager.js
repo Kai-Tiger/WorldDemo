@@ -1,13 +1,20 @@
 import * as THREE from 'three';
 import { TreeZone } from './treeZone.js';
 import { TREE_VIEW_DISTANCE, ZONE_SIZE } from './treePlacements.js';
+import {
+  MAP_SIZE,
+  KEEP_ALIVE_PADDING,
+  TREE_GENERATION_STEPS,
+  TREE_GENERATION_BUDGET,
+  TREE_ZONE_MUTATIONS,
+  TREE_BUILDS_PER_FRAME,
+} from './vegetationConfig.js';
 
-const HALF_MAP_SIZE = 2048 / 2;
-const ZONE_MUTATIONS_PER_FRAME = 4;
-const GENERATION_STEPS = 100;
-const TOTAL_GENERATION_BUDGET = 400;
-const ZONE_BUILDS_PER_FRAME = 8;
-const KEEP_ALIVE_PADDING = ZONE_SIZE;
+const HALF_MAP_SIZE = MAP_SIZE / 2;
+const ZONE_MUTATIONS_PER_FRAME = TREE_ZONE_MUTATIONS;
+const GENERATION_STEPS = TREE_GENERATION_STEPS;
+const TOTAL_GENERATION_BUDGET = TREE_GENERATION_BUDGET;
+const ZONE_BUILDS_PER_FRAME = TREE_BUILDS_PER_FRAME;
 
 export class TreeManager {
   constructor(terrain, treeModels) {

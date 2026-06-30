@@ -2,21 +2,33 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { hash2 } from './grassClumps.js';
+import {
+  MAP_SIZE,
+  ZONE_SIZE,
+  TREE_MODEL_PATHS,
+  TREE_VIEW_DISTANCE,
+  TREE_MIN_SPACING,
+  TREE_RIVER_BUFFER,
+  TREE_DENSITY_LOWLAND,
+  TREE_DENSITY_MIDLAND,
+  TREE_DENSITY_HIGHLAND,
+  TREE_HEIGHT_THRESHOLD_LOW,
+  TREE_HEIGHT_THRESHOLD_MID,
+  TREE_GROUND_MASK_THRESHOLD,
+  TREE_SCALE_MIN,
+  TREE_SCALE_MAX,
+  TREE_NOISE_SCALE,
+  TREE_NOISE_OCTAVES,
+  TREE_NOISE_INFLUENCE,
+  TREE_NOISE_MIN_FACTOR,
+} from './vegetationConfig.js';
 
-const TREE_MODEL_PATHS = [
-  '/assets/vegetation/tree_01.glb',
-  '/assets/vegetation/tree_02.glb',
-  '/assets/vegetation/tree_03.glb',
-  '/assets/vegetation/tree_04.glb',
-];
+export { TREE_VIEW_DISTANCE, ZONE_SIZE };
 
-export const TREE_VIEW_DISTANCE = 300;
-export const ZONE_SIZE = 64;
-
-const MIN_TREE_SPACING = 6;
-const RIVER_BUFFER = 5;
+const MIN_TREE_SPACING = TREE_MIN_SPACING;
+const RIVER_BUFFER = TREE_RIVER_BUFFER;
 const UP = new THREE.Vector3(0, 1, 0);
-const HALF_MAP_SIZE = 2048 / 2;
+const HALF_MAP_SIZE = MAP_SIZE / 2;
 
 const loader = new GLTFLoader();
 
@@ -56,16 +68,16 @@ function extractMeshes(scene) {
 }
 
 export function getTreeDensity(height) {
-  if (height <= 130) return 0.017;
-  if (height <= 185) return 0.010;
+  if (height <= TREE_HEIGHT_THRESHOLD_LOW) return TREE_DENSITY_LOWLAND;
+  if (height <= TREE_HEIGHT_THRESHOLD_MID) return TREE_DENSITY_MIDLAND;
 
-  return 0.0017;
+  return TREE_DENSITY_HIGHLAND;
 }
 
 export function isTreeArea(terrain, x, z) {
   const vGroundMask = terrain.getTerrainGroundMask(x, z);
 
-  if (vGroundMask < 0.35) return false;
+  if (vGroundMask < TREE_GROUND_MASK_THRESHOLD) return false;
 
   return true;
 }
@@ -104,8 +116,8 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
             const density = getTreeDensity(height);
             const densityRatio = density / 0.05;
 
-            const noiseVal = fbm(x * 0.015, z * 0.015, 6);
-            const modulatedDensity = densityRatio * (0.3 + 0.7 * noiseVal);
+            const noiseVal = fbm(x * TREE_NOISE_SCALE, z * TREE_NOISE_SCALE, TREE_NOISE_OCTAVES);
+            const modulatedDensity = densityRatio * (TREE_NOISE_MIN_FACTOR + TREE_NOISE_INFLUENCE * noiseVal);
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z)) {
@@ -169,7 +181,7 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
 function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex) {
   const y = terrain.getHeightAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
-  const scaleValue = THREE.MathUtils.lerp(0.85, 1.2, hash2(seedX + 5.7, seedZ + 33.1));
+  const scaleValue = THREE.MathUtils.lerp(TREE_SCALE_MIN, TREE_SCALE_MAX, hash2(seedX + 5.7, seedZ + 33.1));
   const rotation = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
   const scale = new THREE.Vector3(scaleValue, scaleValue, scaleValue);
   const matrix = new THREE.Matrix4();

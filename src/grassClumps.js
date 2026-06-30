@@ -2,26 +2,41 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
+import {
+  MAP_SIZE,
+  ZONE_SIZE,
+  GRASS_MODEL_PATH,
+  GRASS_LOD_DENSITIES,
+  GRASS_LOD_DISTANCES,
+  GRASS_RIVER_BUFFER,
+  GRASS_SWAY_STRENGTH,
+  GRASS_WIND_X,
+  GRASS_WIND_Z,
+  GRASS_PATCH_COUNT,
+  GRASS_PATCH_RADIUS_MIN as PATCH_MIN_RADIUS,
+  GRASS_PATCH_RADIUS_MAX as PATCH_MAX_RADIUS,
+  GRASS_PATCH_GAP_ACCEPTANCE,
+  GRASS_GROUND_MASK_THRESHOLD,
+  GRASS_LOWLAND_FADE_START,
+  GRASS_LOWLAND_FADE_END,
+} from './vegetationConfig.js';
 
-const GRASS_CLUMP_PATH = '/assets/vegetation/grass-clumps.glb';
 const PLACEMENT_RADIUS = 15;
 const CLUMPS_PER_SQUARE_METER = 20;
 const CELL_SIZE = Math.sqrt(1 / CLUMPS_PER_SQUARE_METER);
-const RIVER_BUFFER = 2;
-const PATCH_COUNT = 24;
-const PATCH_MIN_RADIUS = 1.5;
-const PATCH_MAX_RADIUS = 3;
-const PATCH_GAP_ACCEPTANCE = 0.75;
+const PATCH_GAP_ACCEPTANCE = GRASS_PATCH_GAP_ACCEPTANCE;
 const PATCH_FULL_ACCEPTANCE = 1;
-const SWAY_STRENGTH = 0.035;
-const WIND_DIRECTION = new THREE.Vector2(0.82, 0.38).normalize();
+const RIVER_BUFFER = GRASS_RIVER_BUFFER;
+const PATCH_COUNT = GRASS_PATCH_COUNT;
+const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
+const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 
-export const LOD_DENSITIES = [20, 5, 1.25];
-export const LOD_DISTANCES = [20, 50, 150];
-export const ZONE_SIZE = 64;
+export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
+export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
+export { ZONE_SIZE };
 
-const HALF_MAP_SIZE = 2048 / 2;
+const HALF_MAP_SIZE = MAP_SIZE / 2;
 const loader = new GLTFLoader();
 const grassPatches = createGrassPatches();
 const patchCellCache = new Map();
@@ -121,10 +136,9 @@ function createSimpleMaterial(sourceMaterial, geometry) {
 export function isGrassArea(terrain, x, z) {
   const vGroundMask = terrain.getTerrainGroundMask(x, z);
   const height = terrain.getHeightAt(x, z);
-  const lowGroundFade = 1 - smoothstep(130, 185, height);
-  const groundMask = smoothstepRange(0.08, 0.82, vGroundMask) * lowGroundFade;
+  const lowGroundFade = 1 - smoothstep(GRASS_LOWLAND_FADE_START, GRASS_LOWLAND_FADE_END, height);
 
-  return groundMask > 0.3;
+  return groundMask > GRASS_GROUND_MASK_THRESHOLD;
 }
 
 export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, density) {

@@ -5,16 +5,23 @@ import {
   smoothstep,
   isGrassArea,
   createPlacement,
+  ZONE_SIZE,
 } from './grassClumps.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
+import {
+  MAP_SIZE,
+  GRASS_RIVER_BUFFER,
+  GRASS_PATCH_RADIUS_MIN,
+  GRASS_PATCH_RADIUS_MAX,
+  GRASS_PATCH_GAP_ACCEPTANCE,
+} from './vegetationConfig.js';
 
-const RIVER_BUFFER = 2;
-const PATCH_GAP_ACCEPTANCE = 0.75;
+const RIVER_BUFFER = GRASS_RIVER_BUFFER;
+const PATCH_GAP_ACCEPTANCE = GRASS_PATCH_GAP_ACCEPTANCE;
 const PATCH_FULL_ACCEPTANCE = 1;
-const PATCH_MIN_RADIUS = 1.5;
-const PATCH_MAX_RADIUS = 4.0;
-const ZONE_SIZE = 64;
-const HALF_MAP_SIZE = 2048 / 2;
+const PATCH_MIN_RADIUS = GRASS_PATCH_RADIUS_MIN;
+const PATCH_MAX_RADIUS = GRASS_PATCH_RADIUS_MAX;
+const HALF_MAP_SIZE = MAP_SIZE / 2;
 
 const patchCellCache = new Map();
 
