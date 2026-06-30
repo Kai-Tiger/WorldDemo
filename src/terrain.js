@@ -358,7 +358,7 @@ function createTerrainMaterial(textures) {
         vWorldUv = worldPosition.xz / uTextureWorldSize;
         vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
         vRiverBedUv = worldPosition.xz / uRiverBedTextureWorldSize;
-        vWorldNormal = normalize(normalMatrix * normal);
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
         vWorldHeight = worldPosition.y;
         vGroundMask = groundMask;
         vRiverMask = riverMask;
