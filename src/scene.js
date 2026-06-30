@@ -4,6 +4,7 @@ import { Terrain } from './terrain.js';
 
 const SUN_POSITION = new THREE.Vector3(180, 420, 140);
 const SUN_VISUAL_DISTANCE = 1000;
+const SUN_TEXTURE_SIZE = 256;
 
 export async function createScene() {
   const scene = new THREE.Scene();
@@ -36,29 +37,54 @@ export async function createScene() {
 }
 
 function createSunModel() {
-  const group = new THREE.Group();
+  const texture = createSunTexture();
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    color: 0xffffff,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    blending: THREE.AdditiveBlending,
+  });
+  const sprite = new THREE.Sprite(material);
   const position = SUN_POSITION.clone().normalize().multiplyScalar(SUN_VISUAL_DISTANCE);
 
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(95, 32, 16),
-    new THREE.MeshBasicMaterial({
-      color: 0xfff0a8,
-      transparent: true,
-      opacity: 0.22,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }),
+  sprite.position.copy(position);
+  sprite.scale.set(170, 170, 1);
+  sprite.name = 'SunVisual';
+
+  return sprite;
+}
+
+function createSunTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = SUN_TEXTURE_SIZE;
+  canvas.height = SUN_TEXTURE_SIZE;
+
+  const context = canvas.getContext('2d');
+  const center = SUN_TEXTURE_SIZE / 2;
+  const gradient = context.createRadialGradient(
+    center,
+    center,
+    0,
+    center,
+    center,
+    center,
   );
 
-  const sun = new THREE.Mesh(
-    new THREE.SphereGeometry(38, 32, 16),
-    new THREE.MeshBasicMaterial({ color: 0xfff6c2 }),
-  );
+  gradient.addColorStop(0, 'rgba(255, 255, 245, 1)');
+  gradient.addColorStop(0.16, 'rgba(255, 252, 220, 1)');
+  gradient.addColorStop(0.28, 'rgba(255, 232, 145, 0.82)');
+  gradient.addColorStop(0.48, 'rgba(255, 184, 72, 0.26)');
+  gradient.addColorStop(0.72, 'rgba(255, 150, 48, 0.08)');
+  gradient.addColorStop(1, 'rgba(255, 150, 48, 0)');
 
-  group.position.copy(position);
-  group.add(glow);
-  group.add(sun);
-  group.name = 'SunVisual';
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, SUN_TEXTURE_SIZE, SUN_TEXTURE_SIZE);
 
-  return group;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  return texture;
 }
