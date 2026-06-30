@@ -4,7 +4,7 @@ import { Terrain } from './terrain.js';
 
 export async function createScene() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xa9c7e8);
+  scene.background = new THREE.Color(0x2f9bff);
 
   const terrain = await Terrain.create();
   scene.add(terrain.group);
@@ -13,20 +13,20 @@ export async function createScene() {
   scene.add(wetBanks);
   scene.add(water);
 
-  const hemisphereLight = new THREE.HemisphereLight(0xddeeff, 0x4d5d3b, 1.8);
+  const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
   scene.add(hemisphereLight);
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 2.4);
-  directionalLight.position.set(120, 260, 80);
-  directionalLight.castShadow = true;
-  directionalLight.shadow.mapSize.set(2048, 2048);
-  directionalLight.shadow.camera.left = -180;
-  directionalLight.shadow.camera.right = 180;
-  directionalLight.shadow.camera.top = 180;
-  directionalLight.shadow.camera.bottom = -180;
-  directionalLight.shadow.camera.near = 0.5;
-  directionalLight.shadow.camera.far = 600;
-  scene.add(directionalLight);
+  const sunLight = new THREE.DirectionalLight(0xfff4d6, 3.2);
+  sunLight.position.set(180, 420, 140);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.camera.left = -180;
+  sunLight.shadow.camera.right = 180;
+  sunLight.shadow.camera.top = 180;
+  sunLight.shadow.camera.bottom = -180;
+  sunLight.shadow.camera.near = 0.5;
+  sunLight.shadow.camera.far = 700;
+  scene.add(sunLight);
 
   return { scene, terrain, water, wetBanks };
 }
