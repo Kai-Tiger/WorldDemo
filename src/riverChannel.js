@@ -288,10 +288,10 @@ function createRiverWaterMaterial() {
     depthTest: true,
     uniforms: {
       uTime: { value: 0 },
-      uShallowColor: { value: new THREE.Color(0xc5eadf) },
-      uDeepColor: { value: new THREE.Color(0x2a7f86) },
+      uShallowColor: { value: new THREE.Color(0xbdeeff) },
+      uDeepColor: { value: new THREE.Color(0x167fa6) },
       uFoamColor: { value: new THREE.Color(0xf1fbff) },
-      uReflectionColor: { value: new THREE.Color(0xd7f4ff) },
+      uReflectionColor: { value: new THREE.Color(0xb8e8ff) },
       uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
       uCameraPosition: { value: new THREE.Vector3() },
     },
@@ -405,18 +405,18 @@ function createRiverWaterMaterial() {
 
         float caustics = getCaustics(bedUv);
         float causticMask = bottomVisibility * edgeAlpha * (1.0 - darkPatch * 0.35);
-        waterColor += vec3(0.82, 1.0, 0.93) * caustics * causticMask * 0.32;
+        waterColor += vec3(0.74, 0.96, 1.0) * caustics * causticMask * 0.32;
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        waterColor = mix(waterColor, uReflectionColor, 0.08 + fresnel * 0.24);
+        waterColor = mix(waterColor, uReflectionColor, 0.1 + fresnel * 0.3);
         alpha = max(alpha, fresnel * 0.18);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
         float spec = pow(max(dot(normal, halfDir), 0.0), 86.0);
         float sparkle = smoothstep(0.58, 0.92, fbm(vWorldPosition.xz * 0.75 + vec2(-uTime * 0.38, uTime * 0.05)));
-        waterColor += vec3(1.0, 0.98, 0.86) * spec * sparkle * 0.28;
+        waterColor += vec3(0.92, 0.98, 1.0) * spec * sparkle * 0.28;
 
         float foamBase = 1.0 - smoothstep(0.012, 0.07, edge);
         float foamNoise = fbm(vWorldPosition.xz * 1.15 + vec2(-uTime * 0.22, uTime * 0.04));
