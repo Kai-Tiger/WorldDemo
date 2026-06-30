@@ -62,6 +62,7 @@ export function createRiverWaterMesh(terrain) {
     WATER_LATERAL_SEGMENTS,
     getFlatWaterHeight,
     (_terrain, _x, _z, distance) => getWaterProfileHeight(waterProfile, distance),
+    true,
   );
   const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
 
@@ -133,16 +134,19 @@ function createChannelStripGeometry(
   lateralSegments,
   getVertexHeight,
   getRowHeight = getWaterRowHeight,
+  includeWaterDepth = false,
 ) {
   const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
   const verticesPerRow = lateralSegments + 1;
   const vertexCount = (longitudinalSegments + 1) * verticesPerRow;
   const positions = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
+  const waterDepths = includeWaterDepth ? new Float32Array(vertexCount) : null;
   const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
 
   let positionOffset = 0;
   let uvOffset = 0;
+  let depthOffset = 0;
 
   for (let i = 0; i <= longitudinalSegments; i += 1) {
     const t = i / longitudinalSegments;
@@ -158,11 +162,17 @@ function createChannelStripGeometry(
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
       const y = getVertexHeight(terrain, x, z, rowHeight, lateralT);
+      const terrainHeight = includeWaterDepth ? terrain.getHeightAt(x, z) : 0;
 
       positions[positionOffset] = x;
       positions[positionOffset + 1] = y;
       positions[positionOffset + 2] = z;
       positionOffset += 3;
+
+      if (waterDepths) {
+        waterDepths[depthOffset] = Math.max(rowHeight - terrainHeight, 0);
+        depthOffset += 1;
+      }
 
       uvs[uvOffset] = (t * channelLength) / 8;
       uvs[uvOffset + 1] = lateralT;
@@ -192,6 +202,9 @@ function createChannelStripGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  if (waterDepths) {
+    geometry.setAttribute('waterDepth', new THREE.BufferAttribute(waterDepths, 1));
+  }
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
@@ -298,11 +311,15 @@ function createRiverWaterMaterial() {
     vertexShader: `
       uniform float uTime;
 
+      attribute float waterDepth;
+
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vWaterDepth;
 
       void main() {
         vUv = uv;
+        vWaterDepth = waterDepth;
 
         vec3 transformed = position;
 
@@ -322,6 +339,7 @@ function createRiverWaterMaterial() {
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vWaterDepth;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -375,15 +393,18 @@ function createRiverWaterMaterial() {
         float ridges = 1.0 - abs(nA - nB) * 6.0;
         float broken = fbm(worldUv * 0.22 + vec2(6.4, -3.1));
 
-        return smoothstep(0.54, 0.92, ridges) * smoothstep(0.25, 0.78, broken);
+        return smoothstep(0.72, 0.96, ridges) * smoothstep(0.35, 0.82, broken);
       }
 
       void main() {
         float edge = min(vUv.y, 1.0 - vUv.y);
-        float deepMask = smoothstep(0.04, 0.46, edge);
+        float centerMask = smoothstep(0.04, 0.46, edge);
+        float depthMask = smoothstep(0.15, 1.6, vWaterDepth);
+        float deepMask = centerMask * depthMask;
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
-        float alpha = mix(0.02, 0.36, edgeAlpha);
+        float depthAlpha = mix(0.58, 1.0, depthMask);
+        float alpha = mix(0.015, 0.34, edgeAlpha * depthAlpha);
 
         vec2 bedUv = vWorldPosition.xz;
         float darkPatch = smoothstep(0.56, 0.84, fbm(bedUv * 0.075 + vec2(3.2, -7.4)))
@@ -395,8 +416,8 @@ function createRiverWaterMaterial() {
         riverBedColor = mix(riverBedColor, vec3(0.14, 0.42, 0.28), algaePatch * 0.22);
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
-        float bottomVisibility = mix(0.96, 0.66, deepMask);
-        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.22);
+        float bottomVisibility = mix(0.98, 0.54, depthMask);
+        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.16);
 
         float flowSpeed = mix(0.18, 0.42, deepMask);
         vec2 waveUv = vec2(vUv.x * 0.52, vUv.y * 2.4);
@@ -404,8 +425,9 @@ function createRiverWaterMaterial() {
         vec3 normal = getWaterNormal(waveUv, vWorldPosition.xz * 0.2, mix(0.45, 0.82, deepMask));
 
         float caustics = getCaustics(bedUv);
-        float causticMask = bottomVisibility * edgeAlpha * (1.0 - darkPatch * 0.35);
-        waterColor += vec3(0.74, 0.96, 1.0) * caustics * causticMask * 0.32;
+        float shallowDetail = 1.0 - smoothstep(0.65, 1.8, vWaterDepth);
+        float causticMask = bottomVisibility * edgeAlpha * shallowDetail * (1.0 - darkPatch * 0.35);
+        waterColor += vec3(0.74, 0.96, 1.0) * caustics * causticMask * 0.18;
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
@@ -418,12 +440,16 @@ function createRiverWaterMaterial() {
         float sparkle = smoothstep(0.58, 0.92, fbm(vWorldPosition.xz * 0.75 + vec2(-uTime * 0.38, uTime * 0.05)));
         waterColor += vec3(0.92, 0.98, 1.0) * spec * sparkle * 0.28;
 
-        float foamBase = 1.0 - smoothstep(0.012, 0.07, edge);
-        float foamNoise = fbm(vWorldPosition.xz * 1.15 + vec2(-uTime * 0.22, uTime * 0.04));
-        float foam = foamBase * smoothstep(0.68, 0.9, foamNoise) * 0.28;
+        float foamBase = 1.0 - smoothstep(0.006, 0.055, edge);
+        foamBase *= 1.0 - smoothstep(0.65, 1.45, vWaterDepth);
+        vec2 bigFoamUv = vec2(vUv.x * 6.5 - uTime * 0.16, vUv.y * 32.0);
+        vec2 smallFoamUv = vec2(vUv.x * 18.0 - uTime * 0.34, vUv.y * 92.0);
+        float bigFoam = smoothstep(0.62, 0.88, fbm(bigFoamUv));
+        float smallFoam = smoothstep(0.72, 0.93, fbm(smallFoamUv));
+        float foam = foamBase * max(bigFoam * 0.45, smallFoam * 0.28) * 0.2;
 
-        waterColor = mix(waterColor, uFoamColor, foam * 0.28);
-        alpha = max(alpha, foam * 0.22);
+        waterColor = mix(waterColor, uFoamColor, foam * 0.22);
+        alpha = max(alpha, foam * 0.16);
 
         gl_FragColor = vec4(waterColor, alpha);
       }
