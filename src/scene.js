@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { createGrassClumps } from './grassClumps.js';
 import {
-  createRiverBedMesh,
   createRiverWaterMesh,
   createWetBankMesh,
   loadRiverTextures,
@@ -23,11 +22,9 @@ export async function createScene() {
     loadRiverTextures(),
   ]);
   scene.add(terrain.group);
-  const riverBed = createRiverBedMesh(terrain, riverTextures);
   const wetBanks = createWetBankMesh(terrain, riverTextures);
   const water = createRiverWaterMesh(terrain);
   const grassClumps = await createGrassClumps(terrain);
-  scene.add(riverBed);
   scene.add(wetBanks);
   scene.add(water);
   scene.add(grassClumps);

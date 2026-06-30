@@ -24,19 +24,15 @@ const WATER_PROFILE_SMOOTH_RADIUS = 10;
 const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
 const END_TAPER_LENGTH = 10;
-const RIVER_BED_TEXTURE_PATH = '/assets/terrain/river-bed.webp';
-const RIVER_BANK_TEXTURE_PATH = '/assets/terrain/river-bank-rock-wet-light-alt.webp';
-const RIVER_BED_HALF_WIDTH = 2;
-const RIVER_BED_SURFACE_OFFSET = 0.12;
-const RIVER_BED_TEXTURE_WORLD_SIZE = 7;
-const RIVER_BANK_UNDERWATER_OVERLAP = 0.55;
+export const RIVER_BANK_TEXTURE_PATH = '/assets/terrain/river-bank-rock-wet-light-alt.webp';
+const RIVER_BANK_UNDERWATER_OVERLAP = 0.22;
 const RIVER_BANK_SURFACE_OFFSET = 0.14;
-const RIVER_BANK_TEXTURE_WORLD_SIZE = 3.8;
+export const RIVER_BANK_TEXTURE_WORLD_SIZE = 3.8;
 
 const HALF_CHANNEL_WIDTH = CHANNEL_WIDTH * 0.5;
 const HALF_WATER_WIDTH = WATER_WIDTH * 0.5;
 const RIVER_BANK_INNER_LATERAL = HALF_WATER_WIDTH - RIVER_BANK_UNDERWATER_OVERLAP;
-const RIVER_BANK_OUTER_LATERAL = HALF_WATER_WIDTH + WET_BANK_WIDTH;
+const RIVER_BANK_OUTER_LATERAL = HALF_CHANNEL_WIDTH;
 const channelCurve = new THREE.CatmullRomCurve3(CHANNEL_POINTS, false, 'centripetal');
 const channelSamples = createChannelSamples();
 const channelLength = channelSamples[channelSamples.length - 1].distance;
@@ -44,18 +40,13 @@ const channelBounds = createChannelBounds();
 
 export async function loadRiverTextures() {
   const loader = new THREE.TextureLoader();
-  const [riverBed, riverBank] = await Promise.all([
-    loader.loadAsync(RIVER_BED_TEXTURE_PATH),
-    loader.loadAsync(RIVER_BANK_TEXTURE_PATH),
-  ]);
+  const riverBank = await loader.loadAsync(RIVER_BANK_TEXTURE_PATH);
 
-  for (const texture of [riverBed, riverBank]) {
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.colorSpace = THREE.SRGBColorSpace;
-  }
+  riverBank.wrapS = THREE.RepeatWrapping;
+  riverBank.wrapT = THREE.RepeatWrapping;
+  riverBank.colorSpace = THREE.SRGBColorSpace;
 
-  return { riverBed, riverBank };
+  return { riverBank };
 }
 
 export function applyRiverChannel(baseHeight, x, z) {
@@ -76,6 +67,22 @@ export function applyRiverChannel(baseHeight, x, z) {
   return baseHeight - carveDepth;
 }
 
+export function getRiverMaterialMask(baseHeight, x, z) {
+  const frame = getChannelFrameAt(x, z);
+
+  if (!frame) return 0;
+
+  const heightMask = 1 - smoothstep(HIGHLAND_FADE_START, HIGHLAND_FADE_END, baseHeight);
+
+  if (heightMask <= 0) return 0;
+
+  const lateralDistance = Math.abs(frame.lateral);
+  const channelMask = 1 - smoothstep(HALF_CHANNEL_WIDTH, INFLUENCE_RADIUS, lateralDistance);
+  const endMask = getEndMask(frame.distance);
+
+  return THREE.MathUtils.clamp(channelMask * heightMask * endMask, 0, 1);
+}
+
 export function createRiverWaterMesh(terrain) {
   const waterProfile = createWaterHeightProfile(terrain, WATER_LONGITUDINAL_STEP);
   const geometry = createChannelStripGeometry(
@@ -92,23 +99,6 @@ export function createRiverWaterMesh(terrain) {
 
   mesh.name = 'RiverWater';
   mesh.renderOrder = 20;
-
-  return mesh;
-}
-
-export function createRiverBedMesh(terrain, textures) {
-  const geometry = createChannelStripGeometry(
-    terrain,
-    -RIVER_BED_HALF_WIDTH,
-    RIVER_BED_HALF_WIDTH,
-    WATER_LONGITUDINAL_STEP,
-    WATER_LATERAL_SEGMENTS,
-    getRiverBedHeight,
-  );
-  const mesh = new THREE.Mesh(geometry, createRiverBedMaterial(textures.riverBed));
-
-  mesh.name = 'RiverBed';
-  mesh.renderOrder = 10;
 
   return mesh;
 }
@@ -258,10 +248,6 @@ function createChannelStripGeometry(
 
 function getFlatWaterHeight(_terrain, _x, _z, rowHeight) {
   return rowHeight;
-}
-
-function getRiverBedHeight(terrain, x, z) {
-  return terrain.getHeightAt(x, z) + RIVER_BED_SURFACE_OFFSET;
 }
 
 function getWetBankHeight(terrain, x, z) {
@@ -448,20 +434,11 @@ function createRiverWaterMaterial() {
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
         float depthAlpha = mix(0.58, 1.0, depthMask);
-        float alpha = mix(0.015, 0.34, edgeAlpha * depthAlpha);
-
-        vec2 bedUv = vWorldPosition.xz;
-        float darkPatch = smoothstep(0.56, 0.84, fbm(bedUv * 0.075 + vec2(3.2, -7.4)))
-          * smoothstep(0.42, 0.86, fbm(bedUv * 0.19 + vec2(-11.0, 2.7)));
-        float algaePatch = smoothstep(0.58, 0.88, fbm(bedUv * 0.11 + vec2(-4.2, 8.1)))
-          * smoothstep(0.35, 0.8, fbm(bedUv * 0.34 + vec2(2.0, 1.5)));
-        vec3 riverBedColor = vec3(0.54, 0.62, 0.48);
-        riverBedColor = mix(riverBedColor, vec3(0.10, 0.24, 0.26), darkPatch * 0.34);
-        riverBedColor = mix(riverBedColor, vec3(0.14, 0.42, 0.28), algaePatch * 0.22);
+        float alpha = mix(0.015, 0.28, edgeAlpha * depthAlpha);
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
         float bottomVisibility = mix(0.98, 0.54, depthMask);
-        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.07);
+        vec2 bedUv = vWorldPosition.xz;
 
         float flowSpeed = mix(0.18, 0.42, deepMask);
         vec2 waveUv = vec2(vUv.x * 0.52, vUv.y * 2.4);
@@ -470,7 +447,7 @@ function createRiverWaterMaterial() {
 
         float caustics = getCaustics(bedUv);
         float shallowDetail = 1.0 - smoothstep(0.65, 1.8, vWaterDepth);
-        float causticMask = bottomVisibility * edgeAlpha * shallowDetail * (1.0 - darkPatch * 0.35);
+        float causticMask = bottomVisibility * edgeAlpha * shallowDetail;
         waterColor += vec3(0.74, 0.96, 1.0) * caustics * causticMask * 0.18;
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
@@ -496,58 +473,6 @@ function createRiverWaterMaterial() {
         alpha = max(alpha, foam * 0.16);
 
         gl_FragColor = vec4(waterColor, alpha);
-      }
-    `,
-  });
-}
-
-function createRiverBedMaterial(riverBedTexture) {
-  return new THREE.ShaderMaterial({
-    side: THREE.DoubleSide,
-    depthWrite: true,
-    depthTest: true,
-    uniforms: {
-      uRiverBedTexture: { value: riverBedTexture },
-      uTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
-      uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
-      uSkyLightColor: { value: new THREE.Color(0xdceeff) },
-      uGroundLightColor: { value: new THREE.Color(0x53624d) },
-      uSunLightColor: { value: new THREE.Color(0xfff1cf) },
-    },
-    vertexShader: `
-      uniform float uTextureWorldSize;
-
-      varying vec2 vWorldUv;
-      varying vec3 vWorldNormal;
-
-      void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldUv = worldPosition.xz / uTextureWorldSize;
-        vWorldNormal = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D uRiverBedTexture;
-      uniform vec3 uSunDirection;
-      uniform vec3 uSkyLightColor;
-      uniform vec3 uGroundLightColor;
-      uniform vec3 uSunLightColor;
-
-      varying vec2 vWorldUv;
-      varying vec3 vWorldNormal;
-
-      void main() {
-        vec3 normal = normalize(vWorldNormal);
-        vec3 baseColor = texture2D(uRiverBedTexture, vWorldUv).rgb;
-        float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
-        float skyLight = normal.y * 0.5 + 0.5;
-        vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.62;
-        vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * 0.42);
-
-        gl_FragColor = vec4(litColor, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
       }
     `,
   });
@@ -603,11 +528,10 @@ function createWetBankMaterial(riverBankTexture) {
 
       void main() {
         vec3 bankColor = texture2D(uRiverBankTexture, vWorldPosition.xz / uTextureWorldSize).rgb;
-        float outerFade = smoothstep(0.05, 0.32, vUv.y);
-        float innerSoftness = mix(1.0, 0.45, smoothstep(0.72, 1.0, vUv.y));
-        float brokenEdge = mix(0.68, 1.0, smoothstep(0.18, 0.78, noise(vWorldPosition.xz * 1.7)));
-        float alpha = outerFade * innerSoftness * brokenEdge * 0.32;
-        bankColor *= vec3(0.72, 0.76, 0.72);
+        float outerFade = smoothstep(0.04, 0.28, vUv.y);
+        float underwaterFade = mix(1.0, 0.18, smoothstep(0.82, 1.0, vUv.y));
+        float brokenEdge = mix(0.72, 1.0, smoothstep(0.18, 0.78, noise(vWorldPosition.xz * 1.7)));
+        float alpha = outerFade * underwaterFade * brokenEdge * 0.26;
 
         gl_FragColor = vec4(bankColor, alpha);
         #include <tonemapping_fragment>
