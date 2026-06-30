@@ -8,6 +8,8 @@ const PLACEMENT_RADIUS = 15;
 const CLUMPS_PER_SQUARE_METER = 20;
 const CELL_SIZE = Math.sqrt(1 / CLUMPS_PER_SQUARE_METER);
 const RIVER_BUFFER = 2;
+const SWAY_STRENGTH = 0.035;
+const WIND_DIRECTION = new THREE.Vector2(0.82, 0.38).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 
 const loader = new GLTFLoader();
@@ -48,6 +50,16 @@ export async function createGrassClumps(terrain) {
   return group;
 }
 
+export function updateGrassClumps(grassClumps, elapsedTime) {
+  grassClumps?.traverse((child) => {
+    const uniforms = child.material?.userData?.grassUniforms;
+
+    if (uniforms) {
+      uniforms.uGrassTime.value = elapsedTime;
+    }
+  });
+}
+
 function createGrassVariants(scene) {
   scene.updateMatrixWorld(true);
 
@@ -60,23 +72,71 @@ function createGrassVariants(scene) {
       if (!child.isMesh) return;
 
       const geometry = child.geometry.clone();
-      const material = child.material.clone();
       const leafMatrix = rootInverse.clone().multiply(child.matrixWorld);
 
       geometry.applyMatrix4(leafMatrix);
-      if ('vertexColors' in material) {
-        material.vertexColors = true;
-      }
+      geometry.computeBoundingBox();
 
       leaves.push({
         name: child.name,
         geometry,
-        material,
+        material: createGrassSwayMaterial(child.material, geometry),
       });
     });
 
     return [name, { leaves }];
   }));
+}
+
+function createGrassSwayMaterial(sourceMaterial, geometry) {
+  const material = sourceMaterial.clone();
+  const height = Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001);
+  const uniforms = {
+    uGrassTime: { value: 0 },
+    uGrassBaseY: { value: geometry.boundingBox.min.y },
+    uGrassHeight: { value: height },
+    uGrassWindDirection: { value: WIND_DIRECTION },
+    uGrassSwayStrength: { value: SWAY_STRENGTH },
+  };
+
+  if ('vertexColors' in material) {
+    material.vertexColors = true;
+  }
+
+  material.userData.grassUniforms = uniforms;
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float uGrassTime;
+uniform float uGrassBaseY;
+uniform float uGrassHeight;
+uniform vec2 uGrassWindDirection;
+uniform float uGrassSwayStrength;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+float grassHeightRatio = clamp((position.y - uGrassBaseY) / uGrassHeight, 0.0, 1.0);
+float grassTipMask = smoothstep(0.08, 1.0, grassHeightRatio) * grassHeightRatio;
+vec3 grassInstanceWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+#ifdef USE_INSTANCING
+grassInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+#endif
+vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
+float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.55 + uGrassTime * 1.35 + position.y * 5.0);
+float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.9 + uGrassTime * 2.1 + position.y * 7.0);
+transformed.xz += (
+  uGrassWindDirection * grassWave
+  + grassSideDirection * grassFlutter * 0.28
+) * uGrassSwayStrength * grassTipMask;`,
+      );
+  };
+  material.customProgramCacheKey = () => 'grass-sway-v1';
+
+  return material;
 }
 
 function createGrassPlacements(terrain) {

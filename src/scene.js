@@ -48,7 +48,7 @@ export async function createScene() {
   sunLight.shadow.camera.far = 700;
   scene.add(sunLight);
 
-  return { scene, terrain, water, wetBanks };
+  return { scene, terrain, water, wetBanks, grassClumps };
 }
 
 function createSunModel() {
