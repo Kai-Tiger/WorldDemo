@@ -137,6 +137,7 @@ export function isGrassArea(terrain, x, z) {
   const vGroundMask = terrain.getTerrainGroundMask(x, z);
   const height = terrain.getHeightAt(x, z);
   const lowGroundFade = 1 - smoothstep(GRASS_LOWLAND_FADE_START, GRASS_LOWLAND_FADE_END, height);
+  const groundMask = smoothstepRange(0.08, 0.82, vGroundMask) * lowGroundFade;
 
   return groundMask > GRASS_GROUND_MASK_THRESHOLD;
 }
