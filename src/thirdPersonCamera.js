@@ -3,6 +3,8 @@ import * as THREE from 'three';
 const CAMERA_GROUND_CLEARANCE = 0.4;
 const CAMERA_COLLISION_STEPS = 16;
 const MIN_SAFE_CAMERA_DISTANCE = 1.2;
+const MIN_CAMERA_PITCH = -0.85;
+const MAX_CAMERA_PITCH = 1.2;
 
 export class ThirdPersonCamera {
   constructor(camera, target) {
@@ -28,7 +30,7 @@ export class ThirdPersonCamera {
 
     this.yaw -= pointerDelta.x * this.rotateSpeed;
     this.pitch += pointerDelta.y * this.rotateSpeed;
-    this.pitch = THREE.MathUtils.clamp(this.pitch, -0.15, 1.05);
+    this.pitch = THREE.MathUtils.clamp(this.pitch, MIN_CAMERA_PITCH, MAX_CAMERA_PITCH);
 
     this.distance += wheelDelta * this.zoomSpeed;
     this.distance = THREE.MathUtils.clamp(this.distance, this.minDistance, this.maxDistance);
