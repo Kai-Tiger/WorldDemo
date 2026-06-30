@@ -3,7 +3,6 @@ import './style.css';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { createScene } from './scene.js';
-import { updateGrassClumps } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
@@ -12,7 +11,7 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
-const { scene, terrain, water, wetBanks, grassClumps } = await createScene();
+const { scene, terrain, water, wetBanks, grassManager } = await createScene();
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -50,7 +49,7 @@ function animate() {
   positionY.textContent = player.position.y.toFixed(2);
   thirdPersonCamera.update(input, terrain);
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
-  updateGrassClumps(grassClumps, clock.elapsedTime);
+  grassManager.update(player.position, clock.elapsedTime);
 
   renderer.render(scene, camera);
 }

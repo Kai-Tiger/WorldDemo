@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { createGrassClumps } from './grassClumps.js';
+import { loadGrassModel, createGrassVariants } from './grassClumps.js';
+import { GrassManager } from './grassManager.js';
 import {
   createRiverWaterMesh,
   createWetBankMesh,
@@ -17,17 +18,19 @@ export async function createScene() {
   const scene = new THREE.Scene();
   scene.background = createSkyTexture();
 
-  const [terrain, riverTextures] = await Promise.all([
+  const [terrain, riverTextures, grassAsset] = await Promise.all([
     Terrain.create(),
     loadRiverTextures(),
+    loadGrassModel(),
   ]);
   scene.add(terrain.group);
   const wetBanks = createWetBankMesh(terrain, riverTextures);
   const water = createRiverWaterMesh(terrain);
-  const grassClumps = await createGrassClumps(terrain);
+  const grassVariants = createGrassVariants(grassAsset.scene);
+  const grassManager = new GrassManager(terrain, grassVariants);
+  scene.add(grassManager.group);
   scene.add(wetBanks);
   scene.add(water);
-  scene.add(grassClumps);
   scene.add(createSunModel());
 
   const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
@@ -45,7 +48,7 @@ export async function createScene() {
   sunLight.shadow.camera.far = 700;
   scene.add(sunLight);
 
-  return { scene, terrain, water, wetBanks, grassClumps };
+  return { scene, terrain, water, wetBanks, grassManager };
 }
 
 function createSunModel() {
