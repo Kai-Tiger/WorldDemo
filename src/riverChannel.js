@@ -23,7 +23,8 @@ const WATER_LATERAL_SEGMENTS = 24;
 const WATER_PROFILE_SMOOTH_RADIUS = 10;
 const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
-const WET_BANK_HEIGHT_OFFSET = 0.08;
+const WET_BANK_UNDERWATER_DEPTH = 0.16;
+const WET_BANK_SHORE_OFFSET = 0.01;
 const END_TAPER_LENGTH = 10;
 
 const HALF_CHANNEL_WIDTH = CHANNEL_WIDTH * 0.5;
@@ -73,6 +74,10 @@ export function createRiverWaterMesh(terrain) {
 export function createWetBankMesh(terrain) {
   const group = new THREE.Group();
   const material = createWetBankMaterial();
+  const waterProfile = createWaterHeightProfile(terrain, WATER_LONGITUDINAL_STEP);
+  const getWetBankRowHeight = (_terrain, _x, _z, distance) => (
+    getWaterProfileHeight(waterProfile, distance)
+  );
   const left = new THREE.Mesh(
     createChannelStripGeometry(
       terrain,
@@ -80,7 +85,8 @@ export function createWetBankMesh(terrain) {
       -HALF_WATER_WIDTH,
       WATER_LONGITUDINAL_STEP,
       2,
-      getTerrainFollowingHeight,
+      getWetBankHeight,
+      getWetBankRowHeight,
     ),
     material,
   );
@@ -91,7 +97,8 @@ export function createWetBankMesh(terrain) {
       HALF_WATER_WIDTH,
       WATER_LONGITUDINAL_STEP,
       2,
-      getTerrainFollowingHeight,
+      getWetBankHeight,
+      getWetBankRowHeight,
     ),
     material,
   );
@@ -150,7 +157,7 @@ function createChannelStripGeometry(
       const lateral = THREE.MathUtils.lerp(minLateral, maxLateral, lateralT);
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
-      const y = getVertexHeight(terrain, x, z, rowHeight);
+      const y = getVertexHeight(terrain, x, z, rowHeight, lateralT);
 
       positions[positionOffset] = x;
       positions[positionOffset + 1] = y;
@@ -196,8 +203,12 @@ function getFlatWaterHeight(_terrain, _x, _z, rowHeight) {
   return rowHeight;
 }
 
-function getTerrainFollowingHeight(terrain, x, z) {
-  return terrain.getHeightAt(x, z) + WET_BANK_HEIGHT_OFFSET;
+function getWetBankHeight(_terrain, _x, _z, rowHeight, lateralT) {
+  return THREE.MathUtils.lerp(
+    rowHeight - WET_BANK_SHORE_OFFSET,
+    rowHeight - WET_BANK_UNDERWATER_DEPTH,
+    lateralT,
+  );
 }
 
 function getWaterRowHeight(terrain, x, z) {
