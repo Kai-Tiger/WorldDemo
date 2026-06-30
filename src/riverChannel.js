@@ -32,6 +32,8 @@ const RIVER_BANK_SURFACE_OFFSET = 0.14;
 export const RIVER_BANK_TEXTURE_WORLD_SIZE = 3.8;
 const RIVER_BED_CORE_HALF_WIDTH = 0.25;
 const RIVER_BED_BLEND_HALF_WIDTH = 0.75;
+const RIVER_BANK_TEXTURE_FULL_HALF_WIDTH = 3.6;
+const RIVER_BANK_TEXTURE_FADE_HALF_WIDTH = 4.4;
 
 const HALF_CHANNEL_WIDTH = CHANNEL_WIDTH * 0.5;
 const HALF_WATER_WIDTH = WATER_WIDTH * 0.5;
@@ -81,7 +83,11 @@ export function getRiverMaterialMask(baseHeight, x, z) {
   if (heightMask <= 0) return 0;
 
   const lateralDistance = Math.abs(frame.lateral);
-  const channelMask = 1 - smoothstep(HALF_CHANNEL_WIDTH, INFLUENCE_RADIUS, lateralDistance);
+  const channelMask = 1 - smoothstep(
+    RIVER_BANK_TEXTURE_FULL_HALF_WIDTH,
+    RIVER_BANK_TEXTURE_FADE_HALF_WIDTH,
+    lateralDistance,
+  );
   const endMask = getEndMask(frame.distance);
 
   return THREE.MathUtils.clamp(channelMask * heightMask * endMask, 0, 1);
