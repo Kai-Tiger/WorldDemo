@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  generatePlacementsInRect,
   buildInstancedMeshes,
   hash2,
   smoothstep,
@@ -27,16 +26,27 @@ export class GrassZone {
     this.minZ = minZ;
     this.maxX = maxX;
     this.maxZ = maxZ;
+
     this.group = new THREE.Group();
     this.group.name = `GrassZone_${minX}_${minZ}`;
     this.group.visible = false;
-    this.currentLOD = -1;
+
+    this.lod0Group = new THREE.Group();
+    this.lod1Group = new THREE.Group();
+    this.lod2Group = new THREE.Group();
+    this.group.add(this.lod0Group, this.lod1Group, this.lod2Group);
+
+    this.allPlacements = null;
     this._generator = null;
-    this._targetLOD = -1;
+    this.builtForPosition = null;
   }
 
   get isGenerating() {
     return this._generator !== null;
+  }
+
+  get hasPlacements() {
+    return this.allPlacements !== null && this.allPlacements.length > 0;
   }
 
   get centerX() {
@@ -47,20 +57,9 @@ export class GrassZone {
     return (this.minZ + this.maxZ) / 2;
   }
 
-  setLOD(lodLevel, density) {
-    if (this.currentLOD === lodLevel && !this.isGenerating) return;
-
-    this.clearInstances();
-    this._generator = null;
-    this._targetLOD = -1;
-
-    if (lodLevel < 0 || density <= 0) {
-      this.group.visible = false;
-      this.currentLOD = -1;
-      return;
-    }
-
-    const generator = createPlacementIterator(
+  startGeneration(density) {
+    this.clearAll();
+    this._generator = createPlacementIterator(
       this.terrain,
       this.minX,
       this.minZ,
@@ -68,55 +67,100 @@ export class GrassZone {
       this.maxZ,
       density,
     );
-
-    if (!generator) {
-      this.currentLOD = lodLevel;
-      return;
-    }
-
-    this._generator = generator;
-    this._targetLOD = lodLevel;
-    this.currentLOD = -1;
-    this.group.visible = false;
   }
 
   processGeneration(maxSteps) {
     if (!this._generator) return true;
-    if (this.currentLOD === this._targetLOD) return true;
 
     const done = this._generator.step(maxSteps);
 
     if (done) {
-      const placements = this._generator.getPlacements();
-
-      if (placements.length > 0) {
-        buildInstancedMeshes(placements, this.variants, this.group, this._targetLOD);
-      }
-
-      this.group.visible = placements.length > 0;
-      this.currentLOD = this._targetLOD;
+      this.allPlacements = this._generator.getPlacements();
       this._generator = null;
-
-      return true;
     }
 
-    return false;
+    return done;
   }
 
-  clearInstances() {
-    while (this.group.children.length > 0) {
-      this.group.remove(this.group.children[0]);
+  rebuildLOD(playerX, playerZ, lodDistances) {
+    if (!this.hasPlacements) return;
+
+    const lod0 = [];
+    const lod1 = [];
+    const lod2 = [];
+
+    for (let i = 0; i < this.allPlacements.length; i += 1) {
+      const p = this.allPlacements[i];
+      const el = p.matrix.elements;
+      const dx = el[12] - playerX;
+      const dz = el[14] - playerZ;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist <= lodDistances[0]) {
+        lod0.push(p);
+      }
+
+      if (dist <= lodDistances[1] && shouldKeepForLOD(el[12], el[14], 1)) {
+        lod1.push(p);
+      }
+
+      if (dist <= lodDistances[2] && shouldKeepForLOD(el[12], el[14], 2)) {
+        lod2.push(p);
+      }
     }
+
+    this.clearGroup(this.lod0Group);
+    this.clearGroup(this.lod1Group);
+    this.clearGroup(this.lod2Group);
+
+    if (lod0.length > 0) {
+      buildInstancedMeshes(lod0, this.variants, this.lod0Group, 0);
+    }
+
+    if (lod1.length > 0) {
+      buildInstancedMeshes(lod1, this.variants, this.lod1Group, 1);
+    }
+
+    if (lod2.length > 0) {
+      buildInstancedMeshes(lod2, this.variants, this.lod2Group, 2);
+    }
+
+    this.group.visible = true;
+    this.builtForPosition = { x: playerX, z: playerZ };
+  }
+
+  clearGroup(group) {
+    while (group.children.length > 0) {
+      group.remove(group.children[0]);
+    }
+  }
+
+  clearAll() {
+    this.clearGroup(this.lod0Group);
+    this.clearGroup(this.lod1Group);
+    this.clearGroup(this.lod2Group);
+    this.allPlacements = null;
+    this.group.visible = false;
+    this.builtForPosition = null;
   }
 
   dispose() {
-    this.clearInstances();
+    this.clearAll();
     this._generator = null;
 
     if (this.group.parent) {
       this.group.parent.remove(this.group);
     }
   }
+}
+
+function shouldKeepForLOD(x, z, lodLevel) {
+  const quantize = 10;
+  const gx = Math.floor(x * quantize);
+  const gz = Math.floor(z * quantize);
+  const divisor = lodLevel === 1 ? 4 : 16;
+
+  return hash2(gx + lodLevel * 997, gz + lodLevel * 2003) < (1 / divisor);
 }
 
 function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {

@@ -4,8 +4,10 @@ import { ZONE_SIZE, LOD_DISTANCES, LOD_DENSITIES, updateGrassClumps } from './gr
 
 const HALF_MAP_SIZE = 2048 / 2;
 const ZONE_MUTATIONS_PER_FRAME = 4;
-const GENERATION_STEPS_PER_ZONE = 2000;
+const GENERATION_STEPS = 2000;
 const TOTAL_GENERATION_BUDGET = 8000;
+const ZONE_REBUILDS_PER_FRAME = 6;
+const REBUILD_THRESHOLD = 5;
 const KEEP_ALIVE_PADDING = ZONE_SIZE;
 
 export class GrassManager {
@@ -15,7 +17,7 @@ export class GrassManager {
     this.group = new THREE.Group();
     this.group.name = 'GrassManager';
     this.zones = new Map();
-    this._activeZonesLastFrame = new Set();
+    this.lastRebuildPos = null;
   }
 
   update(cameraPosition, elapsedTime) {
@@ -23,12 +25,13 @@ export class GrassManager {
 
     const camX = cameraPosition.x;
     const camZ = cameraPosition.z;
+
+    const maxViewDistance = LOD_DISTANCES[LOD_DISTANCES.length - 1];
     const centerChunkX = Math.floor((camX + HALF_MAP_SIZE) / ZONE_SIZE);
     const centerChunkZ = Math.floor((camZ + HALF_MAP_SIZE) / ZONE_SIZE);
-    const maxViewDistance = LOD_DISTANCES[LOD_DISTANCES.length - 1];
     const chunkRadius = Math.ceil((maxViewDistance + KEEP_ALIVE_PADDING) / ZONE_SIZE);
 
-    const neededZones = new Map();
+    const neededKeys = new Set();
 
     for (let dz = -chunkRadius; dz <= chunkRadius; dz += 1) {
       for (let dx = -chunkRadius; dx <= chunkRadius; dx += 1) {
@@ -48,42 +51,22 @@ export class GrassManager {
           (centerX - camX) ** 2 + (centerZ - camZ) ** 2,
         );
 
-        let lodLevel = -1;
+        if (distToCamera > maxViewDistance + KEEP_ALIVE_PADDING) continue;
 
-        for (let l = 0; l < LOD_DISTANCES.length; l += 1) {
-          if (distToCamera <= LOD_DISTANCES[l] + ZONE_SIZE * 0.5) {
-            lodLevel = l;
-            break;
-          }
-        }
-
-        if (lodLevel < 0 && distToCamera > maxViewDistance + KEEP_ALIVE_PADDING) continue;
-
-        neededZones.set(`${minX},${minZ}`, { minX, minZ, maxX, maxZ, lodLevel });
+        neededKeys.add(`${minX},${minZ}`);
       }
     }
 
     const mutations = [];
 
-    for (const [key, info] of neededZones) {
-      const zone = this.zones.get(key);
-
-      if (!zone) {
-        const priority = info.lodLevel >= 0 ? info.lodLevel : 99;
-        mutations.push({ type: 'new', key, info, priority });
-      } else {
-        const targetLOD = info.lodLevel;
-        const currentLOD = zone.isGenerating ? zone._targetLOD : zone.currentLOD;
-
-        if (currentLOD !== targetLOD) {
-          const priority = targetLOD >= 0 ? targetLOD : 99;
-          mutations.push({ type: 'lod', key, info, zone, priority });
-        }
+    for (const key of neededKeys) {
+      if (!this.zones.has(key)) {
+        mutations.push({ type: 'new', key, priority: 0 });
       }
     }
 
     for (const [key, zone] of this.zones) {
-      if (!neededZones.has(key)) {
+      if (!neededKeys.has(key)) {
         mutations.push({ type: 'remove', key, zone, priority: 100 });
       }
     }
@@ -97,31 +80,19 @@ export class GrassManager {
 
       switch (mutation.type) {
         case 'new': {
+          const [minXStr, minZStr] = mutation.key.split(',').map(Number);
           const zone = new GrassZone(
             this.terrain,
             this.variants,
-            mutation.info.minX,
-            mutation.info.minZ,
-            mutation.info.maxX,
-            mutation.info.maxZ,
+            minXStr,
+            minZStr,
+            minXStr + ZONE_SIZE,
+            minZStr + ZONE_SIZE,
           );
 
           this.group.add(zone.group);
           this.zones.set(mutation.key, zone);
-
-          if (mutation.info.lodLevel >= 0) {
-            zone.setLOD(mutation.info.lodLevel, LOD_DENSITIES[mutation.info.lodLevel]);
-          }
-
-          break;
-        }
-        case 'lod': {
-          if (mutation.info.lodLevel >= 0) {
-            mutation.zone.setLOD(mutation.info.lodLevel, LOD_DENSITIES[mutation.info.lodLevel]);
-          } else {
-            mutation.zone.setLOD(-1, 0);
-          }
-
+          zone.startGeneration(LOD_DENSITIES[0]);
           break;
         }
         case 'remove': {
@@ -135,6 +106,14 @@ export class GrassManager {
     }
 
     this.processGenerations();
+
+    const needsRebuild = !this.lastRebuildPos
+      || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD;
+
+    if (needsRebuild) {
+      this.rebuildLODForZones(camX, camZ);
+      this.lastRebuildPos = { x: camX, z: camZ };
+    }
   }
 
   processGenerations() {
@@ -145,14 +124,36 @@ export class GrassManager {
       generatingZones.push(zone);
     }
 
-    generatingZones.sort((a, b) => (a._targetLOD ?? 99) - (b._targetLOD ?? 99));
-
     let budgetRemaining = TOTAL_GENERATION_BUDGET;
 
     for (const zone of generatingZones) {
       if (budgetRemaining <= 0) break;
-      zone.processGeneration(Math.min(GENERATION_STEPS_PER_ZONE, budgetRemaining));
-      budgetRemaining -= GENERATION_STEPS_PER_ZONE;
+      zone.processGeneration(Math.min(GENERATION_STEPS, budgetRemaining));
+      budgetRemaining -= GENERATION_STEPS;
+    }
+  }
+
+  rebuildLODForZones(camX, camZ) {
+    const readyZones = [];
+
+    for (const zone of this.zones.values()) {
+      if (!zone.hasPlacements || zone.isGenerating) continue;
+      readyZones.push(zone);
+    }
+
+    readyZones.sort((a, b) => {
+      const da = Math.hypot(a.centerX - camX, a.centerZ - camZ);
+      const db = Math.hypot(b.centerX - camX, b.centerZ - camZ);
+
+      return da - db;
+    });
+
+    let count = 0;
+
+    for (const zone of readyZones) {
+      if (count >= ZONE_REBUILDS_PER_FRAME) break;
+      zone.rebuildLOD(camX, camZ, LOD_DISTANCES);
+      count += 1;
     }
   }
 
