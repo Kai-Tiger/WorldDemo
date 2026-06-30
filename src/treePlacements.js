@@ -13,7 +13,7 @@ const TREE_MODEL_PATHS = [
 export const TREE_VIEW_DISTANCE = 300;
 export const ZONE_SIZE = 64;
 
-const MIN_TREE_SPACING = 3;
+const MIN_TREE_SPACING = 6;
 const RIVER_BUFFER = 5;
 const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = 2048 / 2;
@@ -56,10 +56,10 @@ function extractMeshes(scene) {
 }
 
 export function getTreeDensity(height) {
-  if (height <= 130) return 0.05;
-  if (height <= 185) return 0.03;
+  if (height <= 130) return 0.025;
+  if (height <= 185) return 0.015;
 
-  return 0.005;
+  return 0.0025;
 }
 
 export function isTreeArea(terrain, x, z) {
