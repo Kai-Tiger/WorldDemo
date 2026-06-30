@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
-import { hash2, smoothstep } from './grassClumps.js';
+import { hash2 } from './grassClumps.js';
 
 const TREE_MODEL_PATHS = [
   '/assets/vegetation/tree_01.glb',
@@ -165,11 +165,9 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
 
 function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex) {
   const y = terrain.getHeightAt(x, z);
-  const normal = terrain.getNormalAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const scaleValue = THREE.MathUtils.lerp(0.85, 1.2, hash2(seedX + 5.7, seedZ + 33.1));
-  const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
-  const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
+  const rotation = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
   const scale = new THREE.Vector3(scaleValue, scaleValue, scaleValue);
   const matrix = new THREE.Matrix4();
 
