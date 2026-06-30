@@ -425,7 +425,8 @@ function createTerrainMaterial(textures) {
         float cliffShade = smoothstep(0.12, 1.0, normal.y);
         vec3 mountainColor = uMountainColor * mix(0.72, 1.08, cliffShade);
         vec3 baseColor = mix(mountainColor, groundColor, groundMask);
-        float riverMask = smoothstep(0.05, 0.95, vRiverMask);
+        float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
+        float riverMask = smoothstep(0.05, 0.95, vRiverMask) * riverSlopeMask;
         baseColor = mix(baseColor, riverBank, riverMask);
         float riverBedMask = smoothstep(0.05, 0.95, vRiverBedMask);
         baseColor = mix(baseColor, riverBed, riverBedMask);
