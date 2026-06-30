@@ -288,8 +288,8 @@ function createRiverWaterMaterial() {
     depthTest: true,
     uniforms: {
       uTime: { value: 0 },
-      uShallowColor: { value: new THREE.Color(0xa8d8cc) },
-      uDeepColor: { value: new THREE.Color(0x2f8f91) },
+      uShallowColor: { value: new THREE.Color(0xc5eadf) },
+      uDeepColor: { value: new THREE.Color(0x2a7f86) },
       uFoamColor: { value: new THREE.Color(0xf1fbff) },
       uReflectionColor: { value: new THREE.Color(0xd7f4ff) },
       uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
@@ -383,20 +383,20 @@ function createRiverWaterMaterial() {
         float deepMask = smoothstep(0.04, 0.46, edge);
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
-        float alpha = mix(0.05, 0.58, edgeAlpha);
+        float alpha = mix(0.02, 0.36, edgeAlpha);
 
         vec2 bedUv = vWorldPosition.xz;
         float darkPatch = smoothstep(0.56, 0.84, fbm(bedUv * 0.075 + vec2(3.2, -7.4)))
           * smoothstep(0.42, 0.86, fbm(bedUv * 0.19 + vec2(-11.0, 2.7)));
         float algaePatch = smoothstep(0.58, 0.88, fbm(bedUv * 0.11 + vec2(-4.2, 8.1)))
           * smoothstep(0.35, 0.8, fbm(bedUv * 0.34 + vec2(2.0, 1.5)));
-        vec3 riverBedColor = vec3(0.48, 0.58, 0.43);
-        riverBedColor = mix(riverBedColor, vec3(0.06, 0.18, 0.23), darkPatch * 0.72);
-        riverBedColor = mix(riverBedColor, vec3(0.08, 0.36, 0.22), algaePatch * 0.42);
+        vec3 riverBedColor = vec3(0.54, 0.62, 0.48);
+        riverBedColor = mix(riverBedColor, vec3(0.10, 0.24, 0.26), darkPatch * 0.34);
+        riverBedColor = mix(riverBedColor, vec3(0.14, 0.42, 0.28), algaePatch * 0.22);
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
-        float bottomVisibility = mix(0.86, 0.48, deepMask);
-        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.46);
+        float bottomVisibility = mix(0.96, 0.66, deepMask);
+        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.22);
 
         float flowSpeed = mix(0.18, 0.42, deepMask);
         vec2 waveUv = vec2(vUv.x * 0.52, vUv.y * 2.4);
@@ -405,24 +405,25 @@ function createRiverWaterMaterial() {
 
         float caustics = getCaustics(bedUv);
         float causticMask = bottomVisibility * edgeAlpha * (1.0 - darkPatch * 0.35);
-        waterColor += vec3(0.82, 1.0, 0.93) * caustics * causticMask * 0.48;
+        waterColor += vec3(0.82, 1.0, 0.93) * caustics * causticMask * 0.32;
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        waterColor = mix(waterColor, uReflectionColor, 0.04 + fresnel * 0.16);
+        waterColor = mix(waterColor, uReflectionColor, 0.08 + fresnel * 0.24);
+        alpha = max(alpha, fresnel * 0.18);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
         float spec = pow(max(dot(normal, halfDir), 0.0), 86.0);
         float sparkle = smoothstep(0.58, 0.92, fbm(vWorldPosition.xz * 0.75 + vec2(-uTime * 0.38, uTime * 0.05)));
-        waterColor += vec3(1.0, 0.98, 0.86) * spec * sparkle * 0.18;
+        waterColor += vec3(1.0, 0.98, 0.86) * spec * sparkle * 0.28;
 
         float foamBase = 1.0 - smoothstep(0.012, 0.07, edge);
         float foamNoise = fbm(vWorldPosition.xz * 1.15 + vec2(-uTime * 0.22, uTime * 0.04));
         float foam = foamBase * smoothstep(0.68, 0.9, foamNoise) * 0.28;
 
-        waterColor = mix(waterColor, uFoamColor, foam * 0.35);
-        alpha = max(alpha, foam * 0.32);
+        waterColor = mix(waterColor, uFoamColor, foam * 0.28);
+        alpha = max(alpha, foam * 0.22);
 
         gl_FragColor = vec4(waterColor, alpha);
       }
