@@ -126,6 +126,14 @@ export function updateRiverVisuals(water, wetBanks, camera, elapsedTime) {
   }
 }
 
+export function isInRiverGrassExclusion(x, z, buffer = 2) {
+  const frame = getChannelFrameAt(x, z);
+
+  if (!frame) return false;
+
+  return Math.abs(frame.lateral) <= HALF_WATER_WIDTH + WET_BANK_WIDTH + buffer;
+}
+
 function createChannelStripGeometry(
   terrain,
   minLateral,

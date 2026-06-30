@@ -3,6 +3,7 @@ import './style.css';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { createScene } from './scene.js';
+import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
 
@@ -11,7 +12,6 @@ const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const { scene, terrain, water, wetBanks } = await createScene();
-const PLAYER_SPAWN_POSITION = { x: 538, z: -347 };
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

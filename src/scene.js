@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createGrassClumps } from './grassClumps.js';
 import { createRiverWaterMesh, createWetBankMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
 
@@ -16,8 +17,10 @@ export async function createScene() {
   scene.add(terrain.group);
   const wetBanks = createWetBankMesh(terrain);
   const water = createRiverWaterMesh(terrain);
+  const grassClumps = await createGrassClumps(terrain);
   scene.add(wetBanks);
   scene.add(water);
+  scene.add(grassClumps);
   scene.add(createSunModel());
 
   const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
