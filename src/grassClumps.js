@@ -8,11 +8,17 @@ const PLACEMENT_RADIUS = 15;
 const CLUMPS_PER_SQUARE_METER = 20;
 const CELL_SIZE = Math.sqrt(1 / CLUMPS_PER_SQUARE_METER);
 const RIVER_BUFFER = 2;
+const PATCH_COUNT = 24;
+const PATCH_MIN_RADIUS = 1.5;
+const PATCH_MAX_RADIUS = 3;
+const PATCH_GAP_ACCEPTANCE = 0.75;
+const PATCH_FULL_ACCEPTANCE = 1;
 const SWAY_STRENGTH = 0.035;
 const WIND_DIRECTION = new THREE.Vector2(0.82, 0.38).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 
 const loader = new GLTFLoader();
+const grassPatches = createGrassPatches();
 
 export async function createGrassClumps(terrain) {
   const asset = await loader.loadAsync(GRASS_CLUMP_PATH);
@@ -154,8 +160,11 @@ function createGrassPlacements(terrain) {
         continue;
       }
 
-      const x = PLAYER_SPAWN_POSITION.x + offsetX;
-      const z = PLAYER_SPAWN_POSITION.z + offsetZ;
+      if (!shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ)) continue;
+
+      const clusteredOffset = getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ);
+      const x = PLAYER_SPAWN_POSITION.x + clusteredOffset.x;
+      const z = PLAYER_SPAWN_POSITION.z + clusteredOffset.z;
 
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
 
@@ -164,6 +173,94 @@ function createGrassPlacements(terrain) {
   }
 
   return placements;
+}
+
+function shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ) {
+  const patchInfluence = getGrassPatchInfluence(offsetX, offsetZ);
+  const localAcceptance = THREE.MathUtils.lerp(
+    PATCH_GAP_ACCEPTANCE,
+    PATCH_FULL_ACCEPTANCE,
+    patchInfluence,
+  );
+
+  return hash2(gridX + 203.4, gridZ - 71.8) < localAcceptance;
+}
+
+function getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ) {
+  const patch = getStrongestGrassPatch(offsetX, offsetZ);
+
+  if (!patch) return { x: offsetX, z: offsetZ };
+
+  const dx = patch.x - offsetX;
+  const dz = patch.z - offsetZ;
+  const distance = Math.sqrt(dx * dx + dz * dz);
+  const influence = 1 - smoothstep(patch.radius * 0.2, patch.radius, distance);
+  const pull = influence * THREE.MathUtils.lerp(0.12, 0.24, hash2(gridX - 14.2, gridZ + 55.8));
+
+  return {
+    x: offsetX + dx * pull,
+    z: offsetZ + dz * pull,
+  };
+}
+
+function getStrongestGrassPatch(offsetX, offsetZ) {
+  let strongestPatch = null;
+  let strongestInfluence = 0;
+
+  for (const patch of grassPatches) {
+    const dx = offsetX - patch.x;
+    const dz = offsetZ - patch.z;
+    const distance = Math.sqrt(dx * dx + dz * dz);
+    const influence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
+
+    if (influence <= strongestInfluence) continue;
+
+    strongestInfluence = influence;
+    strongestPatch = patch;
+  }
+
+  return strongestPatch;
+}
+
+function getGrassPatchInfluence(offsetX, offsetZ) {
+  let influence = 0;
+  let layeredInfluence = 0;
+
+  for (const patch of grassPatches) {
+    const dx = offsetX - patch.x;
+    const dz = offsetZ - patch.z;
+    const distance = Math.sqrt(dx * dx + dz * dz);
+    const patchInfluence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
+
+    influence = Math.max(influence, patchInfluence);
+    layeredInfluence += patchInfluence * 0.42;
+  }
+
+  const broadBreakup = 0.5 + 0.5 * Math.sin(offsetX * 0.72 + offsetZ * 0.41);
+
+  return THREE.MathUtils.clamp(
+    Math.max(influence, layeredInfluence) * 0.88 + broadBreakup * 0.12,
+    0,
+    1,
+  );
+}
+
+function createGrassPatches() {
+  const patches = [{ x: 0, z: 0, radius: 2.4 }];
+
+  for (let i = 0; i < PATCH_COUNT - 1; i += 1) {
+    const angle = hash2(i + 9.4, i - 2.8) * Math.PI * 2;
+    const distance = Math.sqrt(hash2(i - 4.7, i + 15.2)) * (PLACEMENT_RADIUS - PATCH_MAX_RADIUS);
+    const radius = THREE.MathUtils.lerp(PATCH_MIN_RADIUS, PATCH_MAX_RADIUS, hash2(i + 31.6, i - 18.9));
+
+    patches.push({
+      x: Math.cos(angle) * distance,
+      z: Math.sin(angle) * distance,
+      radius,
+    });
+  }
+
+  return patches;
 }
 
 function createPlacement(terrain, x, z, gridX, gridZ) {
@@ -188,4 +285,10 @@ function hash2(x, z) {
   const value = Math.sin((x * 127.1) + (z * 311.7)) * 43758.5453123;
 
   return value - Math.floor(value);
+}
+
+function smoothstep(edge0, edge1, value) {
+  const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
+
+  return t * t * (3 - 2 * t);
 }
