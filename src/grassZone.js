@@ -90,7 +90,7 @@ export class GrassZone {
       const placements = this._generator.getPlacements();
 
       if (placements.length > 0) {
-        buildInstancedMeshes(placements, this.variants, this.group);
+        buildInstancedMeshes(placements, this.variants, this.group, this._targetLOD);
       }
 
       this.group.visible = placements.length > 0;

@@ -18,7 +18,7 @@ const WIND_DIRECTION = new THREE.Vector2(0.82, 0.38).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 
 export const LOD_DENSITIES = [20, 5, 1.25];
-export const LOD_DISTANCES = [35, 100, 200];
+export const LOD_DISTANCES = [20, 50, 150];
 export const ZONE_SIZE = 64;
 
 const HALF_MAP_SIZE = 2048 / 2;
@@ -51,6 +51,7 @@ export function createGrassVariants(scene) {
         name: child.name,
         geometry,
         material: createGrassSwayMaterial(child.material, geometry),
+        simpleMaterial: createSimpleMaterial(child.material, geometry),
       });
     });
 
@@ -109,6 +110,14 @@ transformed.xz += (
   return material;
 }
 
+function createSimpleMaterial(sourceMaterial, geometry) {
+  const material = sourceMaterial.clone();
+
+  material.userData.grassUniforms = null;
+
+  return material;
+}
+
 export function isGrassArea(terrain, x, z) {
   const vGroundMask = terrain.getTerrainGroundMask(x, z);
   const height = terrain.getHeightAt(x, z);
@@ -156,20 +165,26 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
   return placements;
 }
 
-export function buildInstancedMeshes(placements, variants, parent) {
+export function buildInstancedMeshes(placements, variants, parent, lodLevel = 0) {
+  const useSimple = lodLevel >= 2;
+
   for (const [variantName, variant] of variants) {
     const variantPlacements = placements.filter((p) => p.variantName === variantName);
 
     for (const leaf of variant.leaves) {
+      const material = useSimple ? leaf.simpleMaterial : leaf.material;
       const mesh = new THREE.InstancedMesh(
         leaf.geometry,
-        leaf.material,
+        material,
         variantPlacements.length,
       );
 
       mesh.name = `${variantName}_${leaf.name}_Instances`;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+
+      if (!useSimple) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
 
       for (let i = 0; i < variantPlacements.length; i += 1) {
         mesh.setMatrixAt(i, variantPlacements[i].matrix);
