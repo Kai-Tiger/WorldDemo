@@ -18,8 +18,10 @@ const HIGHLAND_FADE_END = 18;
 const PATH_SAMPLE_COUNT = 260;
 const WATER_WIDTH = 4.8;
 const WATER_LEVEL_ABOVE_BED = 1.6;
-const WATER_LONGITUDINAL_STEP = 0.6;
-const WATER_LATERAL_SEGMENTS = 8;
+const WATER_LONGITUDINAL_STEP = 0.3;
+const WATER_LATERAL_SEGMENTS = 24;
+const WATER_PROFILE_SMOOTH_RADIUS = 10;
+const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
 const WET_BANK_HEIGHT_OFFSET = 0.08;
 const END_TAPER_LENGTH = 10;
@@ -50,6 +52,7 @@ export function applyRiverChannel(baseHeight, x, z) {
 }
 
 export function createRiverWaterMesh(terrain) {
+  const waterProfile = createWaterHeightProfile(terrain, WATER_LONGITUDINAL_STEP);
   const geometry = createChannelStripGeometry(
     terrain,
     -HALF_WATER_WIDTH,
@@ -57,6 +60,7 @@ export function createRiverWaterMesh(terrain) {
     WATER_LONGITUDINAL_STEP,
     WATER_LATERAL_SEGMENTS,
     getFlatWaterHeight,
+    (_terrain, _x, _z, distance) => getWaterProfileHeight(waterProfile, distance),
   );
   const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
 
@@ -121,6 +125,7 @@ function createChannelStripGeometry(
   longitudinalStep,
   lateralSegments,
   getVertexHeight,
+  getRowHeight = getWaterRowHeight,
 ) {
   const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
   const verticesPerRow = lateralSegments + 1;
@@ -137,7 +142,8 @@ function createChannelStripGeometry(
     const center = channelCurve.getPointAt(t);
     const tangent = channelCurve.getTangentAt(t).normalize();
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
-    const rowHeight = getWaterRowHeight(terrain, center.x, center.z);
+    const distance = t * channelLength;
+    const rowHeight = getRowHeight(terrain, center.x, center.z, distance);
 
     for (let j = 0; j <= lateralSegments; j += 1) {
       const lateralT = j / lateralSegments;
@@ -198,6 +204,71 @@ function getWaterRowHeight(terrain, x, z) {
   return terrain.getHeightAt(x, z) + WATER_LEVEL_ABOVE_BED;
 }
 
+function createWaterHeightProfile(terrain, longitudinalStep) {
+  const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
+  const rawHeights = new Float32Array(longitudinalSegments + 1);
+
+  for (let i = 0; i <= longitudinalSegments; i += 1) {
+    const center = channelCurve.getPointAt(i / longitudinalSegments);
+    rawHeights[i] = getWaterRowHeight(terrain, center.x, center.z);
+  }
+
+  const smoothedHeights = smoothWaterProfile(rawHeights);
+  const clampedHeights = clampWaterProfileSteps(smoothedHeights, WATER_PROFILE_MAX_STEP);
+
+  return {
+    step: channelLength / longitudinalSegments,
+    heights: clampedHeights,
+  };
+}
+
+function smoothWaterProfile(heights) {
+  const smoothed = new Float32Array(heights.length);
+
+  for (let i = 0; i < heights.length; i += 1) {
+    let total = 0;
+    let weightTotal = 0;
+    const start = Math.max(0, i - WATER_PROFILE_SMOOTH_RADIUS);
+    const end = Math.min(heights.length - 1, i + WATER_PROFILE_SMOOTH_RADIUS);
+
+    for (let j = start; j <= end; j += 1) {
+      const distance = Math.abs(i - j);
+      const weight = WATER_PROFILE_SMOOTH_RADIUS + 1 - distance;
+      total += heights[j] * weight;
+      weightTotal += weight;
+    }
+
+    smoothed[i] = total / weightTotal;
+  }
+
+  return smoothed;
+}
+
+function clampWaterProfileSteps(heights, maxStep) {
+  const clamped = Float32Array.from(heights);
+
+  for (let i = 1; i < clamped.length; i += 1) {
+    const previous = clamped[i - 1];
+    clamped[i] = THREE.MathUtils.clamp(clamped[i], previous - maxStep, previous + maxStep);
+  }
+
+  for (let i = clamped.length - 2; i >= 0; i -= 1) {
+    const next = clamped[i + 1];
+    clamped[i] = THREE.MathUtils.clamp(clamped[i], next - maxStep, next + maxStep);
+  }
+
+  return clamped;
+}
+
+function getWaterProfileHeight(profile, distance) {
+  const index = THREE.MathUtils.clamp(distance / profile.step, 0, profile.heights.length - 1);
+  const lowerIndex = Math.floor(index);
+  const upperIndex = Math.min(profile.heights.length - 1, lowerIndex + 1);
+  const t = THREE.MathUtils.smoothstep(index - lowerIndex, 0, 1);
+
+  return THREE.MathUtils.lerp(profile.heights[lowerIndex], profile.heights[upperIndex], t);
+}
+
 function createRiverWaterMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
@@ -206,10 +277,10 @@ function createRiverWaterMaterial() {
     depthTest: true,
     uniforms: {
       uTime: { value: 0 },
-      uShallowColor: { value: new THREE.Color(0x5f9f86) },
-      uDeepColor: { value: new THREE.Color(0x07343e) },
+      uShallowColor: { value: new THREE.Color(0xa8d8cc) },
+      uDeepColor: { value: new THREE.Color(0x2f8f91) },
       uFoamColor: { value: new THREE.Color(0xf1fbff) },
-      uReflectionColor: { value: new THREE.Color(0x9bc9ee) },
+      uReflectionColor: { value: new THREE.Color(0xd7f4ff) },
       uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
       uCameraPosition: { value: new THREE.Vector3() },
     },
@@ -259,55 +330,88 @@ function createRiverWaterMaterial() {
           + (d - b) * u.x * u.y;
       }
 
-      vec3 getWaterNormal(vec2 uv, float center) {
-        float w1 = sin(uv.x * 24.0 - uTime * 2.0);
-        float w2 = sin(uv.x * 13.0 + uv.y * 18.0 - uTime * 1.3);
-        float w3 = sin(uv.x * 42.0 - uv.y * 12.0 - uTime * 2.8);
+      float fbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.5;
 
-        return normalize(vec3(
-          (w1 + w2 * 0.5) * 0.075 * center,
-          1.0,
-          w3 * 0.08 * center
-        ));
+        for (int i = 0; i < 4; i += 1) {
+          value += noise(p) * amplitude;
+          p = p * 2.03 + vec2(11.7, 4.8);
+          amplitude *= 0.5;
+        }
+
+        return value;
+      }
+
+      vec3 getWaterNormal(vec2 flowUv, vec2 worldUv, float strength) {
+        float broad = fbm(worldUv * 0.55 + vec2(-uTime * 0.035, uTime * 0.015));
+        float rippleA = fbm(flowUv * vec2(1.25, 1.8) + vec2(-uTime * 0.22, 0.07));
+        float rippleB = fbm((flowUv.yx + worldUv * 0.16) * vec2(1.75, 0.95) + vec2(uTime * 0.12, -uTime * 0.1));
+
+        vec2 slope = vec2(
+          (broad - 0.5) * 0.035 + (rippleA - 0.5) * 0.075,
+          (rippleB - 0.5) * 0.08
+        ) * strength;
+
+        return normalize(vec3(slope.x, 1.0, slope.y));
+      }
+
+      float getCaustics(vec2 worldUv) {
+        vec2 driftA = worldUv * 0.72 + vec2(uTime * 0.12, -uTime * 0.045);
+        vec2 driftB = worldUv * 0.96 + vec2(-uTime * 0.08, uTime * 0.07);
+        float nA = fbm(driftA);
+        float nB = fbm(driftB + vec2(nA * 0.8, -nA * 0.45));
+        float ridges = 1.0 - abs(nA - nB) * 6.0;
+        float broken = fbm(worldUv * 0.22 + vec2(6.4, -3.1));
+
+        return smoothstep(0.54, 0.92, ridges) * smoothstep(0.25, 0.78, broken);
       }
 
       void main() {
         float edge = min(vUv.y, 1.0 - vUv.y);
-        float center = 1.0 - abs(vUv.y - 0.5) * 2.0;
-        float edgeAlpha = smoothstep(0.012, 0.18, edge);
-        float alpha = mix(0.08, 0.76, edgeAlpha);
+        float deepMask = smoothstep(0.04, 0.46, edge);
+        float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
+        float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
+        float alpha = mix(0.05, 0.58, edgeAlpha);
 
-        vec3 riverBedColor = vec3(0.34, 0.29, 0.20);
-        vec3 waterColor = mix(uShallowColor, uDeepColor, center);
-        float shallowMask = 1.0 - smoothstep(0.08, 0.32, edge);
-        waterColor = mix(waterColor, riverBedColor, shallowMask * 0.23);
+        vec2 bedUv = vWorldPosition.xz;
+        float darkPatch = smoothstep(0.56, 0.84, fbm(bedUv * 0.075 + vec2(3.2, -7.4)))
+          * smoothstep(0.42, 0.86, fbm(bedUv * 0.19 + vec2(-11.0, 2.7)));
+        float algaePatch = smoothstep(0.58, 0.88, fbm(bedUv * 0.11 + vec2(-4.2, 8.1)))
+          * smoothstep(0.35, 0.8, fbm(bedUv * 0.34 + vec2(2.0, 1.5)));
+        vec3 riverBedColor = vec3(0.48, 0.58, 0.43);
+        riverBedColor = mix(riverBedColor, vec3(0.06, 0.18, 0.23), darkPatch * 0.72);
+        riverBedColor = mix(riverBedColor, vec3(0.08, 0.36, 0.22), algaePatch * 0.42);
 
-        float flowSpeed = mix(0.15, 0.5, center);
-        vec2 waveUv = vUv * vec2(5.0, 2.0);
+        vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
+        float bottomVisibility = mix(0.86, 0.48, deepMask);
+        waterColor = mix(waterColor, riverBedColor, bottomVisibility * 0.46);
+
+        float flowSpeed = mix(0.18, 0.42, deepMask);
+        vec2 waveUv = vec2(vUv.x * 0.52, vUv.y * 2.4);
         waveUv.x -= uTime * flowSpeed;
-        vec3 normal = getWaterNormal(waveUv, center);
+        vec3 normal = getWaterNormal(waveUv, vWorldPosition.xz * 0.2, mix(0.45, 0.82, deepMask));
+
+        float caustics = getCaustics(bedUv);
+        float causticMask = bottomVisibility * edgeAlpha * (1.0 - darkPatch * 0.35);
+        waterColor += vec3(0.82, 1.0, 0.93) * caustics * causticMask * 0.48;
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        waterColor = mix(waterColor, uReflectionColor, fresnel * 0.38);
+        waterColor = mix(waterColor, uReflectionColor, 0.04 + fresnel * 0.16);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
-        float spec = pow(max(dot(normal, halfDir), 0.0), 82.0);
-        float sparkle = smoothstep(0.62, 1.0, noise(vUv * vec2(78.0, 18.0) + vec2(-uTime * 1.25, uTime * 0.08)));
-        waterColor += vec3(1.0, 0.95, 0.78) * spec * (0.36 + sparkle * 0.25);
+        float spec = pow(max(dot(normal, halfDir), 0.0), 86.0);
+        float sparkle = smoothstep(0.58, 0.92, fbm(vWorldPosition.xz * 0.75 + vec2(-uTime * 0.38, uTime * 0.05)));
+        waterColor += vec3(1.0, 0.98, 0.86) * spec * sparkle * 0.18;
 
-        float foamBase = 1.0 - smoothstep(0.018, 0.13, edge);
-        vec2 bigFoamUv = vUv * vec2(8.0, 28.0);
-        bigFoamUv.x -= uTime * 0.18;
-        vec2 smallFoamUv = vUv * vec2(32.0, 85.0);
-        smallFoamUv.x -= uTime * 0.48;
-        float bigFoam = smoothstep(0.45, 0.82, noise(bigFoamUv));
-        float smallFoam = smoothstep(0.55, 0.9, noise(smallFoamUv));
-        float foam = foamBase * max(bigFoam * 0.72, smallFoam * 0.45);
+        float foamBase = 1.0 - smoothstep(0.012, 0.07, edge);
+        float foamNoise = fbm(vWorldPosition.xz * 1.15 + vec2(-uTime * 0.22, uTime * 0.04));
+        float foam = foamBase * smoothstep(0.68, 0.9, foamNoise) * 0.28;
 
-        waterColor = mix(waterColor, uFoamColor, foam * 0.74);
-        alpha = max(alpha, foam * 0.62);
+        waterColor = mix(waterColor, uFoamColor, foam * 0.35);
+        alpha = max(alpha, foam * 0.32);
 
         gl_FragColor = vec4(waterColor, alpha);
       }
@@ -363,8 +467,8 @@ function createWetBankMaterial() {
 
       void main() {
         float innerFade = smoothstep(0.0, 1.0, vUv.y);
-        float brokenEdge = smoothstep(0.22, 0.82, noise(vWorldPosition.xz * 2.3 + vec2(uTime * 0.03, 0.0)));
-        float alpha = innerFade * brokenEdge * 0.22;
+        float brokenEdge = smoothstep(0.18, 0.78, noise(vWorldPosition.xz * 1.7 + vec2(uTime * 0.025, 0.0)));
+        float alpha = innerFade * brokenEdge * 0.16;
 
         gl_FragColor = vec4(uWetColor, alpha);
       }
