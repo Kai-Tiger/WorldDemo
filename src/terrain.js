@@ -13,6 +13,10 @@ const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
 const GROUND_DIRT_TEXTURE_PATH = '/assets/terrain/ground-dirt.webp';
 const GROUND_DRY_GRASS_TEXTURE_PATH = '/assets/terrain/ground-dry-grass.webp';
+const FROZEN_DIRT_TEXTURE_PATH = '/assets/terrain/dirt-frozen.webp';
+const ALPINE_SCREE_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
+const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
+const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const MAP_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
@@ -289,21 +293,25 @@ async function loadHeightMap(path) {
 
 async function loadTerrainTextures() {
   const loader = new THREE.TextureLoader();
-  const [grass, dirt, dryGrass, riverBank, riverBed] = await Promise.all([
+  const [grass, dirt, dryGrass, frozenDirt, scree, rock, snow, riverBank, riverBed] = await Promise.all([
     loader.loadAsync(GROUND_GRASS_TEXTURE_PATH),
     loader.loadAsync(GROUND_DIRT_TEXTURE_PATH),
     loader.loadAsync(GROUND_DRY_GRASS_TEXTURE_PATH),
+    loader.loadAsync(FROZEN_DIRT_TEXTURE_PATH),
+    loader.loadAsync(ALPINE_SCREE_TEXTURE_PATH),
+    loader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
+    loader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
     loader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     loader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [grass, dirt, dryGrass, riverBank, riverBed]) {
+  for (const texture of [grass, dirt, dryGrass, frozenDirt, scree, rock, snow, riverBank, riverBed]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
   }
 
-  return { grass, dirt, dryGrass, riverBank, riverBed };
+  return { grass, dirt, dryGrass, frozenDirt, scree, rock, snow, riverBank, riverBed };
 }
 
 function createTerrainMaterial(textures) {
@@ -312,12 +320,15 @@ function createTerrainMaterial(textures) {
       uGrassTexture: { value: textures.grass },
       uDirtTexture: { value: textures.dirt },
       uDryGrassTexture: { value: textures.dryGrass },
+      uFrozenDirtTexture: { value: textures.frozenDirt },
+      uScreeTexture: { value: textures.scree },
+      uRockTexture: { value: textures.rock },
+      uSnowTexture: { value: textures.snow },
       uRiverBankTexture: { value: textures.riverBank },
       uRiverBedTexture: { value: textures.riverBed },
       uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
       uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
       uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
-      uMountainColor: { value: new THREE.Color(0x6f8f54) },
       uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
       uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
       uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
@@ -336,6 +347,7 @@ function createTerrainMaterial(textures) {
       varying vec2 vRiverBankUv;
       varying vec2 vRiverBedUv;
       varying vec3 vWorldNormal;
+      varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
@@ -347,6 +359,7 @@ function createTerrainMaterial(textures) {
         vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
         vRiverBedUv = worldPosition.xz / uRiverBedTextureWorldSize;
         vWorldNormal = normalize(normalMatrix * normal);
+        vWorldHeight = worldPosition.y;
         vGroundMask = groundMask;
         vRiverMask = riverMask;
         vRiverBedMask = riverBedMask;
@@ -358,10 +371,13 @@ function createTerrainMaterial(textures) {
       uniform sampler2D uGrassTexture;
       uniform sampler2D uDirtTexture;
       uniform sampler2D uDryGrassTexture;
+      uniform sampler2D uFrozenDirtTexture;
+      uniform sampler2D uScreeTexture;
+      uniform sampler2D uRockTexture;
+      uniform sampler2D uSnowTexture;
       uniform sampler2D uRiverBankTexture;
       uniform sampler2D uRiverBedTexture;
       uniform float uTextureWorldSize;
-      uniform vec3 uMountainColor;
       uniform vec3 uSunDirection;
       uniform vec3 uSkyLightColor;
       uniform vec3 uGroundLightColor;
@@ -371,6 +387,7 @@ function createTerrainMaterial(textures) {
       varying vec2 vRiverBankUv;
       varying vec2 vRiverBedUv;
       varying vec3 vWorldNormal;
+      varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
@@ -413,6 +430,10 @@ function createTerrainMaterial(textures) {
         vec3 grass = texture2D(uGrassTexture, vWorldUv).rgb;
         vec3 dirt = texture2D(uDirtTexture, vWorldUv * 0.92 + vec2(17.3, 4.8)).rgb;
         vec3 dryGrass = texture2D(uDryGrassTexture, vWorldUv * 1.08 + vec2(-9.1, 12.4)).rgb;
+        vec3 frozenDirt = texture2D(uFrozenDirtTexture, vWorldUv * 0.88 + vec2(4.7, -8.2)).rgb;
+        vec3 scree = texture2D(uScreeTexture, vWorldUv * 0.78 + vec2(-13.0, 9.4)).rgb;
+        vec3 rock = texture2D(uRockTexture, vWorldUv * 0.62 + vec2(21.0, 6.0)).rgb;
+        vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
         vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
         vec3 riverBed = texture2D(uRiverBedTexture, vRiverBedUv).rgb;
 
@@ -421,10 +442,26 @@ function createTerrainMaterial(textures) {
         vec3 groundColor = mix(grass, dirt, dirtPatch * 0.72);
         groundColor = mix(groundColor, dryGrass, dryPatch * 0.46);
 
-        float groundMask = smoothstep(0.08, 0.82, vGroundMask);
-        float cliffShade = smoothstep(0.12, 1.0, normal.y);
-        vec3 mountainColor = uMountainColor * mix(0.72, 1.08, cliffShade);
-        vec3 baseColor = mix(mountainColor, groundColor, groundMask);
+        float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
+        float noisyHeight = vWorldHeight + heightNoise;
+        float lowGroundFade = 1.0 - smoothstep(130.0, 185.0, noisyHeight);
+        float groundMask = smoothstep(0.08, 0.82, vGroundMask) * lowGroundFade;
+        float midSlopeMask = smoothstep(0.50, 0.68, normal.y) * (1.0 - smoothstep(0.78, 0.92, normal.y));
+        float screeMask = smoothstep(75.0, 120.0, noisyHeight) * (1.0 - smoothstep(235.0, 275.0, noisyHeight));
+        screeMask *= smoothstep(0.16, 0.76, max(midSlopeMask, 1.0 - vGroundMask));
+        float rockMask = max(
+          1.0 - smoothstep(0.48, 0.72, normal.y),
+          smoothstep(190.0, 260.0, noisyHeight) * (1.0 - smoothstep(0.74, 0.92, normal.y))
+        );
+        float snowHeightMask = smoothstep(178.0, 246.0, noisyHeight);
+        float snowSlopeMask = smoothstep(0.52, 0.82, normal.y);
+        float snowNoiseMask = smoothstep(0.22, 0.88, fbm(blendUv * 0.055 + vec2(-3.0, 12.0)));
+        float snowMask = snowHeightMask * snowSlopeMask * mix(0.72, 1.15, snowNoiseMask);
+
+        vec3 alpineColor = mix(frozenDirt, scree, clamp(screeMask, 0.0, 1.0));
+        alpineColor = mix(alpineColor, rock, clamp(rockMask, 0.0, 1.0));
+        alpineColor = mix(alpineColor, snow, clamp(snowMask, 0.0, 1.0));
+        vec3 baseColor = mix(alpineColor, groundColor, groundMask);
         float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
         float riverMask = smoothstep(0.05, 0.95, vRiverMask) * riverSlopeMask;
         baseColor = mix(baseColor, riverBank, riverMask);
