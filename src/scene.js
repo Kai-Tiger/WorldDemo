@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { loadGrassModel, createGrassVariants } from './grassClumps.js';
 import { GrassManager } from './grassManager.js';
+import { loadTreeModels } from './treePlacements.js';
+import { TreeManager } from './treeManager.js';
 import {
   createRiverWaterMesh,
   createWetBankMesh,
@@ -18,17 +20,20 @@ export async function createScene() {
   const scene = new THREE.Scene();
   scene.background = createSkyTexture();
 
-  const [terrain, riverTextures, grassAsset] = await Promise.all([
+  const [terrain, riverTextures, grassAsset, treeModels] = await Promise.all([
     Terrain.create(),
     loadRiverTextures(),
     loadGrassModel(),
+    loadTreeModels(),
   ]);
   scene.add(terrain.group);
   const wetBanks = createWetBankMesh(terrain, riverTextures);
   const water = createRiverWaterMesh(terrain);
   const grassVariants = createGrassVariants(grassAsset.scene);
   const grassManager = new GrassManager(terrain, grassVariants);
+  const treeManager = new TreeManager(terrain, treeModels);
   scene.add(grassManager.group);
+  scene.add(treeManager.group);
   scene.add(wetBanks);
   scene.add(water);
   scene.add(createSunModel());
@@ -48,7 +53,7 @@ export async function createScene() {
   sunLight.shadow.camera.far = 700;
   scene.add(sunLight);
 
-  return { scene, terrain, water, wetBanks, grassManager };
+  return { scene, terrain, water, wetBanks, grassManager, treeManager };
 }
 
 function createSunModel() {
