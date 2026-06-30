@@ -104,7 +104,10 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
             const density = getTreeDensity(height);
             const densityRatio = density / 0.05;
 
-            if (hash2(gridX + 500, gridZ + 700) < densityRatio) {
+            const noiseVal = fbm(x * 0.015, z * 0.015, 6);
+            const modulatedDensity = densityRatio * (0.3 + 0.7 * noiseVal);
+
+            if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z)) {
                 if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER)) {
                   if (!isTooClose(x, z, occupied)) {
@@ -206,4 +209,37 @@ function markOccupied(x, z, occupied) {
 
   if (!occupied[key]) occupied[key] = [];
   occupied[key].push({ x, z });
+}
+
+function noise(x, z) {
+  const x0 = Math.floor(x);
+  const z0 = Math.floor(z);
+  const tx = x - x0;
+  const tz = z - z0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sz = tz * tz * (3 - 2 * tz);
+  const a = hash2(x0, z0);
+  const b = hash2(x0 + 1, z0);
+  const c = hash2(x0, z0 + 1);
+  const d = hash2(x0 + 1, z0 + 1);
+  const top = a + (b - a) * sx;
+  const bottom = c + (d - c) * sx;
+
+  return top + (bottom - top) * sz;
+}
+
+function fbm(x, z, octaves) {
+  let value = 0;
+  let amplitude = 1;
+  let frequency = 1;
+  let maxValue = 0;
+
+  for (let i = 0; i < octaves; i += 1) {
+    value += noise(x * frequency, z * frequency) * amplitude;
+    maxValue += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+
+  return value / maxValue;
 }
