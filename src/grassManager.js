@@ -108,7 +108,8 @@ export class GrassManager {
     this.processGenerations();
 
     const needsRebuild = !this.lastRebuildPos
-      || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD;
+      || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD
+      || this.hasUnbuiltZones();
 
     if (needsRebuild) {
       this.rebuildLODForZones(camX, camZ);
@@ -133,6 +134,14 @@ export class GrassManager {
     }
   }
 
+  hasUnbuiltZones() {
+    for (const zone of this.zones.values()) {
+      if (zone.hasPlacements && zone.builtForPosition === null) return true;
+    }
+
+    return false;
+  }
+
   rebuildLODForZones(camX, camZ) {
     const readyZones = [];
 
@@ -142,6 +151,11 @@ export class GrassManager {
     }
 
     readyZones.sort((a, b) => {
+      const aUnbuilt = a.builtForPosition === null ? 0 : 1;
+      const bUnbuilt = b.builtForPosition === null ? 0 : 1;
+
+      if (aUnbuilt !== bUnbuilt) return aUnbuilt - bUnbuilt;
+
       const da = Math.hypot(a.centerX - camX, a.centerZ - camZ);
       const db = Math.hypot(b.centerX - camX, b.centerZ - camZ);
 
