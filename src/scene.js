@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { createGrassClumps } from './grassClumps.js';
-import { createRiverWaterMesh, createWetBankMesh } from './riverChannel.js';
+import {
+  createRiverBedMesh,
+  createRiverWaterMesh,
+  createWetBankMesh,
+  loadRiverTextures,
+} from './riverChannel.js';
 import { Terrain } from './terrain.js';
 
 const SUN_POSITION = new THREE.Vector3(180, 420, 140);
@@ -13,11 +18,16 @@ export async function createScene() {
   const scene = new THREE.Scene();
   scene.background = createSkyTexture();
 
-  const terrain = await Terrain.create();
+  const [terrain, riverTextures] = await Promise.all([
+    Terrain.create(),
+    loadRiverTextures(),
+  ]);
   scene.add(terrain.group);
-  const wetBanks = createWetBankMesh(terrain);
+  const riverBed = createRiverBedMesh(terrain, riverTextures);
+  const wetBanks = createWetBankMesh(terrain, riverTextures);
   const water = createRiverWaterMesh(terrain);
   const grassClumps = await createGrassClumps(terrain);
+  scene.add(riverBed);
   scene.add(wetBanks);
   scene.add(water);
   scene.add(grassClumps);
