@@ -47,5 +47,9 @@ Every completed code change must be committed.
 - Check `git status` before staging.
 - Stage only files related to the current task.
 - Do not include unrelated user changes, build output, screenshots, or temporary files.
+- For every code commit, create a matching bilingual requirement document under `docs/requirements/` and include it in the same commit.
+- Name requirement documents with `YYYY-MM-DD-short-topic.md`, for example `2026-06-30-sun-rays-sky-gradient.md`.
+- Each requirement document must include Chinese and English content for these sections: `Requirement / 需求`, `Summary / 概要`, `User Request / 用户需求`, `Scope / 范围`, and `Acceptance Criteria / 验收标准`.
+- Pure documentation exports, ignore-rule-only commits, conversation logs, and other non-code commits do not require a matching requirement document.
 - Create a concise commit after verification passes.
 - If verification fails or the user explicitly asks not to commit, do not commit and explain why.
