@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { applyRiverChannel } from './riverChannel.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
+const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
+const GROUND_DIRT_TEXTURE_PATH = '/assets/terrain/ground-dirt.webp';
+const GROUND_DRY_GRASS_TEXTURE_PATH = '/assets/terrain/ground-dry-grass.webp';
 const MAP_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
@@ -9,6 +12,8 @@ const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
+const GROUND_MASK_SAMPLE_DISTANCE = 5;
+const GROUND_TEXTURE_WORLD_SIZE = 8;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -21,24 +26,27 @@ const HEIGHT_SMOOTHING_KERNEL = [
 ];
 
 export class Terrain {
-  constructor(heightData, width, height) {
+  constructor(heightData, width, height, textures) {
     this.heightData = heightData;
     this.width = width;
     this.height = height;
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
-    this.material = new THREE.MeshStandardMaterial({
-      color: 0x6f8f54,
-      roughness: 0.85,
-      metalness: 0,
-    });
+    this.material = createTerrainMaterial(textures);
 
     this.createChunks();
   }
 
   static async create() {
-    const { data, width, height } = await loadHeightMap(HEIGHT_MAP_PATH);
-    return new Terrain(data, width, height);
+    const [
+      { data, width, height },
+      textures,
+    ] = await Promise.all([
+      loadHeightMap(HEIGHT_MAP_PATH),
+      loadTerrainTextures(),
+    ]);
+
+    return new Terrain(data, width, height, textures);
   }
 
   createChunks() {
@@ -54,23 +62,29 @@ export class Terrain {
     const vertexCount = verticesPerSide * verticesPerSide;
     const positions = new Float32Array(vertexCount * 3);
     const uvs = new Float32Array(vertexCount * 2);
+    const groundMasks = new Float32Array(vertexCount);
     const indices = new Uint32Array(CHUNK_SEGMENTS * CHUNK_SEGMENTS * 6);
     const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
     const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
 
     let positionOffset = 0;
     let uvOffset = 0;
+    let groundMaskOffset = 0;
 
     for (let z = 0; z < verticesPerSide; z += 1) {
       for (let x = 0; x < verticesPerSide; x += 1) {
         const worldX = minX + x;
         const worldZ = minZ + z;
         const height = this.getHeightAt(worldX, worldZ);
+        const groundMask = this.getTerrainGroundMask(worldX, worldZ);
 
         positions[positionOffset] = worldX;
         positions[positionOffset + 1] = height;
         positions[positionOffset + 2] = worldZ;
         positionOffset += 3;
+
+        groundMasks[groundMaskOffset] = groundMask;
+        groundMaskOffset += 1;
 
         uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
         uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
@@ -100,6 +114,7 @@ export class Terrain {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geometry.setAttribute('groundMask', new THREE.BufferAttribute(groundMasks, 1));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
@@ -174,6 +189,26 @@ export class Terrain {
     ).normalize();
   }
 
+  getTerrainGroundMask(x, z) {
+    const center = this.getHeightAt(x, z);
+    const left = this.getHeightAt(x - GROUND_MASK_SAMPLE_DISTANCE, z);
+    const right = this.getHeightAt(x + GROUND_MASK_SAMPLE_DISTANCE, z);
+    const down = this.getHeightAt(x, z - GROUND_MASK_SAMPLE_DISTANCE);
+    const up = this.getHeightAt(x, z + GROUND_MASK_SAMPLE_DISTANCE);
+    const normal = new THREE.Vector3(
+      left - right,
+      GROUND_MASK_SAMPLE_DISTANCE * 2,
+      down - up,
+    ).normalize();
+    const minHeight = Math.min(center, left, right, down, up);
+    const maxHeight = Math.max(center, left, right, down, up);
+    const slopeMask = smoothstepRange(0.76, 0.94, normal.y);
+    const reliefRatio = (maxHeight - minHeight) / (GROUND_MASK_SAMPLE_DISTANCE * 2);
+    const smoothMask = 1 - smoothstepRange(0.22, 0.62, reliefRatio);
+
+    return THREE.MathUtils.clamp(slopeMask * smoothMask, 0, 1);
+  }
+
   getMaxHeightInRadius(x, z, radius) {
     const diagonal = radius * Math.SQRT1_2;
     const samplePoints = [
@@ -229,6 +264,132 @@ async function loadHeightMap(path) {
   };
 }
 
+async function loadTerrainTextures() {
+  const loader = new THREE.TextureLoader();
+  const [grass, dirt, dryGrass] = await Promise.all([
+    loader.loadAsync(GROUND_GRASS_TEXTURE_PATH),
+    loader.loadAsync(GROUND_DIRT_TEXTURE_PATH),
+    loader.loadAsync(GROUND_DRY_GRASS_TEXTURE_PATH),
+  ]);
+
+  for (const texture of [grass, dirt, dryGrass]) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+  }
+
+  return { grass, dirt, dryGrass };
+}
+
+function createTerrainMaterial(textures) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uGrassTexture: { value: textures.grass },
+      uDirtTexture: { value: textures.dirt },
+      uDryGrassTexture: { value: textures.dryGrass },
+      uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
+      uMountainColor: { value: new THREE.Color(0x6f8f54) },
+      uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
+      uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
+      uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
+      uSunLightColor: { value: new THREE.Color(0xfff4d6) },
+    },
+    vertexShader: `
+      uniform float uTextureWorldSize;
+
+      attribute float groundMask;
+
+      varying vec2 vWorldUv;
+      varying vec3 vWorldNormal;
+      varying float vGroundMask;
+
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+
+        vWorldUv = worldPosition.xz / uTextureWorldSize;
+        vWorldNormal = normalize(normalMatrix * normal);
+        vGroundMask = groundMask;
+
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uGrassTexture;
+      uniform sampler2D uDirtTexture;
+      uniform sampler2D uDryGrassTexture;
+      uniform float uTextureWorldSize;
+      uniform vec3 uMountainColor;
+      uniform vec3 uSunDirection;
+      uniform vec3 uSkyLightColor;
+      uniform vec3 uGroundLightColor;
+      uniform vec3 uSunLightColor;
+
+      varying vec2 vWorldUv;
+      varying vec3 vWorldNormal;
+      varying float vGroundMask;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+
+        return mix(a, b, u.x)
+          + (c - a) * u.y * (1.0 - u.x)
+          + (d - b) * u.x * u.y;
+      }
+
+      float fbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.5;
+
+        for (int i = 0; i < 4; i += 1) {
+          value += noise(p) * amplitude;
+          p = p * 2.02 + vec2(7.3, 13.1);
+          amplitude *= 0.5;
+        }
+
+        return value;
+      }
+
+      void main() {
+        vec3 normal = normalize(vWorldNormal);
+        vec2 blendUv = vWorldUv * uTextureWorldSize;
+
+        vec3 grass = texture2D(uGrassTexture, vWorldUv).rgb;
+        vec3 dirt = texture2D(uDirtTexture, vWorldUv * 0.92 + vec2(17.3, 4.8)).rgb;
+        vec3 dryGrass = texture2D(uDryGrassTexture, vWorldUv * 1.08 + vec2(-9.1, 12.4)).rgb;
+
+        float dirtPatch = smoothstep(0.48, 0.78, fbm(blendUv * 0.045 + vec2(2.0, -5.0)));
+        float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
+        vec3 groundColor = mix(grass, dirt, dirtPatch * 0.72);
+        groundColor = mix(groundColor, dryGrass, dryPatch * 0.46);
+
+        float groundMask = smoothstep(0.08, 0.82, vGroundMask);
+        float cliffShade = smoothstep(0.12, 1.0, normal.y);
+        vec3 mountainColor = uMountainColor * mix(0.72, 1.08, cliffShade);
+        vec3 baseColor = mix(mountainColor, groundColor, groundMask);
+
+        float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
+        float skyLight = normal.y * 0.5 + 0.5;
+        vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
+        vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * 0.62);
+
+        gl_FragColor = vec4(litColor, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+}
+
 function getHeightDither(x, z) {
   return valueNoise(x * HEIGHT_DITHER_FREQUENCY, z * HEIGHT_DITHER_FREQUENCY)
     * HEIGHT_DITHER_AMPLITUDE;
@@ -251,6 +412,12 @@ function valueNoise(x, z) {
 
 function smoothstep(value) {
   return value * value * (3 - 2 * value);
+}
+
+function smoothstepRange(edge0, edge1, value) {
+  const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
+
+  return smoothstep(t);
 }
 
 function random2d(x, z) {
