@@ -56,10 +56,10 @@ function extractMeshes(scene) {
 }
 
 export function getTreeDensity(height) {
-  if (height <= 130) return 0.025;
-  if (height <= 185) return 0.015;
+  if (height <= 130) return 0.017;
+  if (height <= 185) return 0.010;
 
-  return 0.0025;
+  return 0.0017;
 }
 
 export function isTreeArea(terrain, x, z) {
