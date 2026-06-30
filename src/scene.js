@@ -5,10 +5,12 @@ import { Terrain } from './terrain.js';
 const SUN_POSITION = new THREE.Vector3(180, 420, 140);
 const SUN_VISUAL_DISTANCE = 1000;
 const SUN_TEXTURE_SIZE = 256;
+const SKY_TEXTURE_WIDTH = 16;
+const SKY_TEXTURE_HEIGHT = 256;
 
 export async function createScene() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x2f9bff);
+  scene.background = createSkyTexture();
 
   const terrain = await Terrain.create();
   scene.add(terrain.group);
@@ -63,6 +65,9 @@ function createSunTexture() {
 
   const context = canvas.getContext('2d');
   const center = SUN_TEXTURE_SIZE / 2;
+
+  drawSunRays(context, center);
+
   const gradient = context.createRadialGradient(
     center,
     center,
@@ -81,6 +86,64 @@ function createSunTexture() {
 
   context.fillStyle = gradient;
   context.fillRect(0, 0, SUN_TEXTURE_SIZE, SUN_TEXTURE_SIZE);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
+function drawSunRays(context, center) {
+  context.save();
+  context.translate(center, center);
+  context.globalCompositeOperation = 'lighter';
+
+  for (let i = 0; i < 22; i += 1) {
+    const angle = (i / 22) * Math.PI * 2;
+    const variation = Math.sin(i * 12.9898) * 43758.5453;
+    const random = variation - Math.floor(variation);
+    const innerRadius = 18 + random * 8;
+    const outerRadius = 82 + random * 34;
+    const rayWidth = 1.2 + random * 1.8;
+    const rayGradient = context.createLinearGradient(innerRadius, 0, outerRadius, 0);
+
+    rayGradient.addColorStop(0, 'rgba(255, 255, 230, 0)');
+    rayGradient.addColorStop(0.22, 'rgba(255, 248, 190, 0.28)');
+    rayGradient.addColorStop(0.62, 'rgba(255, 208, 105, 0.12)');
+    rayGradient.addColorStop(1, 'rgba(255, 170, 60, 0)');
+
+    context.save();
+    context.rotate(angle);
+    context.beginPath();
+    context.moveTo(innerRadius, -rayWidth);
+    context.lineTo(outerRadius, -rayWidth * 0.25);
+    context.lineTo(outerRadius, rayWidth * 0.25);
+    context.lineTo(innerRadius, rayWidth);
+    context.closePath();
+    context.fillStyle = rayGradient;
+    context.fill();
+    context.restore();
+  }
+
+  context.restore();
+}
+
+function createSkyTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = SKY_TEXTURE_WIDTH;
+  canvas.height = SKY_TEXTURE_HEIGHT;
+
+  const context = canvas.getContext('2d');
+  const gradient = context.createLinearGradient(0, 0, 0, SKY_TEXTURE_HEIGHT);
+
+  gradient.addColorStop(0, '#1478ff');
+  gradient.addColorStop(0.42, '#2f9bff');
+  gradient.addColorStop(0.78, '#58c0ff');
+  gradient.addColorStop(1, '#86d8ff');
+
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, SKY_TEXTURE_WIDTH, SKY_TEXTURE_HEIGHT);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
