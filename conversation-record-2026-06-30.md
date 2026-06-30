@@ -2,8 +2,6 @@
 
 Exported at: 2026-06-30 Asia/Shanghai
 
-Workspace: `/Users/likai.lear/Desktop/my-example`
-
 ## Note
 
 This export is based on the conversation context currently available to the assistant. The platform's full raw chat database is not directly accessible from the workspace, so earlier turns that were compacted are represented from the available summary.
@@ -42,7 +40,8 @@ This export is based on the conversation context currently available to the assi
    - The river should avoid touching the highlands on both sides.
 
 10. User showed black stripe artifacts beside the carved river and asked for the cause.
-   - The likely cause was terrain/water or adjacent geometry overlap and z-fighting/precision artifacts.
+
+- The likely cause was terrain/water or adjacent geometry overlap and z-fighting/precision artifacts.
 
 11. User requested testing by carving only the main terrain.
 
@@ -53,13 +52,15 @@ This export is based on the conversation context currently available to the assi
 14. User suggested shifting the river sideways.
 
 15. User requested planning river water:
-   - Water should stay close to the river channel surface.
-   - It should look realistic.
+
+- Water should stay close to the river channel surface.
+- It should look realistic.
 
 16. User showed a screenshot where the water followed the V-shaped riverbed and clarified:
-   - Water should not float above the river channel.
-   - The water surface should remain flat.
-   - The flat water level should have a height difference from both banks.
+
+- Water should not float above the river channel.
+- The water surface should remain flat.
+- The flat water level should have a height difference from both banks.
 
 ## Latest Implemented River Water Changes
 
@@ -97,4 +98,3 @@ Tracked modification:
 - `src/riverChannel.js`
 
 No unrelated tracked source changes were reported in the final status check.
-

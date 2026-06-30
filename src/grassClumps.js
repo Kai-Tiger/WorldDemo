@@ -42,7 +42,7 @@ const grassPatches = createGrassPatches();
 const patchCellCache = new Map();
 
 export async function loadGrassModel() {
-  return loader.loadAsync(GRASS_CLUMP_PATH);
+  return loader.loadAsync(GRASS_MODEL_PATH);
 }
 
 export function createGrassVariants(scene) {

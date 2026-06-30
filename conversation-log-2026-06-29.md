@@ -4,14 +4,6 @@ This file exports the project conversation in a concise, chronological form.
 It records user-facing requests, design decisions, implementation outcomes, and
 the related local git commits.
 
-## Project
-
-- Directory: `/Users/likai.lear/Desktop/my-example`
-- Stack: Vite + Three.js
-- Goal: Build and iterate on a third-person terrain prototype with FBX player
-  animations, terrain heightmap support, camera collision, player movement, and
-  river/terrain experiments.
-
 ## Conversation Timeline
 
 ### Initial Third-Person Prototype
@@ -250,4 +242,3 @@ The following checks were used repeatedly:
 - Browser/canvas smoke checks.
 - HUD checks for player position.
 - Synthetic `Player.update()` checks for hover and edge-fall behavior.
-
