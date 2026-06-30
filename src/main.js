@@ -11,7 +11,7 @@ const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const { scene, terrain, water, wetBanks } = await createScene();
-const PLAYER_SPAWN_POSITION = { x: 513, z: -348 };
+const PLAYER_SPAWN_POSITION = { x: 538, z: -347 };
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
