@@ -9,8 +9,6 @@ import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
-const SUN_VISUAL_DISTANCE = 1000;
-const SUN_TEXTURE_SIZE = 256;
 const SHADOW_CAMERA_SIZE = 120;
 
 const HORIZON_COLOR = '#9bbdd0';
@@ -35,7 +33,6 @@ export async function createScene() {
   scene.add(treeManager.group);
   scene.add(water);
   scene.add(waterSystem.group);
-  scene.add(createSunModel());
 
   const clouds = Clouds.create();
   scene.add(clouds.dome);
@@ -59,95 +56,4 @@ export async function createScene() {
   scene.add(sunLight.target);
 
   return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, treeManager, sunLight, clouds };
-}
-
-function createSunModel() {
-  const texture = createSunTexture();
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    color: 0xffffff,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-    blending: THREE.AdditiveBlending,
-  });
-  const sprite = new THREE.Sprite(material);
-  const position = SUN_LIGHT_DIRECTION.clone().multiplyScalar(SUN_VISUAL_DISTANCE);
-
-  sprite.position.copy(position);
-  sprite.scale.set(170, 170, 1);
-  sprite.name = 'SunVisual';
-
-  return sprite;
-}
-
-function createSunTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = SUN_TEXTURE_SIZE;
-  canvas.height = SUN_TEXTURE_SIZE;
-
-  const context = canvas.getContext('2d');
-  const center = SUN_TEXTURE_SIZE / 2;
-
-  drawSunRays(context, center);
-
-  const gradient = context.createRadialGradient(
-    center,
-    center,
-    0,
-    center,
-    center,
-    center,
-  );
-
-  gradient.addColorStop(0, 'rgba(255, 255, 245, 1)');
-  gradient.addColorStop(0.16, 'rgba(255, 252, 220, 1)');
-  gradient.addColorStop(0.28, 'rgba(255, 232, 145, 0.82)');
-  gradient.addColorStop(0.48, 'rgba(255, 184, 72, 0.26)');
-  gradient.addColorStop(0.72, 'rgba(255, 150, 48, 0.08)');
-  gradient.addColorStop(1, 'rgba(255, 150, 48, 0)');
-
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, SUN_TEXTURE_SIZE, SUN_TEXTURE_SIZE);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-
-  return texture;
-}
-
-function drawSunRays(context, center) {
-  context.save();
-  context.translate(center, center);
-  context.globalCompositeOperation = 'lighter';
-
-  for (let i = 0; i < 22; i += 1) {
-    const angle = (i / 22) * Math.PI * 2;
-    const variation = Math.sin(i * 12.9898) * 43758.5453;
-    const random = variation - Math.floor(variation);
-    const innerRadius = 18 + random * 8;
-    const outerRadius = 82 + random * 34;
-    const rayWidth = 1.2 + random * 1.8;
-    const rayGradient = context.createLinearGradient(innerRadius, 0, outerRadius, 0);
-
-    rayGradient.addColorStop(0, 'rgba(255, 255, 230, 0)');
-    rayGradient.addColorStop(0.22, 'rgba(255, 248, 190, 0.28)');
-    rayGradient.addColorStop(0.62, 'rgba(255, 208, 105, 0.12)');
-    rayGradient.addColorStop(1, 'rgba(255, 170, 60, 0)');
-
-    context.save();
-    context.rotate(angle);
-    context.beginPath();
-    context.moveTo(innerRadius, -rayWidth);
-    context.lineTo(outerRadius, -rayWidth * 0.25);
-    context.lineTo(outerRadius, rayWidth * 0.25);
-    context.lineTo(innerRadius, rayWidth);
-    context.closePath();
-    context.fillStyle = rayGradient;
-    context.fill();
-    context.restore();
-  }
-
-  context.restore();
 }

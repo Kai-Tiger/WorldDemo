@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const DOME_RADIUS = 240;
 const HORIZON_COLOR = new THREE.Color('#9bbdd0');
@@ -46,13 +47,13 @@ function createSkyCloudMaterial() {
     uniforms: {
       uTime: { value: 0 },
       uCameraPos: { value: new THREE.Vector3() },
-      uSunDir: { value: new THREE.Vector3(0.48, 0.48, 0.73).normalize() },
+      uSunDir: { value: SUN_LIGHT_DIRECTION.clone() },
       uZenithColor: { value: new THREE.Color('#3f77b8') },
       uHorizonColor: { value: HORIZON_COLOR },
       uCloudColor: { value: new THREE.Color('#f3f5f2') },
       uCloudShadow: { value: new THREE.Color('#b0bdc3') },
       uSunGlowColor: { value: new THREE.Color('#f5e4c0') },
-      uCloudCover: { value: 0.54 },
+      uCloudCover: { value: 0.44 },
     },
     vertexShader: `
       varying vec3 vDir;
