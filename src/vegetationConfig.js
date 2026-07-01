@@ -90,15 +90,6 @@ export const TREE_MODEL_PATHS = [
 
 // --- 放置 (Placement) ---
 
-/** 树木可见距离（米），超过此距离不渲染  |  Max tree rendering distance (m) */
-export const TREE_VIEW_DISTANCE = 500;
-
-/** 树木 LOD 距离阈值（米）  |  Tree LOD distance thresholds (m) */
-export const TREE_LOD_DISTANCES = [200, 500];
-
-/** 树木 LOD 密度除数（对应各级采样的 1/N）  |  Tree LOD sampling divisor (keep 1/divisor) */
-export const TREE_LOD_DIVISORS = [1, 3];
-
 /** 树与树之间的最小间距（米）  |  Min spacing between trees (m) */
 export const TREE_MIN_SPACING = 6;
 
@@ -134,17 +125,3 @@ export const TREE_NOISE_INFLUENCE = 0.7;
 
 /** 噪声调制下的最低密度倍率（0-1），影响范围 = [MIN_FACTOR, 1.0]  |  Min density multiplier under noise modulation */
 export const TREE_NOISE_MIN_FACTOR = 0.3;
-
-// --- 异步生成 (Async generation) ---
-
-/** 每方块每帧最多生成的候选步数  |  Max generation steps per zone per frame */
-export const TREE_GENERATION_STEPS = 100;
-
-/** 每帧所有方块的总生成步数预算  |  Total generation step budget per frame */
-export const TREE_GENERATION_BUDGET = 400;
-
-/** 每帧最多激活/休眠的方块数  |  Max zone mutations per frame */
-export const TREE_ZONE_MUTATIONS = 4;
-
-/** 每帧最多构建实例的方块数  |  Max zone builds per frame */
-export const TREE_BUILDS_PER_FRAME = 8;

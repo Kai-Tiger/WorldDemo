@@ -13,7 +13,7 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
-const { scene, terrain, water, wetBanks, waterSystem, grassManager, treeManager, sunLight, clouds } = await createScene();
+const { scene, terrain, water, wetBanks, waterSystem, grassManager, sunLight, clouds } = await createScene();
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -61,7 +61,6 @@ function animate() {
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
   updateWaterSystemVisuals(waterSystem, camera, clock.elapsedTime);
   grassManager.update(player.position, clock.elapsedTime);
-  treeManager.update(player.position);
   clouds.update(clock.elapsedTime, camera);
   updateSunLight();
 

@@ -5,9 +5,7 @@ import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { hash2 } from './grassClumps.js';
 import {
   MAP_SIZE,
-  ZONE_SIZE,
   TREE_MODEL_PATHS,
-  TREE_VIEW_DISTANCE,
   TREE_MIN_SPACING,
   TREE_RIVER_BUFFER,
   TREE_DENSITY_LOWLAND,
@@ -24,12 +22,11 @@ import {
   TREE_NOISE_MIN_FACTOR,
 } from './vegetationConfig.js';
 
-export { TREE_VIEW_DISTANCE, ZONE_SIZE };
-
 const MIN_TREE_SPACING = TREE_MIN_SPACING;
 const RIVER_BUFFER = TREE_RIVER_BUFFER;
 const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = MAP_SIZE / 2;
+const BATCH_SIZE = 3000;
 
 const loader = new GLTFLoader();
 
@@ -182,6 +179,30 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
   }
 }
 
+export async function generateAllTreePlacements(terrain) {
+  const iterator = createTreePlacementIterator(
+    terrain,
+    -HALF_MAP_SIZE,
+    -HALF_MAP_SIZE,
+    HALF_MAP_SIZE,
+    HALF_MAP_SIZE,
+  );
+
+  return new Promise((resolve) => {
+    function batch() {
+      const done = iterator.step(BATCH_SIZE);
+
+      if (done) {
+        resolve(iterator.getPlacements());
+      } else {
+        requestAnimationFrame(batch);
+      }
+    }
+
+    requestAnimationFrame(batch);
+  });
+}
+
 function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex) {
   const y = terrain.getHeightAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
@@ -258,11 +279,4 @@ function fbm(x, z, octaves) {
   }
 
   return value / maxValue;
-}
-
-export function shouldKeepTreeForLOD(x, z, divisor) {
-  const gx = Math.floor(x * 10);
-  const gz = Math.floor(z * 10);
-
-  return hash2(gx + divisor * 997, gz + divisor * 2003) < (1 / divisor);
 }

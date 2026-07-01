@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { loadGrassModel, createGrassVariants } from './grassClumps.js';
 import { GrassManager } from './grassManager.js';
-import { loadTreeModels } from './treePlacements.js';
-import { TreeManager } from './treeManager.js';
+import { loadTreeModels, generateAllTreePlacements, buildTreeInstancedMeshes } from './treePlacements.js';
 import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
 import { createWaterSystem } from './waterSystem.js';
@@ -28,11 +27,17 @@ export async function createScene() {
   const waterSystem = createWaterSystem(terrain);
   const grassVariants = createGrassVariants(grassAsset.scene);
   const grassManager = new GrassManager(terrain, grassVariants);
-  const treeManager = new TreeManager(terrain, treeModels);
+
   scene.add(grassManager.group);
-  scene.add(treeManager.group);
   scene.add(water);
   scene.add(waterSystem.group);
+
+  const treeGroup = new THREE.Group();
+  treeGroup.name = 'Trees';
+  scene.add(treeGroup);
+
+  const treePlacements = await generateAllTreePlacements(terrain);
+  buildTreeInstancedMeshes(treePlacements, treeModels, treeGroup);
 
   const clouds = Clouds.create();
   scene.add(clouds.dome);
@@ -55,5 +60,5 @@ export async function createScene() {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, treeManager, sunLight, clouds };
+  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, sunLight, clouds };
 }
