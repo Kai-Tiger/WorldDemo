@@ -31,6 +31,7 @@ export class Clouds {
   }
 
   update(elapsedTime, camera) {
+    this.dome.position.copy(camera.position);
     this.dome._camPos.copy(camera.position);
     this.dome.material.uniforms.uTime.value = elapsedTime;
   }
