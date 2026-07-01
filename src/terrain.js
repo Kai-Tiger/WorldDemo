@@ -12,6 +12,7 @@ import {
   applyWaterSystemTerrain,
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
+import { applySmallLakesTerrain } from './smallLakes.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
@@ -103,7 +104,8 @@ export class Terrain {
         const worldZ = minZ + z;
         const baseHeight = this.getBaseHeightAt(worldX, worldZ);
         const waterSystemHeight = applyWaterSystemTerrain(baseHeight, worldX, worldZ);
-        const height = applyRiverChannel(waterSystemHeight, worldX, worldZ);
+        const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, worldX, worldZ);
+        const height = applyRiverChannel(smallLakesHeight, worldX, worldZ);
         const groundMask = this.getTerrainGroundMask(worldX, worldZ);
         const riverFrame = getRiverMaterialFrame(baseHeight, worldX, worldZ);
         const waterSystemFrame = getWaterSystemMaterialFrame(baseHeight, worldX, worldZ);
@@ -181,8 +183,9 @@ export class Terrain {
 
   getHeightAt(x, z) {
     const waterSystemHeight = applyWaterSystemTerrain(this.getBaseHeightAt(x, z), x, z);
+    const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
-    return applyRiverChannel(waterSystemHeight, x, z);
+    return applyRiverChannel(smallLakesHeight, x, z);
   }
 
   getBaseHeightAt(x, z) {
@@ -514,7 +517,7 @@ function createTerrainMaterial(textures) {
           1.0 - smoothstep(0.48, 0.72, normal.y),
           smoothstep(190.0, 260.0, noisyHeight) * (1.0 - smoothstep(0.74, 0.92, normal.y))
         );
-        float snowHeightMask = smoothstep(178.0, 246.0, noisyHeight);
+        float snowHeightMask = smoothstep(130.0, 200.0, noisyHeight);
         float snowSlopeMask = smoothstep(0.52, 0.82, normal.y);
         float snowNoiseMask = smoothstep(0.22, 0.88, fbm(blendUv * 0.055 + vec2(-3.0, 12.0)));
         float snowMask = snowHeightMask * snowSlopeMask * mix(0.72, 1.15, snowNoiseMask);

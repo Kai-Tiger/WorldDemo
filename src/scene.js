@@ -6,6 +6,7 @@ import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
 import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
+import { createSmallLakes } from './smallLakes.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const SHADOW_CAMERA_SIZE = 250;
@@ -39,6 +40,9 @@ export async function createScene() {
   const treePlacements = await generateAllTreePlacements(terrain);
   buildTreeInstancedMeshes(treePlacements, treeModels, treeGroup);
 
+  const smallLakes = createSmallLakes(terrain);
+  scene.add(smallLakes);
+
   const clouds = Clouds.create();
   scene.add(clouds.dome);
 
@@ -60,5 +64,5 @@ export async function createScene() {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, sunLight, clouds };
+  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, sunLight, clouds, smallLakes };
 }

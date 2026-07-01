@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
+import { isInSmallLakeExclusion } from './smallLakes.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
@@ -172,6 +173,7 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
       if (!isGrassArea(terrain, x, z)) continue;
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
+      if (isInSmallLakeExclusion(x, z)) continue;
 
       const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
@@ -426,6 +428,7 @@ function createGrassPlacements(terrain) {
 
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
+      if (isInSmallLakeExclusion(x, z)) continue;
 
       placements.push(createPlacement(terrain, x, z, gridX, gridZ));
     }

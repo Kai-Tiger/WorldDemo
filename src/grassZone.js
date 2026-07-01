@@ -9,6 +9,7 @@ import {
 } from './grassClumps.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
+import { isInSmallLakeExclusion } from './smallLakes.js';
 import {
   MAP_SIZE,
   GRASS_RIVER_BUFFER,
@@ -205,10 +206,10 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
 
             if (shouldPlaceInPatch(x, z, gridX, gridZ, patches)) {
               if (isGrassArea(terrain, x, z)) {
-                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER)) {
+                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
                   const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
-                  if (!isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER)) {
+                  if (!isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(clustered.x, clustered.z)) {
                     placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ));
                   }
                 }
