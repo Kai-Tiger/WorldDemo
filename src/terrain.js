@@ -85,6 +85,7 @@ export class Terrain {
     const riverUnderwaterMasks = new Float32Array(vertexCount);
     const riverBedCoords = new Float32Array(vertexCount * 2);
     const waterSystemMasks = new Float32Array(vertexCount * 4);
+    const smallLakeMasks = new Float32Array(vertexCount);
     const indices = new Uint32Array(CHUNK_SEGMENTS * CHUNK_SEGMENTS * 6);
     const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
     const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
@@ -97,6 +98,7 @@ export class Terrain {
     let riverUnderwaterMaskOffset = 0;
     let riverBedCoordOffset = 0;
     let waterSystemMaskOffset = 0;
+    let smallLakeMaskOffset = 0;
 
     for (let z = 0; z < verticesPerSide; z += 1) {
       for (let x = 0; x < verticesPerSide; x += 1) {
@@ -138,6 +140,9 @@ export class Terrain {
         waterSystemMasks[waterSystemMaskOffset + 3] = waterSystemFrame.plungeMask;
         waterSystemMaskOffset += 4;
 
+        smallLakeMasks[smallLakeMaskOffset] = smallLakesMask;
+        smallLakeMaskOffset += 1;
+
         uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
         uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
         uvOffset += 2;
@@ -172,6 +177,7 @@ export class Terrain {
     geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(riverUnderwaterMasks, 1));
     geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(riverBedCoords, 2));
     geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(waterSystemMasks, 4));
+    geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(smallLakeMasks, 1));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
@@ -384,6 +390,7 @@ function createTerrainMaterial(textures) {
       attribute float riverUnderwaterMask;
       attribute vec4 waterSystemMask;
       attribute vec2 riverBedCoord;
+      attribute float smallLakesMask;
 
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
@@ -396,6 +403,7 @@ function createTerrainMaterial(textures) {
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
       varying vec4 vWaterSystemMask;
+      varying float vSmallLakesMask;
 
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
@@ -412,6 +420,7 @@ function createTerrainMaterial(textures) {
         vRiverBedMask = riverBedMask;
         vRiverUnderwaterMask = riverUnderwaterMask;
         vWaterSystemMask = waterSystemMask;
+        vSmallLakesMask = smallLakesMask;
 
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
         #include <shadowmap_vertex>
@@ -451,6 +460,7 @@ function createTerrainMaterial(textures) {
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
       varying vec4 vWaterSystemMask;
+      varying float vSmallLakesMask;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -495,7 +505,13 @@ function createTerrainMaterial(textures) {
         vec3 rock = texture2D(uRockTexture, vWorldUv * 0.62 + vec2(21.0, 6.0)).rgb;
         vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
         vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
-        vec2 riverBedUv = vec2(vRiverBedCoord.x / uRiverBedTextureWorldSize, vRiverBedCoord.y / 3.6);
+        vec2 lakeBedUv = vWorldUv * uTextureWorldSize / uRiverBedTextureWorldSize;
+        float lakeMaskFactor = smoothstep(0.05, 0.95, vSmallLakesMask);
+        vec2 riverBedUv = mix(
+          vec2(vRiverBedCoord.x / uRiverBedTextureWorldSize, vRiverBedCoord.y / 3.6),
+          lakeBedUv,
+          lakeMaskFactor
+        );
         float riverBedWarp = (fbm(vec2(vRiverBedCoord.x * 0.055, vRiverBedCoord.y * 0.35)) - 0.5) * 0.18;
         riverBedUv += vec2(riverBedWarp, riverBedWarp * 0.45);
         vec3 riverBedA = texture2D(uRiverBedTexture, riverBedUv).rgb;
