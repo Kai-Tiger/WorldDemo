@@ -7,7 +7,7 @@ const LAKES = [
   { cx: 735, cz: -705, radius: 30, maxDepth: 3.2, waterDrop: 2.2, shapeAmp: 0.32 },
 ];
 
-const SHORE_WIDTH = 12;
+const SHORE_WIDTH = 6;
 const VEG_BUFFER = 10;
 const ANGLE_SEGMENTS = 64;
 const RADIAL_RINGS = 12;
@@ -128,7 +128,7 @@ function createLakeGeometry(lake, waterLevel, lr) {
 
     for (let a = 0; a < ANGLE_SEGMENTS; a += 1) {
       const angle = (a / ANGLE_SEGMENTS) * Math.PI * 2;
-      const r = t * (lake.radius * 1.05) * lr(angle, lake) / lake.radius;
+      const r = t * lake.radius * lr(angle, lake) / lake.radius;
       const x = lake.cx + Math.cos(angle) * r;
       const z = lake.cz + Math.sin(angle) * r;
 
@@ -302,7 +302,7 @@ function createLakeMaterial() {
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.02, -uTime * 0.008));
         float edgeAlpha = smoothstep(0.02, 0.20, edge + (edgeBreakup - 0.5) * 0.035);
         float depthAlpha = mix(0.58, 1.0, depthMask);
-        float alpha = edgeAlpha * depthAlpha * 0.35;
+        float alpha = edgeAlpha * depthAlpha * 0.60;
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
         float bottomVisibility = mix(0.98, 0.54, depthMask);
@@ -328,15 +328,15 @@ function createLakeMaterial() {
         float sparkle = smoothstep(0.5, 0.9, fbm(vWorldPosition.xz * 0.95 + vec2(-uTime * 0.3, uTime * 0.05)));
         waterColor += uSunReflectionColor * (spec * sparkle * 0.6 + broadSpec * glancingReflection * 0.08);
 
-        float foamBase = 1.0 - smoothstep(0.008, 0.06, edge);
+        float foamBase = 1.0 - smoothstep(0.0, 0.18, edge);
         foamBase *= 1.0 - smoothstep(0.65, 1.45, vLakeDepth);
         vec2 bigFoamUv = vWorldPosition.xz * 0.3 + vec2(-uTime * 0.08, uTime * 0.04);
         vec2 smallFoamUv = vWorldPosition.xz * 1.2 + vec2(-uTime * 0.16, uTime * 0.1);
         float bigFoam = smoothstep(0.62, 0.88, fbm(bigFoamUv));
         float smallFoam = smoothstep(0.72, 0.93, fbm(smallFoamUv));
-        float foam = foamBase * max(bigFoam * 0.45, smallFoam * 0.28) * 0.2;
-        waterColor = mix(waterColor, uFoamColor, foam * 0.18);
-        alpha = max(alpha, foam * 0.12);
+        float foam = foamBase * max(bigFoam * 0.55, smallFoam * 0.35) * 0.6;
+        waterColor = mix(waterColor, uFoamColor, foam * 0.55);
+        alpha = max(alpha, foam * 0.35);
 
         gl_FragColor = vec4(waterColor, alpha);
         #include <tonemapping_fragment>
