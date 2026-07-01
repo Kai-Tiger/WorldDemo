@@ -1,146 +1,150 @@
 import * as THREE from 'three';
 
-const CLOUD_LAYERS = [
-  { height: 280, planeSize: 900, noiseScale: 1.5, opacity: 0.10, windSpeed: 0.3, textureSize: 512 },
-  { height: 200, planeSize: 750, noiseScale: 2.5, opacity: 0.16, windSpeed: 0.6, textureSize: 512 },
-  { height: 140, planeSize: 600, noiseScale: 4.0, opacity: 0.20, windSpeed: 1.0, textureSize: 512 },
-];
+const DOME_RADIUS = 240;
+const HORIZON_COLOR = new THREE.Color('#9bbdd0');
 
 export class Clouds {
-  constructor() {
-    this.group = new THREE.Group();
-    this.group.name = 'Clouds';
-    this.layers = [];
+  constructor(dome) {
+    this.dome = dome;
   }
 
   static create() {
-    const clouds = new Clouds();
+    const geometry = new THREE.SphereGeometry(DOME_RADIUS, 48, 24);
+    const material = createSkyCloudMaterial();
 
-    for (let i = 0; i < CLOUD_LAYERS.length; i += 1) {
-      const cfg = CLOUD_LAYERS[i];
-      const texture = createCloudTexture(cfg.textureSize, i + 1, cfg.noiseScale);
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(2, 2);
+    const dome = new THREE.Mesh(geometry, material);
 
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        transparent: true,
-        opacity: cfg.opacity,
-        depthWrite: false,
-        depthTest: false,
-        side: THREE.DoubleSide,
-      });
+    dome.name = 'SkyCloudDome';
+    dome.renderOrder = -900;
+    dome.frustumCulled = false;
+    dome.material.depthWrite = false;
+    dome.material.depthTest = false;
+    dome.material.fog = false;
 
-      const geometry = new THREE.PlaneGeometry(cfg.planeSize, cfg.planeSize);
-      const mesh = new THREE.Mesh(geometry, material);
+    dome.onBeforeRender = () => {
+      dome.material.uniforms.uCameraPos.value.copy(dome._camPos);
+    };
 
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = cfg.height;
-      mesh.renderOrder = 999;
-      mesh.name = `CloudLayer_${i}`;
+    dome._camPos = new THREE.Vector3();
 
-      clouds.group.add(mesh);
-      clouds.layers.push({ mesh, cfg, material });
-    }
-
-    return clouds;
+    return new Clouds(dome);
   }
 
-  update(elapsedTime, playerX, playerZ) {
-    for (let i = 0; i < this.layers.length; i += 1) {
-      const layer = this.layers[i];
-      const { mesh, cfg, material } = layer;
-
-      mesh.position.x = playerX;
-      mesh.position.z = playerZ;
-
-      const rotSpeed = (0.01 + i * 0.005) * elapsedTime;
-      mesh.rotation.z += rotSpeed * 0.003;
-
-      const offset = (elapsedTime * cfg.windSpeed) % cfg.textureSize;
-      material.map.offset.x = offset * 0.7;
-      material.map.offset.y = offset * 0.3;
-    }
+  update(elapsedTime, camera) {
+    this.dome._camPos.copy(camera.position);
+    this.dome.material.uniforms.uTime.value = elapsedTime;
   }
 }
 
-function createCloudTexture(size, seed, scale) {
-  const canvas = document.createElement('canvas');
+function createSkyCloudMaterial() {
+  return new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uCameraPos: { value: new THREE.Vector3() },
+      uSunDir: { value: new THREE.Vector3(0.48, 0.48, 0.73).normalize() },
+      uZenithColor: { value: new THREE.Color('#3f77b8') },
+      uHorizonColor: { value: HORIZON_COLOR },
+      uCloudColor: { value: new THREE.Color('#f3f5f2') },
+      uCloudShadow: { value: new THREE.Color('#b0bdc3') },
+      uSunGlowColor: { value: new THREE.Color('#f5e4c0') },
+      uCloudCover: { value: 0.54 },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      varying vec3 vWorldPos;
 
-  canvas.width = size;
-  canvas.height = size;
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
+        vDir = position.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uCameraPos;
+      uniform vec3 uSunDir;
+      uniform vec3 uZenithColor;
+      uniform vec3 uHorizonColor;
+      uniform vec3 uCloudColor;
+      uniform vec3 uCloudShadow;
+      uniform vec3 uSunGlowColor;
+      uniform float uCloudCover;
 
-  const ctx = canvas.getContext('2d');
-  const imageData = ctx.createImageData(size, size);
+      varying vec3 vDir;
+      varying vec3 vWorldPos;
 
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const nx = ((x / size) + seed * 0.37) * scale;
-      const ny = ((y / size) + seed * 0.61) * scale;
-      const value = fbm(nx, ny, 4);
-      const alpha = smoothstep(0.50, 0.78, value) * 0.7;
+      float hash(vec2 p) {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 45.32);
+        return fract(p.x * p.y);
+      }
 
-      const idx = (y * size + x) * 4;
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y);
+      }
 
-      imageData.data[idx] = 255;
-      imageData.data[idx + 1] = 255;
-      imageData.data[idx + 2] = 255;
-      imageData.data[idx + 3] = Math.floor(THREE.MathUtils.clamp(alpha, 0, 1) * 255);
-    }
-  }
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        mat2 m = mat2(1.58, 1.12, -1.12, 1.58);
 
-  ctx.putImageData(imageData, 0, 0);
+        for (int i = 0; i < 6; i++) {
+          v += a * noise(p);
+          p = m * p + 8.37;
+          a *= 0.5;
+        }
 
-  const texture = new THREE.CanvasTexture(canvas);
+        return v;
+      }
 
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
+      void main() {
+        vec3 dir = normalize(vDir);
+        vec3 sd = normalize(uSunDir);
+        float h = clamp(dir.y, 0.0, 1.0);
 
-  return texture;
-}
+        vec3 sky = mix(uHorizonColor, uZenithColor, pow(h, 0.50));
+        float sunDot = max(dot(dir, sd), 0.0);
+        sky = mix(sky, uHorizonColor * 1.05, pow(1.0 - h, 3.0) * 0.45);
+        float mie = pow(sunDot, 7.0) * 0.45 + pow(sunDot, 260.0) * 0.9;
+        sky += uSunGlowColor * mie;
 
-function hash2(x, z) {
-  const value = Math.sin((x * 127.1) + (z * 311.7)) * 43758.5453123;
+        float horizonFade = smoothstep(0.02, 0.20, dir.y);
+        vec2 cp = (dir.xz / (dir.y + 0.32)) * 0.55;
+        vec2 wind = vec2(uTime * 0.005, uTime * 0.0018);
+        cp += wind;
 
-  return value - Math.floor(value);
-}
+        float dens = fbm(cp) * 0.60 + fbm(cp * 2.3 + 3.1) * 0.28 + fbm(cp * 5.0) * 0.12;
+        float cover = uCloudCover;
+        float cl = smoothstep(cover, cover + 0.16, dens);
 
-function noise(x, z) {
-  const x0 = Math.floor(x);
-  const z0 = Math.floor(z);
-  const tx = x - x0;
-  const tz = z - z0;
-  const sx = tx * tx * (3 - 2 * tx);
-  const sz = tz * tz * (3 - 2 * tz);
-  const a = hash2(x0, z0);
-  const b = hash2(x0 + 1, z0);
-  const c = hash2(x0, z0 + 1);
-  const d = hash2(x0 + 1, z0 + 1);
-  const top = a + (b - a) * sx;
-  const bottom = c + (d - c) * sx;
+        float below = fbm(cp + vec2(0.0, 0.14)) * 0.60
+                    + fbm((cp + vec2(0.0, 0.14)) * 2.3 + 3.1) * 0.28;
+        float vshade = clamp((dens - below) * 1.8 + 0.80, 0.55, 1.05);
+        float topLight = smoothstep(cover - 0.04, cover + 0.18, dens);
+        vec3 cloudCol = mix(uCloudShadow, uCloudColor, topLight) * vshade;
+        cloudCol += vec3(0.10, 0.085, 0.05) * pow(sunDot, 4.0);
 
-  return top + (bottom - top) * sz;
-}
+        cl *= horizonFade;
+        sky = mix(sky, cloudCol, clamp(cl, 0.0, 1.0) * 0.95);
 
-function fbm(x, z, octaves) {
-  let value = 0;
-  let amplitude = 1;
-  let frequency = 1;
-  let maxValue = 0;
+        float disc = smoothstep(0.9993, 0.99975, sunDot) * (1.0 - clamp(cl, 0.0, 1.0));
+        sky += vec3(1.0, 0.95, 0.82) * disc * 1.2;
 
-  for (let i = 0; i < octaves; i += 1) {
-    value += noise(x * frequency, z * frequency) * amplitude;
-    maxValue += amplitude;
-    amplitude *= 0.5;
-    frequency *= 2.0;
-  }
+        sky += (hash(gl_FragCoord.xy + uTime) - 0.5) * 0.012;
 
-  return value / maxValue;
-}
-
-function smoothstep(edge0, edge1, value) {
-  const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
-
-  return t * t * (3 - 2 * t);
+        gl_FragColor = vec4(max(sky, vec3(0.0)), 1.0);
+      }
+    `,
+  });
 }

@@ -11,13 +11,14 @@ import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const SUN_VISUAL_DISTANCE = 1000;
 const SUN_TEXTURE_SIZE = 256;
-const SKY_TEXTURE_WIDTH = 16;
-const SKY_TEXTURE_HEIGHT = 256;
 const SHADOW_CAMERA_SIZE = 120;
+
+const HORIZON_COLOR = '#9bbdd0';
 
 export async function createScene() {
   const scene = new THREE.Scene();
-  scene.background = createSkyTexture();
+  scene.background = new THREE.Color(HORIZON_COLOR);
+  scene.fog = new THREE.Fog(HORIZON_COLOR, 500, 2000);
 
   const [terrain, grassAsset, treeModels] = await Promise.all([
     Terrain.create(),
@@ -37,7 +38,7 @@ export async function createScene() {
   scene.add(createSunModel());
 
   const clouds = Clouds.create();
-  scene.add(clouds.group);
+  scene.add(clouds.dome);
 
   const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
   scene.add(hemisphereLight);
@@ -149,27 +150,4 @@ function drawSunRays(context, center) {
   }
 
   context.restore();
-}
-
-function createSkyTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = SKY_TEXTURE_WIDTH;
-  canvas.height = SKY_TEXTURE_HEIGHT;
-
-  const context = canvas.getContext('2d');
-  const gradient = context.createLinearGradient(0, 0, 0, SKY_TEXTURE_HEIGHT);
-
-  gradient.addColorStop(0, '#1478ff');
-  gradient.addColorStop(0.42, '#2f9bff');
-  gradient.addColorStop(0.78, '#58c0ff');
-  gradient.addColorStop(1, '#86d8ff');
-
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, SKY_TEXTURE_WIDTH, SKY_TEXTURE_HEIGHT);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-
-  return texture;
 }

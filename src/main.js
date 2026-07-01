@@ -62,7 +62,7 @@ function animate() {
   updateWaterSystemVisuals(waterSystem, camera, clock.elapsedTime);
   grassManager.update(player.position, clock.elapsedTime);
   treeManager.update(player.position);
-  clouds.update(clock.elapsedTime, player.position.x, player.position.z);
+  clouds.update(clock.elapsedTime, camera);
   updateSunLight();
 
   renderer.render(scene, camera);
