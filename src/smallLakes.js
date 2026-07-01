@@ -1,16 +1,17 @@
 import * as THREE from 'three';
 
 const LAKES = [
-  { cx: 755, cz: -657, radius: 22, maxDepth: 3.0, waterDrop: 2.2, shapeAmp: 0.30 },
-  { cx: 710, cz: -630, radius: 16, maxDepth: 2.2, waterDrop: 1.5, shapeAmp: 0.20 },
-  { cx: 800, cz: -675, radius: 15, maxDepth: 2.5, waterDrop: 1.8, shapeAmp: 0.18 },
-  { cx: 735, cz: -700, radius: 18, maxDepth: 2.8, waterDrop: 2.0, shapeAmp: 0.35 },
+  { cx: 755, cz: -657, radius: 35, maxDepth: 3.5, waterDrop: 2.5, shapeAmp: 0.28 },
+  { cx: 710, cz: -630, radius: 28, maxDepth: 3.0, waterDrop: 2.0, shapeAmp: 0.20 },
+  { cx: 810, cz: -675, radius: 25, maxDepth: 3.0, waterDrop: 2.0, shapeAmp: 0.18 },
+  { cx: 735, cz: -705, radius: 30, maxDepth: 3.2, waterDrop: 2.2, shapeAmp: 0.32 },
 ];
 
-const SHORE_WIDTH = 8;
-const VEG_BUFFER = 6;
+const SHORE_WIDTH = 12;
+const VEG_BUFFER = 10;
 const ANGLE_SEGMENTS = 64;
 const RADIAL_RINGS = 12;
+const BED_MASK_RADIUS = 2;
 
 export function applySmallLakesTerrain(baseHeight, x, z) {
   let height = baseHeight;
@@ -49,6 +50,25 @@ export function isInSmallLakeExclusion(x, z) {
   }
 
   return false;
+}
+
+export function getSmallLakesMaterialMask(x, z) {
+  let mask = 0;
+
+  for (let i = 0; i < LAKES.length; i += 1) {
+    const lake = LAKES[i];
+    const dx = x - lake.cx;
+    const dz = z - lake.cz;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dz, dx);
+    const actualRadius = lakeRadiusAt(angle, lake);
+
+    const bedMask = smoothstep(actualRadius + BED_MASK_RADIUS, actualRadius - 1, dist);
+
+    mask = Math.max(mask, bedMask);
+  }
+
+  return mask;
 }
 
 export function createSmallLakes(terrain) {

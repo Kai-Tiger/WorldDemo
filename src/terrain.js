@@ -12,7 +12,7 @@ import {
   applyWaterSystemTerrain,
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
-import { applySmallLakesTerrain } from './smallLakes.js';
+import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
@@ -109,6 +109,7 @@ export class Terrain {
         const groundMask = this.getTerrainGroundMask(worldX, worldZ);
         const riverFrame = getRiverMaterialFrame(baseHeight, worldX, worldZ);
         const waterSystemFrame = getWaterSystemMaterialFrame(baseHeight, worldX, worldZ);
+        const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
 
         positions[positionOffset] = worldX;
         positions[positionOffset + 1] = height;
@@ -121,7 +122,7 @@ export class Terrain {
         riverMasks[riverMaskOffset] = riverFrame.riverMask;
         riverMaskOffset += 1;
 
-        riverBedMasks[riverBedMaskOffset] = riverFrame.riverBedMask;
+        riverBedMasks[riverBedMaskOffset] = Math.max(riverFrame.riverBedMask, smallLakesMask);
         riverBedMaskOffset += 1;
 
         riverUnderwaterMasks[riverUnderwaterMaskOffset] = riverFrame.riverUnderwaterMask;
