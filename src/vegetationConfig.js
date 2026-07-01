@@ -91,7 +91,13 @@ export const TREE_MODEL_PATHS = [
 // --- 放置 (Placement) ---
 
 /** 树木可见距离（米），超过此距离不渲染  |  Max tree rendering distance (m) */
-export const TREE_VIEW_DISTANCE = 300;
+export const TREE_VIEW_DISTANCE = 500;
+
+/** 树木 LOD 距离阈值（米）  |  Tree LOD distance thresholds (m) */
+export const TREE_LOD_DISTANCES = [200, 500];
+
+/** 树木 LOD 密度除数（对应各级采样的 1/N）  |  Tree LOD sampling divisor (keep 1/divisor) */
+export const TREE_LOD_DIVISORS = [1, 3];
 
 /** 树与树之间的最小间距（米）  |  Min spacing between trees (m) */
 export const TREE_MIN_SPACING = 6;

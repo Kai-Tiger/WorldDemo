@@ -117,7 +117,10 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
             const densityRatio = density / 0.05;
 
             const noiseVal = fbm(x * TREE_NOISE_SCALE, z * TREE_NOISE_SCALE, TREE_NOISE_OCTAVES);
-            const modulatedDensity = densityRatio * (TREE_NOISE_MIN_FACTOR + TREE_NOISE_INFLUENCE * noiseVal);
+            const normal = terrain.getNormalAt(x, z);
+            const ridgeFactor = 1.0 - Math.abs(normal.y - 0.65) * 3.0;
+            const ridgeBoost = THREE.MathUtils.clamp(ridgeFactor * 1.8, 0.4, 1.8);
+            const modulatedDensity = densityRatio * (TREE_NOISE_MIN_FACTOR + TREE_NOISE_INFLUENCE * noiseVal) * ridgeBoost;
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z)) {
@@ -254,4 +257,11 @@ function fbm(x, z, octaves) {
   }
 
   return value / maxValue;
+}
+
+export function shouldKeepTreeForLOD(x, z, divisor) {
+  const gx = Math.floor(x * 10);
+  const gz = Math.floor(z * 10);
+
+  return hash2(gx + divisor * 997, gz + divisor * 2003) < (1 / divisor);
 }

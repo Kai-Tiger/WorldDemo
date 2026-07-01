@@ -1,20 +1,25 @@
 import * as THREE from 'three';
 import { TreeZone } from './treeZone.js';
-import { TREE_VIEW_DISTANCE, ZONE_SIZE } from './treePlacements.js';
+import {
+  TREE_VIEW_DISTANCE,
+  ZONE_SIZE,
+} from './treePlacements.js';
 import {
   MAP_SIZE,
   KEEP_ALIVE_PADDING,
+  TREE_LOD_DISTANCES,
+  TREE_LOD_DIVISORS,
   TREE_GENERATION_STEPS,
   TREE_GENERATION_BUDGET,
   TREE_ZONE_MUTATIONS,
-  TREE_BUILDS_PER_FRAME,
 } from './vegetationConfig.js';
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const ZONE_MUTATIONS_PER_FRAME = TREE_ZONE_MUTATIONS;
 const GENERATION_STEPS = TREE_GENERATION_STEPS;
 const TOTAL_GENERATION_BUDGET = TREE_GENERATION_BUDGET;
-const ZONE_BUILDS_PER_FRAME = TREE_BUILDS_PER_FRAME;
+const ZONE_REBUILDS_PER_FRAME = 4;
+const REBUILD_THRESHOLD = 10;
 
 export class TreeManager {
   constructor(terrain, treeModels) {
@@ -23,6 +28,7 @@ export class TreeManager {
     this.group = new THREE.Group();
     this.group.name = 'TreeManager';
     this.zones = new Map();
+    this.lastRebuildPos = null;
   }
 
   update(cameraPosition) {
@@ -108,7 +114,15 @@ export class TreeManager {
     }
 
     this.processGenerations();
-    this.buildReadyZones();
+
+    const needsRebuild = !this.lastRebuildPos
+      || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD
+      || this.hasUnbuiltZones();
+
+    if (needsRebuild) {
+      this.rebuildLODForZones(camX, camZ);
+      this.lastRebuildPos = { x: camX, z: camZ };
+    }
   }
 
   processGenerations() {
@@ -128,19 +142,39 @@ export class TreeManager {
     }
   }
 
-  buildReadyZones() {
+  hasUnbuiltZones() {
+    for (const zone of this.zones.values()) {
+      if (zone.hasPlacements && zone.builtForPosition === null) return true;
+    }
+
+    return false;
+  }
+
+  rebuildLODForZones(camX, camZ) {
     const readyZones = [];
 
     for (const zone of this.zones.values()) {
-      if (!zone.isReady) continue;
+      if (!zone.hasPlacements || zone.isGenerating) continue;
       readyZones.push(zone);
     }
+
+    readyZones.sort((a, b) => {
+      const aUnbuilt = a.builtForPosition === null ? 0 : 1;
+      const bUnbuilt = b.builtForPosition === null ? 0 : 1;
+
+      if (aUnbuilt !== bUnbuilt) return aUnbuilt - bUnbuilt;
+
+      const da = Math.hypot(a.centerX - camX, a.centerZ - camZ);
+      const db = Math.hypot(b.centerX - camX, b.centerZ - camZ);
+
+      return da - db;
+    });
 
     let count = 0;
 
     for (const zone of readyZones) {
-      if (count >= ZONE_BUILDS_PER_FRAME) break;
-      zone.buildInstances();
+      if (count >= ZONE_REBUILDS_PER_FRAME) break;
+      zone.rebuildLOD(camX, camZ, TREE_LOD_DISTANCES, TREE_LOD_DIVISORS);
       count += 1;
     }
   }

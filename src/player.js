@@ -11,6 +11,7 @@ const MIN_WALKABLE_NORMAL_Y = Math.cos(THREE.MathUtils.degToRad(50));
 const GROUND_SPEED = 5;
 const AIR_SPEED = 60;
 const GRAVITY = 30;
+const MAP_BOUNDARY = 1024 - 0.35;
 const MAX_FALL_SPEED = 55;
 const GROUND_SNAP_DISTANCE = 0.08;
 const LEDGE_DROP_THRESHOLD = 0.45;
@@ -173,8 +174,14 @@ export class Player {
 
       this.moveDirection.normalize();
       const speed = isAirborne ? AIR_SPEED : GROUND_SPEED;
-      const nextX = this.group.position.x + this.moveDirection.x * speed * deltaTime;
-      const nextZ = this.group.position.z + this.moveDirection.z * speed * deltaTime;
+      const nextX = THREE.MathUtils.clamp(
+        this.group.position.x + this.moveDirection.x * speed * deltaTime,
+        -MAP_BOUNDARY, MAP_BOUNDARY,
+      );
+      const nextZ = THREE.MathUtils.clamp(
+        this.group.position.z + this.moveDirection.z * speed * deltaTime,
+        -MAP_BOUNDARY, MAP_BOUNDARY,
+      );
       const isDroppingOffEdge = !this.isHovering && this.isDroppingOffEdge(terrain, nextX, nextZ);
 
       if (!isAirborne && !isDroppingOffEdge && !this.canStandAt(terrain, nextX, nextZ)) {
