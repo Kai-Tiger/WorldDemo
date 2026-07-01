@@ -188,6 +188,10 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
 
       const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
+      if (isInRiverGrassExclusion(clustered.x, clustered.z, RIVER_BUFFER)) continue;
+      if (isInWaterSystemVegetationExclusion(clustered.x, clustered.z, RIVER_BUFFER)) continue;
+      if (isInSmallLakeExclusion(clustered.x, clustered.z)) continue;
+
       placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ));
     }
   }

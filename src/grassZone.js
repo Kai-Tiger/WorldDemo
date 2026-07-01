@@ -209,7 +209,7 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
                 if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
                   const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
-                  if (!isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(clustered.x, clustered.z)) {
+                  if (!isInRiverGrassExclusion(clustered.x, clustered.z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(clustered.x, clustered.z)) {
                     placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ));
                   }
                 }

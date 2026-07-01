@@ -65,7 +65,9 @@ const WATER_DEEP_COLOR = 0x0d5b77;
 const WATER_FOAM_COLOR = 0xf1fbff;
 const WATER_REFLECTION_COLOR = 0x8ed8ff;
 const WATER_HORIZON_REFLECTION_COLOR = 0xd7f3ff;
+const WATER_BANK_REFLECTION_COLOR = 0x4f6f58;
 const WATER_SUN_REFLECTION_COLOR = 0xfff1bd;
+const WATER_SURFACE_RENDER_ORDER = 20;
 
 const outletCurve = new THREE.CatmullRomCurve3(OUTLET_POINTS, false, 'centripetal');
 const outletSamples = createPathSamples(outletCurve, 100);
@@ -90,12 +92,13 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   const outlet = getPathFrame(outletSamples, x, z);
   const snowmelt = getClosestSnowmeltFrame(x, z);
   const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
-  const lakeBedMask = lake.inside * (1 - smoothstep(lake.lakeRadius - 4, lake.lakeRadius + 0.2, lake.radius));
-  const lakeShoreMask = (1 - lake.inside) * (1 - smoothstep(LAKE_BASE_RADIUS, LAKE_BASE_RADIUS + LAKE_SHORE_WIDTH, lake.radius));
+  const lakeBedMask = lake.inside * (1 - smoothstep(lake.lakeRadius - 1.2, lake.lakeRadius + 0.4, lake.radius));
+  const lakeInnerShoreMask = lake.inside * smoothstep(lake.lakeRadius - 8, lake.lakeRadius - 1.4, lake.radius);
+  const lakeOuterShoreMask = (1 - lake.inside) * (1 - smoothstep(lake.lakeRadius, lake.lakeRadius + LAKE_SHORE_WIDTH, lake.radius));
   const outletMask = outlet ? 1 - smoothstep(OUTLET_WIDTH * 0.5, OUTLET_INFLUENCE, Math.abs(outlet.lateral)) : 0;
   const snowmeltMask = snowmelt ? 1 - smoothstep(SNOWMELT_WIDTH * 0.4, SNOWMELT_INFLUENCE, Math.abs(snowmelt.lateral)) : 0;
   const plungeMask = 1 - smoothstep(PLUNGE_RADIUS * 0.45, PLUNGE_RADIUS, plungeDistance);
-  const wetShoreMask = Math.max(lakeShoreMask, outletMask * 0.65, snowmeltMask * 0.8, plungeMask * 0.8);
+  const wetShoreMask = Math.max(lakeInnerShoreMask * 0.68, lakeOuterShoreMask, outletMask * 0.65, snowmeltMask * 0.8, plungeMask * 0.8);
 
   return {
     lakeBedMask: THREE.MathUtils.clamp(lakeBedMask, 0, 1),
@@ -229,6 +232,7 @@ function createLakeWater(terrain) {
 
   lake.name = 'AlpineLakeWater';
   surface.name = 'AlpineLakeSurface';
+  surface.renderOrder = WATER_SURFACE_RENDER_ORDER;
   lake.add(surface);
 
   return lake;
@@ -385,6 +389,7 @@ function createOutletStream(terrain) {
   }));
 
   stream.name = 'LakeOutletStream';
+  stream.renderOrder = WATER_SURFACE_RENDER_ORDER;
 
   return stream;
 }
@@ -406,6 +411,7 @@ function createSnowmeltGroup(terrain) {
     const mesh = new THREE.Mesh(geometry, createSnowmeltMaterial());
 
     mesh.name = `SnowmeltRunoff_${i + 1}`;
+    mesh.renderOrder = WATER_SURFACE_RENDER_ORDER;
     group.add(mesh);
   }
 
@@ -620,6 +626,7 @@ function createLakeSurfaceMaterial() {
       uFoamColor: { value: new THREE.Color(WATER_FOAM_COLOR) },
       uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
       uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
+      uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
       uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
       uSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
     },
@@ -652,6 +659,7 @@ function createLakeSurfaceMaterial() {
       uniform vec3 uFoamColor;
       uniform vec3 uReflectionColor;
       uniform vec3 uHorizonReflectionColor;
+      uniform vec3 uBankReflectionColor;
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
 
@@ -716,28 +724,32 @@ function createLakeSurfaceMaterial() {
         vec2 p = vWorldPosition.xz;
         float edgeNoise = fbm(p * 0.24 + vec2(uTime * 0.01, -uTime * 0.006)) - 0.5;
         float edgeAlpha = smoothstep(0.035, 0.23, vLakeEdge + edgeNoise * 0.045);
-        float depthMask = smoothstep(0.75, 8.0, vLakeDepth);
+        float depthMask = smoothstep(0.55, 8.0, vLakeDepth);
         float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
-        float deepMask = max(smoothstep(2.0, 11.0, vLakeDepth), basinCenter * 0.86);
+        float deepMask = max(smoothstep(1.6, 10.5, vLakeDepth), basinCenter * 0.86);
         float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
-        float waveStrength = mix(0.45, 0.82, deepMask);
+        float waveStrength = mix(0.5, 0.92, deepMask);
         vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
         float reflectionMask = smoothstep(0.06, 0.78, fresnel);
         vec3 color = mix(uShallowColor, uDeepColor, deepMask);
-        vec3 bedTint = vec3(0.26, 0.34, 0.28);
-        float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.34;
+        vec3 bedTint = mix(uShallowColor, uDeepColor, 0.35) * vec3(0.58, 0.68, 0.62);
+        float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.18;
         color = mix(color, bedTint, bedInfluence);
+        color = mix(color, uDeepColor * vec3(0.68, 0.9, 1.08), deepMask * 0.18);
 
         float surfaceRipple = fbm(p * 0.16 + vec2(-uTime * 0.02, uTime * 0.014));
         color *= mix(0.92, 1.08, surfaceRipple);
 
         float caustics = getCaustics(p * 0.12);
-        color += vec3(0.5, 0.82, 0.88) * caustics * shallowMask * vLakeBedVisibility * 0.1;
+        color += vec3(0.74, 0.96, 1.0) * caustics * shallowMask * vLakeBedVisibility * 0.13;
 
         vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
-        color = mix(color, skyReflection, 0.07 + reflectionMask * 0.28);
+        color = mix(color, skyReflection, 0.14 + reflectionMask * 0.36);
+        float bankNoise = fbm(p * 0.18 + vec2(uTime * 0.018, -uTime * 0.012));
+        float bankReflection = (1.0 - basinCenter) * edgeAlpha * smoothstep(0.32, 0.86, bankNoise);
+        color = mix(color, uBankReflectionColor, bankReflection * 0.14);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
@@ -751,8 +763,8 @@ function createLakeSurfaceMaterial() {
         float shoreFoam = shoreFoamBase * shoreFoamNoise * 0.28;
         color = mix(color, uFoamColor, shoreFoam * 0.35);
 
-        float alpha = edgeAlpha * mix(0.1, 0.4, max(depthMask, basinCenter * 0.72));
-        alpha = max(alpha, reflectionMask * 0.16 * edgeAlpha);
+        float alpha = edgeAlpha * mix(0.14, 0.54, max(depthMask, basinCenter * 0.82));
+        alpha = max(alpha, reflectionMask * 0.28 * edgeAlpha);
         alpha = max(alpha, shoreFoam * 0.18);
 
         gl_FragColor = vec4(color, alpha);
@@ -777,6 +789,7 @@ function createStreamMaterial(options) {
       uFoamColor: { value: new THREE.Color(options.foam) },
       uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
       uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
+      uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
       uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
       uSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
       uFlowSpeed: { value: options.speed },
@@ -806,6 +819,7 @@ function createStreamMaterial(options) {
       uniform vec3 uFoamColor;
       uniform vec3 uReflectionColor;
       uniform vec3 uHorizonReflectionColor;
+      uniform vec3 uBankReflectionColor;
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
       uniform vec3 uCameraPosition;
@@ -867,6 +881,9 @@ function createStreamMaterial(options) {
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
         vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
         color = mix(color, skyReflection, 0.12 + fresnel * 0.32);
+        float bankNoise = fbm(vWorldPosition.xz * 0.18 + vec2(uTime * 0.018, -uTime * 0.012));
+        float bankReflection = (1.0 - center) * smoothstep(0.32, 0.86, bankNoise);
+        color = mix(color, uBankReflectionColor, bankReflection * 0.14);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
