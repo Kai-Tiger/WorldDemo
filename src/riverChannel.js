@@ -125,7 +125,6 @@ export function createRiverWaterMesh(terrain) {
   const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
 
   mesh.name = 'RiverWater';
-  mesh.renderOrder = 20;
 
   return mesh;
 }
@@ -158,8 +157,6 @@ export function createWetBankMesh(terrain, textures) {
 
   left.name = 'RiverWetBankLeft';
   right.name = 'RiverWetBankRight';
-  left.renderOrder = 15;
-  right.renderOrder = 15;
   group.name = 'RiverWetBanks';
   group.add(left, right);
 

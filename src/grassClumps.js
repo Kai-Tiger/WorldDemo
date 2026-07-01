@@ -33,6 +33,7 @@ const PATCH_COUNT = GRASS_PATCH_COUNT;
 const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
+const GRASS_ALPHA_TEST = 0.34;
 
 export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
@@ -91,6 +92,7 @@ export function createGrassSwayMaterial(sourceMaterial, geometry) {
     material.vertexColors = true;
   }
 
+  configureGrassMaterial(material);
   material.userData.grassUniforms = uniforms;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -130,9 +132,18 @@ transformed.xz += (
 function createSimpleMaterial(sourceMaterial, geometry) {
   const material = sourceMaterial.clone();
 
+  configureGrassMaterial(material);
   material.userData.grassUniforms = null;
 
   return material;
+}
+
+function configureGrassMaterial(material) {
+  material.transparent = false;
+  material.alphaTest = Math.max(material.alphaTest || 0, GRASS_ALPHA_TEST);
+  material.depthWrite = true;
+  material.depthTest = true;
+  material.needsUpdate = true;
 }
 
 export function isGrassArea(terrain, x, z) {

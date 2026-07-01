@@ -74,7 +74,6 @@ export function getSmallLakesMaterialMask(x, z) {
 export function createSmallLakes(terrain) {
   const group = new THREE.Group();
   group.name = 'SmallLakes';
-  group.renderOrder = 25;
 
   for (let i = 0; i < LAKES.length; i += 1) {
     const lake = LAKES[i];

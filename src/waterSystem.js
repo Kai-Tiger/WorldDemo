@@ -229,7 +229,6 @@ function createLakeWater(terrain) {
 
   lake.name = 'AlpineLakeWater';
   surface.name = 'AlpineLakeSurface';
-  surface.renderOrder = 19;
   lake.add(surface);
 
   return lake;
@@ -386,7 +385,6 @@ function createOutletStream(terrain) {
   }));
 
   stream.name = 'LakeOutletStream';
-  stream.renderOrder = 21;
 
   return stream;
 }
@@ -408,7 +406,6 @@ function createSnowmeltGroup(terrain) {
     const mesh = new THREE.Mesh(geometry, createSnowmeltMaterial());
 
     mesh.name = `SnowmeltRunoff_${i + 1}`;
-    mesh.renderOrder = 22;
     group.add(mesh);
   }
 

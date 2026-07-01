@@ -29,6 +29,7 @@ const WATER_SYSTEM_BUFFER = Math.max(RIVER_BUFFER, 10);
 const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
+const TREE_ALPHA_TEST = 0.38;
 
 const loader = new GLTFLoader();
 
@@ -60,11 +61,23 @@ function extractMeshes(scene) {
 
     meshes.push({
       geometry,
-      material: child.material.clone(),
+      material: createTreeMaterial(child.material),
     });
   });
 
   return meshes;
+}
+
+function createTreeMaterial(sourceMaterial) {
+  const material = sourceMaterial.clone();
+
+  material.transparent = false;
+  material.alphaTest = Math.max(material.alphaTest || 0, TREE_ALPHA_TEST);
+  material.depthWrite = true;
+  material.depthTest = true;
+  material.needsUpdate = true;
+
+  return material;
 }
 
 export function getTreeDensity(height) {
