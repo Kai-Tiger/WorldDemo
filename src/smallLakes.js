@@ -2,9 +2,9 @@ import * as THREE from 'three';
 
 const LAKES = [
   { cx: 755, cz: -657, radius: 35, maxDepth: 3.5, waterDrop: 1.0, shapeAmp: 0.28 },
-  { cx: 710, cz: -630, radius: 28, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.20 },
-  { cx: 810, cz: -675, radius: 25, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.18 },
-  { cx: 735, cz: -705, radius: 30, maxDepth: 3.2, waterDrop: 0.9, shapeAmp: 0.32 },
+  { cx: 693, cz: -620, radius: 28, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.20 },
+  { cx: 830, cz: -682, radius: 25, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.18 },
+  { cx: 728, cz: -723, radius: 30, maxDepth: 3.2, waterDrop: 0.9, shapeAmp: 0.32 },
 ];
 
 const SHORE_WIDTH = 6;
