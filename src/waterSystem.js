@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { Water as Water2 } from 'three/addons/objects/Water2.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 export const LAKE_CENTER = new THREE.Vector2(300, -400);
@@ -9,7 +8,6 @@ const LAKE_SHORE_WIDTH = 9;
 const LAKE_BASIN_FLOOR = 24.5;
 const LAKE_SHAPE_SEGMENTS = 96;
 const LAKE_MESH_SEGMENTS = 22;
-const LAKE_NORMAL_SIZE = 256;
 const WATER_SYSTEM_MIN_X = 205;
 const WATER_SYSTEM_MAX_X = 435;
 const WATER_SYSTEM_MIN_Z = -490;
@@ -226,29 +224,13 @@ function applyPlungePool(height, x, z) {
 
 function createLakeWater(terrain) {
   const geometry = createLakeGeometry(terrain);
-  const reflectionGeometry = geometry.clone();
   const lake = new THREE.Group();
-  const reflector = new Water2(reflectionGeometry, {
-    color: WATER_SHALLOW_COLOR,
-    scale: 5.5,
-    flowSpeed: 0.018,
-    reflectivity: 0.04,
-    textureWidth: 512,
-    textureHeight: 512,
-    normalMap0: createWaterNormalTexture(0),
-    normalMap1: createWaterNormalTexture(17),
-  });
   const surface = new THREE.Mesh(geometry, createLakeSurfaceMaterial());
 
   lake.name = 'AlpineLakeWater';
-  reflector.name = 'AlpineLakeReflector';
-  reflector.renderOrder = 18;
-  reflector.material.depthWrite = false;
-  reflector.material.transparent = true;
-  reflector.material.side = THREE.DoubleSide;
   surface.name = 'AlpineLakeSurface';
   surface.renderOrder = 19;
-  lake.add(reflector, surface);
+  lake.add(surface);
 
   return lake;
 }
@@ -393,6 +375,7 @@ function createOutletStream(terrain) {
     90,
     10,
     (_x, _z, t) => THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, 3.2, t) + OUTLET_WATER_OFFSET,
+    (_x, _z, t) => smoothstep(0.08, 0.24, t),
   );
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
     shallow: WATER_SHALLOW_COLOR,
@@ -420,6 +403,7 @@ function createSnowmeltGroup(terrain) {
       72,
       5,
       (x, z) => terrain.getHeightAt(x, z) + SNOWMELT_SURFACE_OFFSET,
+      (x, z, t) => getSnowmeltWaterFade(x, z, t),
     );
     const mesh = new THREE.Mesh(geometry, createSnowmeltMaterial());
 
@@ -478,13 +462,23 @@ function createConfluenceFoam() {
   return mesh;
 }
 
-function createPathStripGeometry(curve, terrain, width, longitudinalSegments, lateralSegments, getHeight) {
+function createPathStripGeometry(
+  curve,
+  terrain,
+  width,
+  longitudinalSegments,
+  lateralSegments,
+  getHeight,
+  getFade = () => 1,
+) {
   const verticesPerRow = lateralSegments + 1;
   const positions = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 3);
   const uvs = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 2);
+  const waterFades = new Float32Array((longitudinalSegments + 1) * verticesPerRow);
   const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
   let positionOffset = 0;
   let uvOffset = 0;
+  let fadeOffset = 0;
 
   for (let i = 0; i <= longitudinalSegments; i += 1) {
     const t = i / longitudinalSegments;
@@ -499,6 +493,7 @@ function createPathStripGeometry(curve, terrain, width, longitudinalSegments, la
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
       const y = getHeight(x, z, t, terrain);
+      const fade = getFade(x, z, t, terrain);
 
       positions[positionOffset] = x;
       positions[positionOffset + 1] = y;
@@ -508,6 +503,9 @@ function createPathStripGeometry(curve, terrain, width, longitudinalSegments, la
       uvs[uvOffset] = t * 8;
       uvs[uvOffset + 1] = lateralT;
       uvOffset += 2;
+
+      waterFades[fadeOffset] = THREE.MathUtils.clamp(fade, 0, 1);
+      fadeOffset += 1;
     }
   }
 
@@ -532,6 +530,7 @@ function createPathStripGeometry(curve, terrain, width, longitudinalSegments, la
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('waterFade', new THREE.BufferAttribute(waterFades, 1));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
@@ -600,6 +599,14 @@ function createWaterfallGeometry(layer) {
   geometry.computeBoundingSphere();
 
   return geometry;
+}
+
+function getSnowmeltWaterFade(x, z, t) {
+  const lake = getLakeFrame(x, z);
+  const lakeEdgeFade = smoothstep(lake.lakeRadius - 0.5, lake.lakeRadius + 5.5, lake.radius);
+  const endpointFade = 1 - smoothstep(0.76, 0.98, t);
+
+  return Math.min(lakeEdgeFade, endpointFade);
 }
 
 function createLakeSurfaceMaterial() {
@@ -779,11 +786,15 @@ function createStreamMaterial(options) {
       uBaseAlpha: { value: options.alpha },
     },
     vertexShader: `
+      attribute float waterFade;
+
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vWaterFade;
 
       void main() {
         vUv = uv;
+        vWaterFade = waterFade;
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
@@ -804,6 +815,7 @@ function createStreamMaterial(options) {
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vWaterFade;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -851,7 +863,7 @@ function createStreamMaterial(options) {
         float center = smoothstep(0.03, 0.45, edge);
         vec2 flowUv = vec2(vUv.x - uTime * uFlowSpeed, vUv.y);
         float streak = smoothstep(0.46, 0.88, fbm(flowUv * vec2(7.5, 26.0)));
-        float foamEdge = (1.0 - smoothstep(0.018, 0.12, edge)) * smoothstep(0.46, 0.9, fbm(flowUv * vec2(16.0, 58.0)));
+        float foamEdge = (1.0 - smoothstep(0.018, 0.12, edge)) * smoothstep(0.46, 0.9, fbm(flowUv * vec2(16.0, 58.0))) * vWaterFade;
         vec3 color = mix(uShallowColor, uDeepColor, center);
         vec3 normal = getWaterNormal(flowUv, vWorldPosition.xz * 0.18, mix(0.58, 1.0, center));
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
@@ -864,10 +876,11 @@ function createStreamMaterial(options) {
         float spec = pow(max(dot(normal, halfDir), 0.0), 110.0);
         float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
         color += uSunReflectionColor * spec * sparkle * 0.46;
-        color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1));
+        color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1 * vWaterFade));
         float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
         alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
         alpha = max(alpha, foamEdge * 0.18);
+        alpha *= vWaterFade;
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
@@ -1107,39 +1120,6 @@ function createMistParticles() {
   points.renderOrder = 34;
 
   return points;
-}
-
-function createWaterNormalTexture(seed) {
-  const canvas = document.createElement('canvas');
-  canvas.width = LAKE_NORMAL_SIZE;
-  canvas.height = LAKE_NORMAL_SIZE;
-  const context = canvas.getContext('2d');
-  const imageData = context.createImageData(LAKE_NORMAL_SIZE, LAKE_NORMAL_SIZE);
-
-  for (let y = 0; y < LAKE_NORMAL_SIZE; y += 1) {
-    for (let x = 0; x < LAKE_NORMAL_SIZE; x += 1) {
-      const nx = x / LAKE_NORMAL_SIZE;
-      const ny = y / LAKE_NORMAL_SIZE;
-      const waveA = Math.sin((nx * 18 + ny * 4 + seed) * Math.PI * 2);
-      const waveB = Math.sin((nx * -7 + ny * 15 + seed * 0.37) * Math.PI * 2);
-      const valueX = 128 + waveA * 34 + waveB * 14;
-      const valueY = 128 + waveB * 32 - waveA * 10;
-      const offset = (y * LAKE_NORMAL_SIZE + x) * 4;
-      imageData.data[offset] = THREE.MathUtils.clamp(valueX, 0, 255);
-      imageData.data[offset + 1] = THREE.MathUtils.clamp(valueY, 0, 255);
-      imageData.data[offset + 2] = 210;
-      imageData.data[offset + 3] = 255;
-    }
-  }
-
-  context.putImageData(imageData, 0, 0);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.needsUpdate = true;
-
-  return texture;
 }
 
 function createLakeOutline() {

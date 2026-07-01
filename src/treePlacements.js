@@ -24,6 +24,7 @@ import {
 
 const MIN_TREE_SPACING = TREE_MIN_SPACING;
 const RIVER_BUFFER = TREE_RIVER_BUFFER;
+const WATER_SYSTEM_BUFFER = Math.max(RIVER_BUFFER, 10);
 const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
@@ -122,7 +123,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z)) {
-                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) {
+                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER)) {
                   if (!isTooClose(x, z, occupied)) {
                     markOccupied(x, z, occupied);
                     const modelCount = TREE_MODEL_PATHS.length;
