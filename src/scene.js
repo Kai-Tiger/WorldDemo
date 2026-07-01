@@ -8,7 +8,7 @@ import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
-const SHADOW_CAMERA_SIZE = 120;
+const SHADOW_CAMERA_SIZE = 250;
 
 const HORIZON_COLOR = '#9bbdd0';
 
