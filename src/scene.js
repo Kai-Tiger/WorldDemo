@@ -5,13 +5,13 @@ import { loadTreeModels } from './treePlacements.js';
 import { TreeManager } from './treeManager.js';
 import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
-const SUN_POSITION = new THREE.Vector3(180, 420, 140);
 const SUN_VISUAL_DISTANCE = 1000;
 const SUN_TEXTURE_SIZE = 256;
 const SKY_TEXTURE_WIDTH = 16;
 const SKY_TEXTURE_HEIGHT = 256;
-const SHADOW_CAMERA_SIZE = 170;
+const SHADOW_CAMERA_SIZE = 120;
 
 export async function createScene() {
   const scene = new THREE.Scene();
@@ -36,7 +36,7 @@ export async function createScene() {
   scene.add(hemisphereLight);
 
   const sunLight = new THREE.DirectionalLight(0xfff4d6, 3.2);
-  sunLight.position.copy(SUN_POSITION);
+  sunLight.position.copy(SUN_LIGHT_DIRECTION).multiplyScalar(320);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.left = -SHADOW_CAMERA_SIZE;
@@ -64,7 +64,7 @@ function createSunModel() {
     blending: THREE.AdditiveBlending,
   });
   const sprite = new THREE.Sprite(material);
-  const position = SUN_POSITION.clone().normalize().multiplyScalar(SUN_VISUAL_DISTANCE);
+  const position = SUN_LIGHT_DIRECTION.clone().multiplyScalar(SUN_VISUAL_DISTANCE);
 
   sprite.position.copy(position);
   sprite.scale.set(170, 170, 1);

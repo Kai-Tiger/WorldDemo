@@ -7,6 +7,7 @@ import {
   RIVER_BANK_TEXTURE_PATH,
   RIVER_BANK_TEXTURE_WORLD_SIZE,
 } from './riverChannel.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
@@ -343,7 +344,7 @@ function createTerrainMaterial(textures) {
         uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
         uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
         uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
-        uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
+        uSunDirection: { value: SUN_LIGHT_DIRECTION.clone() },
         uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
         uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
         uSunLightColor: { value: new THREE.Color(0xfff4d6) },
@@ -507,10 +508,12 @@ function createTerrainMaterial(textures) {
         baseColor = mix(baseColor, riverBed, riverBedMask);
 
         float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
-        float shadowMask = mix(0.42, 1.0, getShadowMask());
+        float rawShadowMask = getShadowMask();
+        float shadowMask = mix(0.18, 1.0, rawShadowMask);
+        float ambientShadow = mix(0.72, 1.0, rawShadowMask);
         float skyLight = normal.y * 0.5 + 0.5;
         vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
-        vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * shadowMask * 0.62);
+        vec3 litColor = baseColor * (ambient * ambientShadow + uSunLightColor * sunLight * shadowMask * 0.62);
 
         gl_FragColor = vec4(litColor, 1.0);
         #include <tonemapping_fragment>

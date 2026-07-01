@@ -6,14 +6,14 @@ import { createScene } from './scene.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const { scene, terrain, water, wetBanks, grassManager, treeManager, sunLight } = await createScene();
-const sunLightDirection = new THREE.Vector3(0.37, 0.86, 0.29).normalize();
-const sunLightOffset = sunLightDirection.multiplyScalar(320);
+const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

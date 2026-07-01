@@ -10,6 +10,10 @@ The sun direction should be shared by the light, sun visual, and terrain shader,
 
 太阳方向应由灯光、太阳视觉和地形 shader 共享，并使用更低的角度产生可读的人物影子。地形阴影响应应更明显，同时保持场景可读。
 
+The follow-up adjustment keeps that scope and focuses on making the existing shadow path visually readable.
+
+本次跟进调整保持上述范围，重点是让现有阴影路径在视觉上清晰可见。
+
 # User Request / 用户需求
 
 The user reported that the player still had no visible shadow after the first shadow implementation.
