@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 const LAKES = [
-  { cx: 755, cz: -657, radius: 18, maxDepth: 2.8, waterDrop: 2.0, shapeAmp: 0.30 },
-  { cx: 735, cz: -640, radius: 15, maxDepth: 2.2, waterDrop: 1.5, shapeAmp: 0.20 },
-  { cx: 778, cz: -668, radius: 14, maxDepth: 2.5, waterDrop: 1.8, shapeAmp: 0.18 },
-  { cx: 742, cz: -678, radius: 20, maxDepth: 3.0, waterDrop: 2.2, shapeAmp: 0.38 },
+  { cx: 755, cz: -657, radius: 22, maxDepth: 3.0, waterDrop: 2.2, shapeAmp: 0.30 },
+  { cx: 710, cz: -630, radius: 16, maxDepth: 2.2, waterDrop: 1.5, shapeAmp: 0.20 },
+  { cx: 800, cz: -675, radius: 15, maxDepth: 2.5, waterDrop: 1.8, shapeAmp: 0.18 },
+  { cx: 735, cz: -700, radius: 18, maxDepth: 2.8, waterDrop: 2.0, shapeAmp: 0.35 },
 ];
 
 const SHORE_WIDTH = 8;
@@ -58,7 +58,7 @@ export function createSmallLakes(terrain) {
 
   for (let i = 0; i < LAKES.length; i += 1) {
     const lake = LAKES[i];
-    const terrainHeight = terrain.getHeightAt(lake.cx, lake.cz);
+    const terrainHeight = terrain.getBaseHeightAt(lake.cx, lake.cz);
     const waterLevel = terrainHeight - lake.waterDrop;
     const lr = lakeRadiusAt;
 
@@ -99,7 +99,7 @@ function createLakeGeometry(lake, waterLevel, lr) {
   const depths = [];
   const edges = [];
 
-  vertices.push(0, waterLevel, 0);
+  vertices.push(lake.cx, waterLevel, lake.cz);
   uvs.push(0.5, 0.5);
   depths.push(lake.maxDepth);
   edges.push(0);
@@ -116,7 +116,7 @@ function createLakeGeometry(lake, waterLevel, lr) {
       vertices.push(x, waterLevel, z);
       uvs.push(0.5 + Math.cos(angle) * t * 0.5, 0.5 + Math.sin(angle) * t * 0.5);
 
-      depths.push(Math.max(waterLevel - 4, 0));
+      depths.push(lake.maxDepth * (1 - t));
       edges.push(t);
     }
   }
