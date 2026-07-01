@@ -327,25 +327,32 @@ async function loadTerrainTextures() {
 
 function createTerrainMaterial(textures) {
   return new THREE.ShaderMaterial({
-    uniforms: {
-      uGrassTexture: { value: textures.grass },
-      uDirtTexture: { value: textures.dirt },
-      uDryGrassTexture: { value: textures.dryGrass },
-      uFrozenDirtTexture: { value: textures.frozenDirt },
-      uScreeTexture: { value: textures.scree },
-      uRockTexture: { value: textures.rock },
-      uSnowTexture: { value: textures.snow },
-      uRiverBankTexture: { value: textures.riverBank },
-      uRiverBedTexture: { value: textures.riverBed },
-      uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
-      uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
-      uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
-      uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
-      uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
-      uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
-      uSunLightColor: { value: new THREE.Color(0xfff4d6) },
-    },
+    lights: true,
+    uniforms: THREE.UniformsUtils.merge([
+      THREE.UniformsLib.lights,
+      {
+        uGrassTexture: { value: textures.grass },
+        uDirtTexture: { value: textures.dirt },
+        uDryGrassTexture: { value: textures.dryGrass },
+        uFrozenDirtTexture: { value: textures.frozenDirt },
+        uScreeTexture: { value: textures.scree },
+        uRockTexture: { value: textures.rock },
+        uSnowTexture: { value: textures.snow },
+        uRiverBankTexture: { value: textures.riverBank },
+        uRiverBedTexture: { value: textures.riverBed },
+        uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
+        uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
+        uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
+        uSunDirection: { value: new THREE.Vector3(0.37, 0.86, 0.29).normalize() },
+        uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
+        uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
+        uSunLightColor: { value: new THREE.Color(0xfff4d6) },
+      },
+    ]),
     vertexShader: `
+      #include <common>
+      #include <shadowmap_pars_vertex>
+
       uniform float uTextureWorldSize;
       uniform float uRiverBankTextureWorldSize;
 
@@ -367,6 +374,7 @@ function createTerrainMaterial(textures) {
 
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vec3 transformedNormal = normalize(normalMatrix * normal);
 
         vWorldUv = worldPosition.xz / uTextureWorldSize;
         vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
@@ -379,9 +387,16 @@ function createTerrainMaterial(textures) {
         vRiverUnderwaterMask = riverUnderwaterMask;
 
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        #include <shadowmap_vertex>
       }
     `,
     fragmentShader: `
+      #include <common>
+      #include <packing>
+      #include <lights_pars_begin>
+      #include <shadowmap_pars_fragment>
+      #include <shadowmask_pars_fragment>
+
       uniform sampler2D uGrassTexture;
       uniform sampler2D uDirtTexture;
       uniform sampler2D uDryGrassTexture;
@@ -492,9 +507,10 @@ function createTerrainMaterial(textures) {
         baseColor = mix(baseColor, riverBed, riverBedMask);
 
         float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
+        float shadowMask = mix(0.42, 1.0, getShadowMask());
         float skyLight = normal.y * 0.5 + 0.5;
         vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
-        vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * 0.62);
+        vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * shadowMask * 0.62);
 
         gl_FragColor = vec4(litColor, 1.0);
         #include <tonemapping_fragment>

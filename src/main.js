@@ -11,7 +11,9 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
-const { scene, terrain, water, wetBanks, grassManager, treeManager } = await createScene();
+const { scene, terrain, water, wetBanks, grassManager, treeManager, sunLight } = await createScene();
+const sunLightDirection = new THREE.Vector3(0.37, 0.86, 0.29).normalize();
+const sunLightOffset = sunLightDirection.multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -30,6 +32,7 @@ scene.add(player.group);
 
 const thirdPersonCamera = new ThirdPersonCamera(camera, player);
 thirdPersonCamera.update(input, terrain);
+updateSunLight();
 
 const clock = new THREE.Clock();
 
@@ -37,6 +40,12 @@ function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function updateSunLight() {
+  sunLight.position.copy(player.position).add(sunLightOffset);
+  sunLight.target.position.copy(player.position);
+  sunLight.target.updateMatrixWorld();
 }
 
 function animate() {
@@ -51,6 +60,7 @@ function animate() {
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
   grassManager.update(player.position, clock.elapsedTime);
   treeManager.update(player.position);
+  updateSunLight();
 
   renderer.render(scene, camera);
 }

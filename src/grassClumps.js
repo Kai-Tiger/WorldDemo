@@ -195,11 +195,8 @@ export function buildInstancedMeshes(placements, variants, parent, lodLevel = 0)
       );
 
       mesh.name = `${variantName}_${leaf.name}_Instances`;
-
-      if (!useSimple) {
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-      }
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
 
       for (let i = 0; i < variantPlacements.length; i += 1) {
         mesh.setMatrixAt(i, variantPlacements[i].matrix);

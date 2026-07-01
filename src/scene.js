@@ -11,6 +11,7 @@ const SUN_VISUAL_DISTANCE = 1000;
 const SUN_TEXTURE_SIZE = 256;
 const SKY_TEXTURE_WIDTH = 16;
 const SKY_TEXTURE_HEIGHT = 256;
+const SHADOW_CAMERA_SIZE = 170;
 
 export async function createScene() {
   const scene = new THREE.Scene();
@@ -38,15 +39,18 @@ export async function createScene() {
   sunLight.position.copy(SUN_POSITION);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
-  sunLight.shadow.camera.left = -180;
-  sunLight.shadow.camera.right = 180;
-  sunLight.shadow.camera.top = 180;
-  sunLight.shadow.camera.bottom = -180;
+  sunLight.shadow.camera.left = -SHADOW_CAMERA_SIZE;
+  sunLight.shadow.camera.right = SHADOW_CAMERA_SIZE;
+  sunLight.shadow.camera.top = SHADOW_CAMERA_SIZE;
+  sunLight.shadow.camera.bottom = -SHADOW_CAMERA_SIZE;
   sunLight.shadow.camera.near = 0.5;
   sunLight.shadow.camera.far = 700;
+  sunLight.shadow.bias = -0.0003;
+  sunLight.shadow.normalBias = 0.04;
   scene.add(sunLight);
+  scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks:null, grassManager, treeManager };
+  return { scene, terrain, water, wetBanks: null, grassManager, treeManager, sunLight };
 }
 
 function createSunModel() {
