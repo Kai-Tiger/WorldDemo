@@ -11,7 +11,7 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
-const { scene, terrain, water, wetBanks, grassManager, treeManager } = await createScene();
+const { scene, terrain, water, wetBanks, grassManager, treeManager, sunLight } = await createScene();
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -30,6 +30,8 @@ scene.add(player.group);
 
 const thirdPersonCamera = new ThirdPersonCamera(camera, player);
 thirdPersonCamera.update(input, terrain);
+
+sunLight.target.position.copy(player.position);
 
 const clock = new THREE.Clock();
 
@@ -51,6 +53,13 @@ function animate() {
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
   grassManager.update(player.position, clock.elapsedTime);
   treeManager.update(player.position);
+
+  sunLight.position.set(
+    player.position.x - 140,
+    player.position.y + 240,
+    player.position.z - 100,
+  );
+  sunLight.target.position.copy(player.position);
 
   renderer.render(scene, camera);
 }
