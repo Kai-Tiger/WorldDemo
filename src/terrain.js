@@ -344,8 +344,6 @@ function createTerrainMaterial(textures) {
       uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
       uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
       uSunLightColor: { value: new THREE.Color(0xfff4d6) },
-      directionalShadowMap: { value: null },
-      directionalShadowMatrix: { value: new THREE.Matrix4() },
     },
     vertexShader: `
       uniform float uTextureWorldSize;
@@ -366,7 +364,6 @@ function createTerrainMaterial(textures) {
       varying float vRiverMask;
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
-      varying vec4 vShadowCoord;
 
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
@@ -380,7 +377,6 @@ function createTerrainMaterial(textures) {
         vRiverMask = riverMask;
         vRiverBedMask = riverBedMask;
         vRiverUnderwaterMask = riverUnderwaterMask;
-        vShadowCoord = directionalShadowMatrix * vec4(worldPosition.xyz, 1.0);
 
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
@@ -401,8 +397,6 @@ function createTerrainMaterial(textures) {
       uniform vec3 uSkyLightColor;
       uniform vec3 uGroundLightColor;
       uniform vec3 uSunLightColor;
-      uniform sampler2D directionalShadowMap;
-      uniform mat4 directionalShadowMatrix;
 
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
@@ -413,7 +407,6 @@ function createTerrainMaterial(textures) {
       varying float vRiverMask;
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
-      varying vec4 vShadowCoord;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -444,19 +437,6 @@ function createTerrainMaterial(textures) {
         }
 
         return value;
-      }
-
-      float getTerrainShadow() {
-        vec4 shadowCoord = vShadowCoord;
-        shadowCoord.xyz /= shadowCoord.w;
-        shadowCoord.xy = shadowCoord.xy * 0.5 + 0.5;
-
-        if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 || shadowCoord.y < 0.0 || shadowCoord.y > 1.0) {
-          return 1.0;
-        }
-
-        float depth = texture2D(directionalShadowMap, shadowCoord.xy).r;
-        return step(shadowCoord.z - 0.002, depth);
       }
 
       void main() {
@@ -511,8 +491,7 @@ function createTerrainMaterial(textures) {
         float riverBedMask = smoothstep(0.05, 0.95, vRiverBedMask);
         baseColor = mix(baseColor, riverBed, riverBedMask);
 
-        float shadow = getTerrainShadow();
-        float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0) * shadow;
+        float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
         float skyLight = normal.y * 0.5 + 0.5;
         vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
         vec3 litColor = baseColor * (ambient + uSunLightColor * sunLight * 0.62);

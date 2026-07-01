@@ -38,17 +38,15 @@ export async function createScene() {
   sunLight.position.copy(SUN_POSITION);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
-  sunLight.shadow.camera.left = -40;
-  sunLight.shadow.camera.right = 40;
-  sunLight.shadow.camera.top = 40;
-  sunLight.shadow.camera.bottom = -40;
+  sunLight.shadow.camera.left = -180;
+  sunLight.shadow.camera.right = 180;
+  sunLight.shadow.camera.top = 180;
+  sunLight.shadow.camera.bottom = -180;
   sunLight.shadow.camera.near = 0.5;
   sunLight.shadow.camera.far = 700;
-  sunLight.shadow.bias = -0.0005;
   scene.add(sunLight);
-  scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, grassManager, treeManager, sunLight };
+  return { scene, terrain, water, wetBanks:null, grassManager, treeManager };
 }
 
 function createSunModel() {
