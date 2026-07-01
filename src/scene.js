@@ -5,8 +5,6 @@ import { loadTreeModels } from './treePlacements.js';
 import { TreeManager } from './treeManager.js';
 import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
-import { createWaterSystem } from './waterSystem.js';
-import { Clouds } from './clouds.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 const SUN_VISUAL_DISTANCE = 1000;
@@ -26,18 +24,13 @@ export async function createScene() {
   ]);
   scene.add(terrain.group);
   const water = createRiverWaterMesh(terrain);
-  const waterSystem = createWaterSystem(terrain);
   const grassVariants = createGrassVariants(grassAsset.scene);
   const grassManager = new GrassManager(terrain, grassVariants);
   const treeManager = new TreeManager(terrain, treeModels);
   scene.add(grassManager.group);
   scene.add(treeManager.group);
   scene.add(water);
-  scene.add(waterSystem.group);
   scene.add(createSunModel());
-
-  const clouds = Clouds.create();
-  scene.add(clouds.group);
 
   const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
   scene.add(hemisphereLight);
@@ -57,7 +50,7 @@ export async function createScene() {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, treeManager, sunLight, clouds };
+  return { scene, terrain, water, wetBanks: null, grassManager, treeManager, sunLight };
 }
 
 function createSunModel() {

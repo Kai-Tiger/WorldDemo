@@ -8,10 +8,6 @@ import {
   RIVER_BANK_TEXTURE_WORLD_SIZE,
 } from './riverChannel.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
-import {
-  applyWaterSystemTerrain,
-  getWaterSystemMaterialFrame,
-} from './waterSystem.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
@@ -83,7 +79,6 @@ export class Terrain {
     const riverBedMasks = new Float32Array(vertexCount);
     const riverUnderwaterMasks = new Float32Array(vertexCount);
     const riverBedCoords = new Float32Array(vertexCount * 2);
-    const waterSystemMasks = new Float32Array(vertexCount * 4);
     const indices = new Uint32Array(CHUNK_SEGMENTS * CHUNK_SEGMENTS * 6);
     const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
     const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
@@ -95,18 +90,15 @@ export class Terrain {
     let riverBedMaskOffset = 0;
     let riverUnderwaterMaskOffset = 0;
     let riverBedCoordOffset = 0;
-    let waterSystemMaskOffset = 0;
 
     for (let z = 0; z < verticesPerSide; z += 1) {
       for (let x = 0; x < verticesPerSide; x += 1) {
         const worldX = minX + x;
         const worldZ = minZ + z;
         const baseHeight = this.getBaseHeightAt(worldX, worldZ);
-        const waterSystemHeight = applyWaterSystemTerrain(baseHeight, worldX, worldZ);
-        const height = applyRiverChannel(waterSystemHeight, worldX, worldZ);
+        const height = applyRiverChannel(baseHeight, worldX, worldZ);
         const groundMask = this.getTerrainGroundMask(worldX, worldZ);
         const riverFrame = getRiverMaterialFrame(baseHeight, worldX, worldZ);
-        const waterSystemFrame = getWaterSystemMaterialFrame(baseHeight, worldX, worldZ);
 
         positions[positionOffset] = worldX;
         positions[positionOffset + 1] = height;
@@ -128,12 +120,6 @@ export class Terrain {
         riverBedCoords[riverBedCoordOffset] = riverFrame.riverDistance;
         riverBedCoords[riverBedCoordOffset + 1] = riverFrame.riverLateral;
         riverBedCoordOffset += 2;
-
-        waterSystemMasks[waterSystemMaskOffset] = waterSystemFrame.lakeBedMask;
-        waterSystemMasks[waterSystemMaskOffset + 1] = waterSystemFrame.wetShoreMask;
-        waterSystemMasks[waterSystemMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
-        waterSystemMasks[waterSystemMaskOffset + 3] = waterSystemFrame.plungeMask;
-        waterSystemMaskOffset += 4;
 
         uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
         uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
@@ -168,7 +154,6 @@ export class Terrain {
     geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(riverBedMasks, 1));
     geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(riverUnderwaterMasks, 1));
     geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(riverBedCoords, 2));
-    geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(waterSystemMasks, 4));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
@@ -180,9 +165,7 @@ export class Terrain {
   }
 
   getHeightAt(x, z) {
-    const waterSystemHeight = applyWaterSystemTerrain(this.getBaseHeightAt(x, z), x, z);
-
-    return applyRiverChannel(waterSystemHeight, x, z);
+    return applyRiverChannel(this.getBaseHeightAt(x, z), x, z);
   }
 
   getBaseHeightAt(x, z) {
@@ -378,20 +361,17 @@ function createTerrainMaterial(textures) {
       attribute float riverMask;
       attribute float riverBedMask;
       attribute float riverUnderwaterMask;
-      attribute vec4 waterSystemMask;
       attribute vec2 riverBedCoord;
 
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
       varying vec2 vRiverBedCoord;
-      varying vec3 vWorldPosition;
       varying vec3 vWorldNormal;
       varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
-      varying vec4 vWaterSystemMask;
 
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
@@ -400,14 +380,12 @@ function createTerrainMaterial(textures) {
         vWorldUv = worldPosition.xz / uTextureWorldSize;
         vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
         vRiverBedCoord = riverBedCoord;
-        vWorldPosition = worldPosition.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * normal);
         vWorldHeight = worldPosition.y;
         vGroundMask = groundMask;
         vRiverMask = riverMask;
         vRiverBedMask = riverBedMask;
         vRiverUnderwaterMask = riverUnderwaterMask;
-        vWaterSystemMask = waterSystemMask;
 
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
         #include <shadowmap_vertex>
@@ -439,14 +417,12 @@ function createTerrainMaterial(textures) {
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
       varying vec2 vRiverBedCoord;
-      varying vec3 vWorldPosition;
       varying vec3 vWorldNormal;
       varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
       varying float vRiverUnderwaterMask;
-      varying vec4 vWaterSystemMask;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -530,17 +506,6 @@ function createTerrainMaterial(textures) {
         baseColor = mix(baseColor, riverBank, riverMask);
         float riverBedMask = smoothstep(0.05, 0.95, vRiverBedMask);
         baseColor = mix(baseColor, riverBed, riverBedMask);
-        float lakeBedMask = smoothstep(0.04, 0.92, vWaterSystemMask.x);
-        float wetShoreMask = smoothstep(0.05, 0.95, vWaterSystemMask.y);
-        float snowmeltWetMask = smoothstep(0.05, 0.92, vWaterSystemMask.z);
-        float plungeMask = smoothstep(0.05, 0.9, vWaterSystemMask.w);
-        vec3 lakeBedColor = mix(riverBed, riverBank, 0.32);
-        vec3 wetRockColor = mix(rock, riverBank, 0.35) * vec3(0.58, 0.66, 0.68);
-        vec3 plungeColor = mix(riverBed, vec3(0.74, 0.86, 0.88), 0.35);
-        baseColor = mix(baseColor, lakeBedColor, lakeBedMask);
-        baseColor = mix(baseColor, riverBank, wetShoreMask * 0.42);
-        baseColor = mix(baseColor, plungeColor, plungeMask * 0.78);
-        baseColor = mix(baseColor, wetRockColor, max(wetShoreMask * 0.65, snowmeltWetMask * 0.9));
 
         float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
         float rawShadowMask = getShadowMask();
@@ -549,12 +514,6 @@ function createTerrainMaterial(textures) {
         float skyLight = normal.y * 0.5 + 0.5;
         vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
         vec3 litColor = baseColor * (ambient * ambientShadow + uSunLightColor * sunLight * shadowMask * 0.62);
-        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-        vec3 halfDir = normalize(normalize(uSunDirection) + viewDir);
-        float wetSpec = pow(max(dot(normal, halfDir), 0.0), 72.0);
-        float glancing = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
-        float wetReflect = max(wetShoreMask * 0.4, snowmeltWetMask) * max(wetSpec * 0.9, glancing * 0.16) * shadowMask;
-        litColor += vec3(0.78, 0.95, 1.0) * wetReflect;
 
         gl_FragColor = vec4(litColor, 1.0);
         #include <tonemapping_fragment>

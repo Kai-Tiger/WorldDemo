@@ -7,13 +7,12 @@ import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
-import { updateWaterSystemVisuals } from './waterSystem.js';
 
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
-const { scene, terrain, water, wetBanks, waterSystem, grassManager, treeManager, sunLight, clouds } = await createScene();
+const { scene, terrain, water, wetBanks, grassManager, treeManager, sunLight } = await createScene();
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -59,10 +58,8 @@ function animate() {
   positionY.textContent = player.position.y.toFixed(2);
   thirdPersonCamera.update(input, terrain);
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
-  updateWaterSystemVisuals(waterSystem, camera, clock.elapsedTime);
   grassManager.update(player.position, clock.elapsedTime);
   treeManager.update(player.position);
-  clouds.update(clock.elapsedTime, player.position.x, player.position.z);
   updateSunLight();
 
   renderer.render(scene, camera);
