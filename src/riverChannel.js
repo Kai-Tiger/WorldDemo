@@ -25,7 +25,7 @@ const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
 const END_TAPER_LENGTH = 10;
 export const RIVER_BED_TEXTURE_PATH = '/assets/terrain/river-bed.webp';
-export const RIVER_BED_TEXTURE_WORLD_SIZE = 7;
+export const RIVER_BED_TEXTURE_WORLD_SIZE = 12;
 export const RIVER_BANK_TEXTURE_PATH = '/assets/terrain/river-bank-rock-wet-light-alt.webp';
 const RIVER_BANK_UNDERWATER_OVERLAP = 0.22;
 const RIVER_BANK_SURFACE_OFFSET = 0.14;
@@ -74,13 +74,21 @@ export function applyRiverChannel(baseHeight, x, z) {
 }
 
 export function getRiverMaterialMask(baseHeight, x, z) {
+  return getRiverMaterialFrame(baseHeight, x, z).riverMask;
+}
+
+export function getRiverBedMaterialMask(baseHeight, x, z) {
+  return getRiverMaterialFrame(baseHeight, x, z).riverBedMask;
+}
+
+export function getRiverMaterialFrame(baseHeight, x, z) {
   const frame = getChannelFrameAt(x, z);
 
-  if (!frame) return 0;
+  if (!frame) return createEmptyRiverMaterialFrame();
 
   const heightMask = 1 - smoothstep(HIGHLAND_FADE_START, HIGHLAND_FADE_END, baseHeight);
 
-  if (heightMask <= 0) return 0;
+  if (heightMask <= 0) return createEmptyRiverMaterialFrame();
 
   const lateralDistance = Math.abs(frame.lateral);
   const channelMask = 1 - smoothstep(
@@ -88,25 +96,18 @@ export function getRiverMaterialMask(baseHeight, x, z) {
     RIVER_BANK_TEXTURE_FADE_HALF_WIDTH,
     lateralDistance,
   );
-  const endMask = getEndMask(frame.distance);
-
-  return THREE.MathUtils.clamp(channelMask * heightMask * endMask, 0, 1);
-}
-
-export function getRiverBedMaterialMask(baseHeight, x, z) {
-  const frame = getChannelFrameAt(x, z);
-
-  if (!frame) return 0;
-
-  const heightMask = 1 - smoothstep(HIGHLAND_FADE_START, HIGHLAND_FADE_END, baseHeight);
-
-  if (heightMask <= 0) return 0;
-
-  const lateralDistance = Math.abs(frame.lateral);
   const bedMask = 1 - smoothstep(RIVER_BED_CORE_HALF_WIDTH, RIVER_BED_BLEND_HALF_WIDTH, lateralDistance);
+  const underwaterMask = 1 - smoothstep(HALF_WATER_WIDTH - 0.2, HALF_WATER_WIDTH + 0.2, lateralDistance);
   const endMask = getEndMask(frame.distance);
+  const mask = heightMask * endMask;
 
-  return THREE.MathUtils.clamp(bedMask * heightMask * endMask, 0, 1);
+  return {
+    riverMask: THREE.MathUtils.clamp(channelMask * mask, 0, 1),
+    riverBedMask: THREE.MathUtils.clamp(bedMask * mask, 0, 1),
+    riverUnderwaterMask: THREE.MathUtils.clamp(underwaterMask * mask, 0, 1),
+    riverDistance: frame.distance,
+    riverLateral: frame.lateral,
+  };
 }
 
 export function createRiverWaterMesh(terrain) {
@@ -184,6 +185,16 @@ export function isInRiverGrassExclusion(x, z, buffer = 2) {
   if (!frame) return false;
 
   return Math.abs(frame.lateral) <= HALF_WATER_WIDTH + WET_BANK_WIDTH + buffer;
+}
+
+function createEmptyRiverMaterialFrame() {
+  return {
+    riverMask: 0,
+    riverBedMask: 0,
+    riverUnderwaterMask: 0,
+    riverDistance: 0,
+    riverLateral: 0,
+  };
 }
 
 function createChannelStripGeometry(

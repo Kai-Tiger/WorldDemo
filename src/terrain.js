@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import {
   applyRiverChannel,
-  getRiverBedMaterialMask,
-  getRiverMaterialMask,
+  getRiverMaterialFrame,
   RIVER_BED_TEXTURE_PATH,
   RIVER_BED_TEXTURE_WORLD_SIZE,
   RIVER_BANK_TEXTURE_PATH,
@@ -77,6 +76,8 @@ export class Terrain {
     const groundMasks = new Float32Array(vertexCount);
     const riverMasks = new Float32Array(vertexCount);
     const riverBedMasks = new Float32Array(vertexCount);
+    const riverUnderwaterMasks = new Float32Array(vertexCount);
+    const riverBedCoords = new Float32Array(vertexCount * 2);
     const indices = new Uint32Array(CHUNK_SEGMENTS * CHUNK_SEGMENTS * 6);
     const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
     const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
@@ -86,6 +87,8 @@ export class Terrain {
     let groundMaskOffset = 0;
     let riverMaskOffset = 0;
     let riverBedMaskOffset = 0;
+    let riverUnderwaterMaskOffset = 0;
+    let riverBedCoordOffset = 0;
 
     for (let z = 0; z < verticesPerSide; z += 1) {
       for (let x = 0; x < verticesPerSide; x += 1) {
@@ -94,8 +97,7 @@ export class Terrain {
         const baseHeight = this.getBaseHeightAt(worldX, worldZ);
         const height = applyRiverChannel(baseHeight, worldX, worldZ);
         const groundMask = this.getTerrainGroundMask(worldX, worldZ);
-        const riverMask = getRiverMaterialMask(baseHeight, worldX, worldZ);
-        const riverBedMask = getRiverBedMaterialMask(baseHeight, worldX, worldZ);
+        const riverFrame = getRiverMaterialFrame(baseHeight, worldX, worldZ);
 
         positions[positionOffset] = worldX;
         positions[positionOffset + 1] = height;
@@ -105,11 +107,18 @@ export class Terrain {
         groundMasks[groundMaskOffset] = groundMask;
         groundMaskOffset += 1;
 
-        riverMasks[riverMaskOffset] = riverMask;
+        riverMasks[riverMaskOffset] = riverFrame.riverMask;
         riverMaskOffset += 1;
 
-        riverBedMasks[riverBedMaskOffset] = riverBedMask;
+        riverBedMasks[riverBedMaskOffset] = riverFrame.riverBedMask;
         riverBedMaskOffset += 1;
+
+        riverUnderwaterMasks[riverUnderwaterMaskOffset] = riverFrame.riverUnderwaterMask;
+        riverUnderwaterMaskOffset += 1;
+
+        riverBedCoords[riverBedCoordOffset] = riverFrame.riverDistance;
+        riverBedCoords[riverBedCoordOffset + 1] = riverFrame.riverLateral;
+        riverBedCoordOffset += 2;
 
         uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
         uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
@@ -142,6 +151,8 @@ export class Terrain {
     geometry.setAttribute('groundMask', new THREE.BufferAttribute(groundMasks, 1));
     geometry.setAttribute('riverMask', new THREE.BufferAttribute(riverMasks, 1));
     geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(riverBedMasks, 1));
+    geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(riverUnderwaterMasks, 1));
+    geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(riverBedCoords, 2));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
@@ -337,32 +348,35 @@ function createTerrainMaterial(textures) {
     vertexShader: `
       uniform float uTextureWorldSize;
       uniform float uRiverBankTextureWorldSize;
-      uniform float uRiverBedTextureWorldSize;
 
       attribute float groundMask;
       attribute float riverMask;
       attribute float riverBedMask;
+      attribute float riverUnderwaterMask;
+      attribute vec2 riverBedCoord;
 
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
-      varying vec2 vRiverBedUv;
+      varying vec2 vRiverBedCoord;
       varying vec3 vWorldNormal;
       varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
+      varying float vRiverUnderwaterMask;
 
       void main() {
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
 
         vWorldUv = worldPosition.xz / uTextureWorldSize;
         vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
-        vRiverBedUv = worldPosition.xz / uRiverBedTextureWorldSize;
+        vRiverBedCoord = riverBedCoord;
         vWorldNormal = normalize(mat3(modelMatrix) * normal);
         vWorldHeight = worldPosition.y;
         vGroundMask = groundMask;
         vRiverMask = riverMask;
         vRiverBedMask = riverBedMask;
+        vRiverUnderwaterMask = riverUnderwaterMask;
 
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
@@ -378,6 +392,7 @@ function createTerrainMaterial(textures) {
       uniform sampler2D uRiverBankTexture;
       uniform sampler2D uRiverBedTexture;
       uniform float uTextureWorldSize;
+      uniform float uRiverBedTextureWorldSize;
       uniform vec3 uSunDirection;
       uniform vec3 uSkyLightColor;
       uniform vec3 uGroundLightColor;
@@ -385,12 +400,13 @@ function createTerrainMaterial(textures) {
 
       varying vec2 vWorldUv;
       varying vec2 vRiverBankUv;
-      varying vec2 vRiverBedUv;
+      varying vec2 vRiverBedCoord;
       varying vec3 vWorldNormal;
       varying float vWorldHeight;
       varying float vGroundMask;
       varying float vRiverMask;
       varying float vRiverBedMask;
+      varying float vRiverUnderwaterMask;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -435,7 +451,12 @@ function createTerrainMaterial(textures) {
         vec3 rock = texture2D(uRockTexture, vWorldUv * 0.62 + vec2(21.0, 6.0)).rgb;
         vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
         vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
-        vec3 riverBed = texture2D(uRiverBedTexture, vRiverBedUv).rgb;
+        vec2 riverBedUv = vec2(vRiverBedCoord.x / uRiverBedTextureWorldSize, vRiverBedCoord.y / 3.6);
+        float riverBedWarp = (fbm(vec2(vRiverBedCoord.x * 0.055, vRiverBedCoord.y * 0.35)) - 0.5) * 0.18;
+        riverBedUv += vec2(riverBedWarp, riverBedWarp * 0.45);
+        vec3 riverBedA = texture2D(uRiverBedTexture, riverBedUv).rgb;
+        vec3 riverBedB = texture2D(uRiverBedTexture, riverBedUv * vec2(0.61, 1.27) + vec2(12.7, -4.4)).rgb;
+        vec3 riverBed = mix(riverBedA, riverBedB, 0.28);
 
         float dirtPatch = smoothstep(0.48, 0.78, fbm(blendUv * 0.045 + vec2(2.0, -5.0)));
         float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
@@ -463,7 +484,9 @@ function createTerrainMaterial(textures) {
         alpineColor = mix(alpineColor, snow, clamp(snowMask, 0.0, 1.0));
         vec3 baseColor = mix(alpineColor, groundColor, groundMask);
         float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
-        float riverMask = smoothstep(0.05, 0.95, vRiverMask) * riverSlopeMask;
+        float riverMaterialMask = smoothstep(0.05, 0.95, vRiverMask);
+        float riverUnderwaterMask = smoothstep(0.05, 0.95, vRiverUnderwaterMask);
+        float riverMask = riverMaterialMask * max(riverSlopeMask, riverUnderwaterMask);
         baseColor = mix(baseColor, riverBank, riverMask);
         float riverBedMask = smoothstep(0.05, 0.95, vRiverBedMask);
         baseColor = mix(baseColor, riverBed, riverBedMask);
