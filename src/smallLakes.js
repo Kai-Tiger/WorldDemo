@@ -11,7 +11,7 @@ const SHORE_WIDTH = 6;
 const VEG_BUFFER = 10;
 const ANGLE_SEGMENTS = 64;
 const RADIAL_RINGS = 12;
-const BED_MASK_RADIUS = 2;
+const BED_MASK_RADIUS = 1;
 
 export function applySmallLakesTerrain(baseHeight, x, z) {
   let height = baseHeight;
@@ -46,7 +46,7 @@ export function isInSmallLakeExclusion(x, z) {
     const angle = Math.atan2(dz, dx);
     const actualRadius = lakeRadiusAt(angle, lake);
 
-    if (dist < actualRadius + SHORE_WIDTH + VEG_BUFFER) return true;
+    if (dist < actualRadius) return true;
   }
 
   return false;
@@ -328,7 +328,7 @@ function createLakeMaterial() {
         float sparkle = smoothstep(0.5, 0.9, fbm(vWorldPosition.xz * 0.95 + vec2(-uTime * 0.3, uTime * 0.05)));
         waterColor += uSunReflectionColor * (spec * sparkle * 0.6 + broadSpec * glancingReflection * 0.08);
 
-        float foamBase = smoothstep(0.35, 1.0, edge);
+        float foamBase = smoothstep(0.5, 0.70, edge) * (1.0 - smoothstep(0.65, 0.85, edge));
         foamBase *= 1.0 - smoothstep(0.65, 1.45, vLakeDepth);
         vec2 bigFoamUv = vWorldPosition.xz * 0.3 + vec2(-uTime * 0.08, uTime * 0.04);
         vec2 smallFoamUv = vWorldPosition.xz * 1.2 + vec2(-uTime * 0.16, uTime * 0.1);
