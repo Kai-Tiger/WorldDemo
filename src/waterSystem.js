@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Water as Water2 } from 'three/addons/objects/Water2.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 
 export const LAKE_CENTER = new THREE.Vector2(300, -400);
 export const LAKE_WATER_LEVEL = 31;
@@ -61,6 +62,12 @@ const SNOWMELT_PATHS = [
 const SNOWMELT_WIDTH = 1.25;
 const SNOWMELT_INFLUENCE = 5.2;
 const SNOWMELT_SURFACE_OFFSET = 0.38;
+const WATER_SHALLOW_COLOR = 0x66c7b7;
+const WATER_DEEP_COLOR = 0x0d5b77;
+const WATER_FOAM_COLOR = 0xf1fbff;
+const WATER_REFLECTION_COLOR = 0x8ed8ff;
+const WATER_HORIZON_REFLECTION_COLOR = 0xd7f3ff;
+const WATER_SUN_REFLECTION_COLOR = 0xfff1bd;
 
 const outletCurve = new THREE.CatmullRomCurve3(OUTLET_POINTS, false, 'centripetal');
 const outletSamples = createPathSamples(outletCurve, 100);
@@ -85,7 +92,7 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   const outlet = getPathFrame(outletSamples, x, z);
   const snowmelt = getClosestSnowmeltFrame(x, z);
   const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
-  const lakeBedMask = lake.inside * smoothstep(LAKE_BASE_RADIUS * 0.95, LAKE_BASE_RADIUS * 0.25, lake.radius);
+  const lakeBedMask = lake.inside * (1 - smoothstep(lake.lakeRadius - 4, lake.lakeRadius + 0.2, lake.radius));
   const lakeShoreMask = (1 - lake.inside) * (1 - smoothstep(LAKE_BASE_RADIUS, LAKE_BASE_RADIUS + LAKE_SHORE_WIDTH, lake.radius));
   const outletMask = outlet ? 1 - smoothstep(OUTLET_WIDTH * 0.5, OUTLET_INFLUENCE, Math.abs(outlet.lateral)) : 0;
   const snowmeltMask = snowmelt ? 1 - smoothstep(SNOWMELT_WIDTH * 0.4, SNOWMELT_INFLUENCE, Math.abs(snowmelt.lateral)) : 0;
@@ -102,6 +109,23 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   };
 }
 
+export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
+  if (!isNearWaterSystem(x, z, buffer + 12)) return false;
+
+  const lake = getLakeFrame(x, z);
+  if (lake.radius <= lake.lakeRadius + LAKE_SHORE_WIDTH + buffer) return true;
+
+  const outlet = getPathFrame(outletSamples, x, z);
+  if (outlet && Math.abs(outlet.lateral) <= OUTLET_WIDTH * 0.5 + buffer + 1.5) return true;
+
+  const snowmelt = getClosestSnowmeltFrame(x, z);
+  if (snowmelt && Math.abs(snowmelt.lateral) <= SNOWMELT_WIDTH * 0.5 + buffer + 1) return true;
+
+  const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
+
+  return plungeDistance <= PLUNGE_RADIUS + buffer;
+}
+
 function createEmptyWaterSystemMaterialFrame() {
   return {
     lakeBedMask: 0,
@@ -114,7 +138,7 @@ function createEmptyWaterSystemMaterialFrame() {
 }
 
 export function createWaterSystem(terrain) {
-  const lake = createLakeWater();
+  const lake = createLakeWater(terrain);
   const outletStream = createOutletStream(terrain);
   const snowmelt = createSnowmeltGroup(terrain);
   const waterfall = createWaterfallGroup();
@@ -200,15 +224,15 @@ function applyPlungePool(height, x, z) {
   return Math.min(height, THREE.MathUtils.lerp(height, PLUNGE_FLOOR, poolMask));
 }
 
-function createLakeWater() {
-  const geometry = createLakeGeometry();
+function createLakeWater(terrain) {
+  const geometry = createLakeGeometry(terrain);
   const reflectionGeometry = geometry.clone();
   const lake = new THREE.Group();
   const reflector = new Water2(reflectionGeometry, {
-    color: 0x6abfd0,
+    color: WATER_SHALLOW_COLOR,
     scale: 5.5,
     flowSpeed: 0.018,
-    reflectivity: 0.16,
+    reflectivity: 0.04,
     textureWidth: 512,
     textureHeight: 512,
     normalMap0: createWaterNormalTexture(0),
@@ -229,22 +253,136 @@ function createLakeWater() {
   return lake;
 }
 
-function createLakeGeometry() {
-  const shape = new THREE.Shape();
-  const points = createLakeOutline();
+function createLakeGeometry(terrain) {
+  const radialSegments = LAKE_SHAPE_SEGMENTS;
+  const ringCount = LAKE_MESH_SEGMENTS;
+  const vertexCount = 1 + radialSegments * ringCount;
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const lakeDepths = new Float32Array(vertexCount);
+  const lakeEdges = new Float32Array(vertexCount);
+  const lakeBedVisibilities = new Float32Array(vertexCount);
+  const indices = new Uint32Array(radialSegments * 3 + (ringCount - 1) * radialSegments * 6);
+  let positionOffset = 0;
+  let uvOffset = 0;
+  let attributeOffset = 0;
+  let indexOffset = 0;
 
-  shape.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i += 1) {
-    shape.lineTo(points[i].x, points[i].y);
+  writeLakeVertex(
+    positions,
+    uvs,
+    lakeDepths,
+    lakeEdges,
+    lakeBedVisibilities,
+    positionOffset,
+    uvOffset,
+    attributeOffset,
+    terrain,
+    LAKE_CENTER.x,
+    LAKE_CENTER.y,
+    1,
+  );
+  positionOffset += 3;
+  uvOffset += 2;
+  attributeOffset += 1;
+
+  for (let ring = 1; ring <= ringCount; ring += 1) {
+    const radiusT = ring / ringCount;
+
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const angle = (segment / radialSegments) * Math.PI * 2;
+      const radius = lakeRadiusAt(angle) * radiusT;
+      const x = LAKE_CENTER.x + Math.cos(angle) * radius;
+      const z = LAKE_CENTER.y + Math.sin(angle) * radius;
+
+      writeLakeVertex(
+        positions,
+        uvs,
+        lakeDepths,
+        lakeEdges,
+        lakeBedVisibilities,
+        positionOffset,
+        uvOffset,
+        attributeOffset,
+        terrain,
+        x,
+        z,
+        1 - radiusT,
+      );
+      positionOffset += 3;
+      uvOffset += 2;
+      attributeOffset += 1;
+    }
   }
-  shape.closePath();
 
-  const geometry = new THREE.ShapeGeometry(shape);
-  geometry.rotateX(Math.PI * 0.5);
-  geometry.translate(0, LAKE_WATER_LEVEL, 0);
+  for (let segment = 0; segment < radialSegments; segment += 1) {
+    indices[indexOffset] = 0;
+    indices[indexOffset + 1] = 1 + segment;
+    indices[indexOffset + 2] = 1 + ((segment + 1) % radialSegments);
+    indexOffset += 3;
+  }
+
+  for (let ring = 1; ring < ringCount; ring += 1) {
+    const innerStart = 1 + (ring - 1) * radialSegments;
+    const outerStart = 1 + ring * radialSegments;
+
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const nextSegment = (segment + 1) % radialSegments;
+      const a = innerStart + segment;
+      const b = innerStart + nextSegment;
+      const c = outerStart + segment;
+      const d = outerStart + nextSegment;
+
+      indices[indexOffset] = a;
+      indices[indexOffset + 1] = c;
+      indices[indexOffset + 2] = b;
+      indices[indexOffset + 3] = b;
+      indices[indexOffset + 4] = c;
+      indices[indexOffset + 5] = d;
+      indexOffset += 6;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('lakeDepth', new THREE.BufferAttribute(lakeDepths, 1));
+  geometry.setAttribute('lakeEdge', new THREE.BufferAttribute(lakeEdges, 1));
+  geometry.setAttribute('lakeBedVisibility', new THREE.BufferAttribute(lakeBedVisibilities, 1));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
 
   return geometry;
+}
+
+function writeLakeVertex(
+  positions,
+  uvs,
+  lakeDepths,
+  lakeEdges,
+  lakeBedVisibilities,
+  positionOffset,
+  uvOffset,
+  attributeOffset,
+  terrain,
+  x,
+  z,
+  edge,
+) {
+  const depth = Math.max(LAKE_WATER_LEVEL - terrain.getHeightAt(x, z), 0);
+  const bedVisibility = 1 - smoothstep(1.4, 8.5, depth);
+
+  positions[positionOffset] = x;
+  positions[positionOffset + 1] = LAKE_WATER_LEVEL + 0.045;
+  positions[positionOffset + 2] = z;
+
+  uvs[uvOffset] = (x - LAKE_CENTER.x) / (LAKE_BASE_RADIUS * 2) + 0.5;
+  uvs[uvOffset + 1] = (z - LAKE_CENTER.y) / (LAKE_BASE_RADIUS * 2) + 0.5;
+
+  lakeDepths[attributeOffset] = depth;
+  lakeEdges[attributeOffset] = THREE.MathUtils.clamp(edge, 0, 1);
+  lakeBedVisibilities[attributeOffset] = THREE.MathUtils.clamp(bedVisibility, 0, 1);
 }
 
 function createOutletStream(terrain) {
@@ -257,11 +395,11 @@ function createOutletStream(terrain) {
     (_x, _z, t) => THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, 3.2, t) + OUTLET_WATER_OFFSET,
   );
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
-    shallow: 0x8ee9df,
-    deep: 0x186a83,
-    foam: 0xf5fcff,
+    shallow: WATER_SHALLOW_COLOR,
+    deep: WATER_DEEP_COLOR,
+    foam: WATER_FOAM_COLOR,
     speed: 0.9,
-    alpha: 0.62,
+    alpha: 0.48,
   }));
 
   stream.name = 'LakeOutletStream';
@@ -473,11 +611,30 @@ function createLakeSurfaceMaterial() {
     uniforms: {
       uTime: { value: 0 },
       uCameraPosition: { value: new THREE.Vector3() },
+      uShallowColor: { value: new THREE.Color(WATER_SHALLOW_COLOR) },
+      uDeepColor: { value: new THREE.Color(WATER_DEEP_COLOR) },
+      uFoamColor: { value: new THREE.Color(WATER_FOAM_COLOR) },
+      uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
+      uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
+      uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
+      uSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
     },
     vertexShader: `
+      attribute float lakeDepth;
+      attribute float lakeEdge;
+      attribute float lakeBedVisibility;
+
+      varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vLakeDepth;
+      varying float vLakeEdge;
+      varying float vLakeBedVisibility;
 
       void main() {
+        vUv = uv;
+        vLakeDepth = lakeDepth;
+        vLakeEdge = lakeEdge;
+        vLakeBedVisibility = lakeBedVisibility;
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
@@ -486,8 +643,19 @@ function createLakeSurfaceMaterial() {
     fragmentShader: `
       uniform float uTime;
       uniform vec3 uCameraPosition;
+      uniform vec3 uShallowColor;
+      uniform vec3 uDeepColor;
+      uniform vec3 uFoamColor;
+      uniform vec3 uReflectionColor;
+      uniform vec3 uHorizonReflectionColor;
+      uniform vec3 uSunReflectionColor;
+      uniform vec3 uSunDirection;
 
+      varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vLakeDepth;
+      varying float vLakeEdge;
+      varying float vLakeBedVisibility;
 
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -518,21 +686,70 @@ function createLakeSurfaceMaterial() {
         return value;
       }
 
+      vec3 getWaterNormal(vec2 worldUv, float strength) {
+        float broad = fbm(worldUv * 0.38 + vec2(uTime * 0.012, -uTime * 0.018));
+        float rippleA = fbm(worldUv * 1.35 + vec2(-uTime * 0.16, uTime * 0.05));
+        float rippleB = fbm(worldUv.yx * 1.8 + vec2(uTime * 0.08, -uTime * 0.11));
+        vec2 slope = vec2(
+          (broad - 0.5) * 0.045 + (rippleA - 0.5) * 0.055,
+          (rippleB - 0.5) * 0.06
+        ) * strength;
+
+        return normalize(vec3(slope.x, 1.0, slope.y));
+      }
+
+      float getCaustics(vec2 worldUv) {
+        vec2 driftA = worldUv * 0.55 + vec2(uTime * 0.055, -uTime * 0.028);
+        vec2 driftB = worldUv * 0.78 + vec2(-uTime * 0.04, uTime * 0.036);
+        float nA = fbm(driftA);
+        float nB = fbm(driftB + vec2(nA * 0.65, -nA * 0.35));
+        float ridges = 1.0 - abs(nA - nB) * 6.0;
+
+        return smoothstep(0.74, 0.96, ridges);
+      }
+
       void main() {
         vec2 p = vWorldPosition.xz;
-        vec2 flowA = p * 0.075 + vec2(uTime * 0.018, -uTime * 0.012);
-        vec2 flowB = p * 0.14 + vec2(-uTime * 0.014, uTime * 0.02);
-        float ripple = fbm(flowA) * 0.65 + fbm(flowB) * 0.35;
+        float edgeNoise = fbm(p * 0.24 + vec2(uTime * 0.01, -uTime * 0.006)) - 0.5;
+        float edgeAlpha = smoothstep(0.035, 0.23, vLakeEdge + edgeNoise * 0.045);
+        float depthMask = smoothstep(0.75, 8.0, vLakeDepth);
+        float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
+        float deepMask = max(smoothstep(2.0, 11.0, vLakeDepth), basinCenter * 0.86);
+        float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
+        float waveStrength = mix(0.45, 0.82, deepMask);
+        vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - abs(dot(viewDir, vec3(0.0, 1.0, 0.0))), 2.4);
-        float glint = smoothstep(0.78, 0.98, ripple) * (0.35 + fresnel * 0.65);
-        vec3 shallow = vec3(0.34, 0.78, 0.82);
-        vec3 deep = vec3(0.04, 0.29, 0.39);
-        vec3 reflection = mix(vec3(0.44, 0.66, 0.72), vec3(0.88, 0.97, 1.0), fresnel);
-        vec3 color = mix(deep, shallow, smoothstep(0.18, 0.82, ripple));
-        color = mix(color, reflection, 0.28 + fresnel * 0.36);
-        color += vec3(0.42, 0.8, 0.92) * glint * 0.18;
-        float alpha = 0.5 + fresnel * 0.24 + glint * 0.08;
+        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
+        float reflectionMask = smoothstep(0.06, 0.78, fresnel);
+        vec3 color = mix(uShallowColor, uDeepColor, deepMask);
+        vec3 bedTint = vec3(0.26, 0.34, 0.28);
+        float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.34;
+        color = mix(color, bedTint, bedInfluence);
+
+        float surfaceRipple = fbm(p * 0.16 + vec2(-uTime * 0.02, uTime * 0.014));
+        color *= mix(0.92, 1.08, surfaceRipple);
+
+        float caustics = getCaustics(p * 0.12);
+        color += vec3(0.5, 0.82, 0.88) * caustics * shallowMask * vLakeBedVisibility * 0.1;
+
+        vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
+        color = mix(color, skyReflection, 0.07 + reflectionMask * 0.28);
+
+        vec3 lightDir = normalize(uSunDirection);
+        vec3 halfDir = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
+        float broadSpec = pow(max(dot(normal, halfDir), 0.0), 38.0);
+        float sparkle = smoothstep(0.54, 0.9, fbm(p * 0.55 + vec2(-uTime * 0.28, uTime * 0.07)));
+        color += uSunReflectionColor * (spec * sparkle * 0.52 + broadSpec * reflectionMask * 0.07);
+
+        float shoreFoamBase = (1.0 - smoothstep(0.02, 0.12, vLakeEdge)) * smoothstep(0.15, 2.6, vLakeDepth);
+        float shoreFoamNoise = smoothstep(0.48, 0.9, fbm(vUv * vec2(32.0, 48.0) + vec2(-uTime * 0.08, uTime * 0.03)));
+        float shoreFoam = shoreFoamBase * shoreFoamNoise * 0.28;
+        color = mix(color, uFoamColor, shoreFoam * 0.35);
+
+        float alpha = edgeAlpha * mix(0.1, 0.4, max(depthMask, basinCenter * 0.72));
+        alpha = max(alpha, reflectionMask * 0.16 * edgeAlpha);
+        alpha = max(alpha, shoreFoam * 0.18);
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
@@ -554,6 +771,10 @@ function createStreamMaterial(options) {
       uShallowColor: { value: new THREE.Color(options.shallow) },
       uDeepColor: { value: new THREE.Color(options.deep) },
       uFoamColor: { value: new THREE.Color(options.foam) },
+      uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
+      uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
+      uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
+      uSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
       uFlowSpeed: { value: options.speed },
       uBaseAlpha: { value: options.alpha },
     },
@@ -575,6 +796,10 @@ function createStreamMaterial(options) {
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uFoamColor;
+      uniform vec3 uReflectionColor;
+      uniform vec3 uHorizonReflectionColor;
+      uniform vec3 uSunReflectionColor;
+      uniform vec3 uSunDirection;
       uniform vec3 uCameraPosition;
 
       varying vec2 vUv;
@@ -598,15 +823,51 @@ function createStreamMaterial(options) {
           + (d - b) * u.x * u.y;
       }
 
+      float fbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.5;
+        for (int i = 0; i < 4; i += 1) {
+          value += noise(p) * amplitude;
+          p = p * 2.03 + vec2(11.7, 4.8);
+          amplitude *= 0.5;
+        }
+        return value;
+      }
+
+      vec3 getWaterNormal(vec2 flowUv, vec2 worldUv, float strength) {
+        float broad = fbm(worldUv * 0.5 + vec2(-uTime * 0.03, uTime * 0.012));
+        float rippleA = fbm(flowUv * vec2(1.25, 1.9) + vec2(-uTime * 0.18, 0.05));
+        float rippleB = fbm((flowUv.yx + worldUv * 0.18) * vec2(1.7, 1.0) + vec2(uTime * 0.1, -uTime * 0.08));
+        vec2 slope = vec2(
+          (broad - 0.5) * 0.032 + (rippleA - 0.5) * 0.07,
+          (rippleB - 0.5) * 0.075
+        ) * strength;
+
+        return normalize(vec3(slope.x, 1.0, slope.y));
+      }
+
       void main() {
         float edge = min(vUv.y, 1.0 - vUv.y);
         float center = smoothstep(0.03, 0.45, edge);
         vec2 flowUv = vec2(vUv.x - uTime * uFlowSpeed, vUv.y);
-        float streak = smoothstep(0.46, 0.88, noise(flowUv * vec2(9.0, 34.0)));
-        float foamEdge = (1.0 - smoothstep(0.02, 0.12, edge)) * smoothstep(0.42, 0.86, noise(flowUv * vec2(18.0, 68.0)));
+        float streak = smoothstep(0.46, 0.88, fbm(flowUv * vec2(7.5, 26.0)));
+        float foamEdge = (1.0 - smoothstep(0.018, 0.12, edge)) * smoothstep(0.46, 0.9, fbm(flowUv * vec2(16.0, 58.0)));
         vec3 color = mix(uShallowColor, uDeepColor, center);
-        color = mix(color, uFoamColor, max(foamEdge * 0.75, streak * 0.18));
-        float alpha = uBaseAlpha * smoothstep(0.01, 0.14, edge) + foamEdge * 0.28;
+        vec3 normal = getWaterNormal(flowUv, vWorldPosition.xz * 0.18, mix(0.58, 1.0, center));
+        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
+        vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
+        color = mix(color, skyReflection, 0.12 + fresnel * 0.32);
+
+        vec3 lightDir = normalize(uSunDirection);
+        vec3 halfDir = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(normal, halfDir), 0.0), 110.0);
+        float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
+        color += uSunReflectionColor * spec * sparkle * 0.46;
+        color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1));
+        float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
+        alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
+        alpha = max(alpha, foamEdge * 0.18);
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
@@ -618,11 +879,11 @@ function createStreamMaterial(options) {
 
 function createSnowmeltMaterial() {
   return createStreamMaterial({
-    shallow: 0xb9ffff,
-    deep: 0x4ab4c6,
-    foam: 0xf4fdff,
+    shallow: 0x9edbd4,
+    deep: 0x2b8398,
+    foam: WATER_FOAM_COLOR,
     speed: 0.5,
-    alpha: 0.34,
+    alpha: 0.26,
   });
 }
 
@@ -1022,9 +1283,9 @@ function pseudoRandom(value) {
   return random - Math.floor(random);
 }
 
-function isNearWaterSystem(x, z) {
-  return x >= WATER_SYSTEM_MIN_X
-    && x <= WATER_SYSTEM_MAX_X
-    && z >= WATER_SYSTEM_MIN_Z
-    && z <= WATER_SYSTEM_MAX_Z;
+function isNearWaterSystem(x, z, buffer = 0) {
+  return x >= WATER_SYSTEM_MIN_X - buffer
+    && x <= WATER_SYSTEM_MAX_X + buffer
+    && z >= WATER_SYSTEM_MIN_Z - buffer
+    && z <= WATER_SYSTEM_MAX_Z + buffer;
 }

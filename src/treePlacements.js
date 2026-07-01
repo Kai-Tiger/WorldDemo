@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
+import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { hash2 } from './grassClumps.js';
 import {
   MAP_SIZE,
@@ -124,7 +125,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z)) {
-                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER)) {
+                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) {
                   if (!isTooClose(x, z, occupied)) {
                     markOccupied(x, z, occupied);
                     const modelCount = TREE_MODEL_PATHS.length;
