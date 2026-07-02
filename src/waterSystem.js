@@ -50,20 +50,17 @@ const SNOWMELT_PATHS = [
   [
     new THREE.Vector3(250, 0, -472),
     new THREE.Vector3(262, 0, -452),
-    new THREE.Vector3(278, 0, -431),
-    new THREE.Vector3(294, 0, -411),
+    new THREE.Vector3(267.8, 0, -444.4),
   ],
   [
     new THREE.Vector3(314, 0, -474),
     new THREE.Vector3(309, 0, -450),
-    new THREE.Vector3(304, 0, -426),
-    new THREE.Vector3(299, 0, -406),
+    new THREE.Vector3(308.8, 0, -449.1),
   ],
   [
     new THREE.Vector3(224, 0, -430),
     new THREE.Vector3(242, 0, -421),
-    new THREE.Vector3(266, 0, -412),
-    new THREE.Vector3(292, 0, -402),
+    new THREE.Vector3(257.3, 0, -415.3),
   ],
 ];
 const SNOWMELT_WIDTH = 1.25;
@@ -416,8 +413,6 @@ function createSnowmeltGroup(terrain) {
     mesh.renderOrder = WATER_SURFACE_RENDER_ORDER;
     group.add(mesh);
   }
-
-  group.add(createInflowRipples());
 
   return group;
 }
@@ -1053,25 +1048,6 @@ function createFoamOverlayMaterial() {
       }
     `,
   });
-}
-
-function createInflowRipples() {
-  const group = new THREE.Group();
-  group.name = 'SnowmeltInflowRipples';
-
-  for (let i = 0; i < SNOWMELT_PATHS.length; i += 1) {
-    const end = SNOWMELT_PATHS[i][SNOWMELT_PATHS[i].length - 1];
-    const geometry = new THREE.CircleGeometry(5.5, 40);
-    geometry.rotateX(Math.PI * 0.5);
-    geometry.translate(end.x, LAKE_WATER_LEVEL + 0.035, end.z);
-    const mesh = new THREE.Mesh(geometry, createFoamOverlayMaterial());
-
-    mesh.name = `SnowmeltInflowRipple_${i + 1}`;
-    mesh.renderOrder = 29;
-    group.add(mesh);
-  }
-
-  return group;
 }
 
 function createMistParticles() {
