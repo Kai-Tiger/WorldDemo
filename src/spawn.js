@@ -1,1 +1,1 @@
-export const PLAYER_SPAWN_POSITION = { x: 538, z: -347 };
+export const PLAYER_SPAWN_POSITION = { x: 335, z: -358 };
