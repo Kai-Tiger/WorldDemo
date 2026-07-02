@@ -646,9 +646,9 @@ function createLakeSurfaceMaterial() {
         vLakeEdge = lakeEdge;
         vLakeBedVisibility = lakeBedVisibility;
         vec3 transformed = position;
-        float waveMask = smoothstep(0.08, 0.9, lakeEdge);
-        float waveA = sin(position.x * 0.08 + uTime * 0.72) * 0.035;
-        float waveB = sin(position.z * 0.11 - uTime * 0.58) * 0.026;
+        float waveMask = smoothstep(0.04, 0.9, lakeEdge);
+        float waveA = sin(position.x * 0.08 + uTime * 0.95) * 0.055;
+        float waveB = sin(position.z * 0.11 - uTime * 0.76) * 0.04;
         transformed.y += (waveA + waveB) * waveMask;
         vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
         vWorldPosition = worldPosition.xyz;
@@ -703,12 +703,12 @@ function createLakeSurfaceMaterial() {
       }
 
       vec3 getWaterNormal(vec2 worldUv, float strength) {
-        float broad = fbm(worldUv * 0.44 + vec2(uTime * 0.035, -uTime * 0.028));
-        float rippleA = fbm(worldUv * 1.55 + vec2(-uTime * 0.24, uTime * 0.08));
-        float rippleB = fbm(worldUv.yx * 2.05 + vec2(uTime * 0.14, -uTime * 0.17));
+        float broad = fbm(worldUv * 0.5 + vec2(uTime * 0.055, -uTime * 0.044));
+        float rippleA = fbm(worldUv * 1.75 + vec2(-uTime * 0.32, uTime * 0.12));
+        float rippleB = fbm(worldUv.yx * 2.25 + vec2(uTime * 0.2, -uTime * 0.22));
         vec2 slope = vec2(
-          (broad - 0.5) * 0.06 + (rippleA - 0.5) * 0.085,
-          (rippleB - 0.5) * 0.09
+          (broad - 0.5) * 0.075 + (rippleA - 0.5) * 0.105,
+          (rippleB - 0.5) * 0.11
         ) * strength;
 
         return normalize(vec3(slope.x, 1.0, slope.y));
@@ -732,7 +732,7 @@ function createLakeSurfaceMaterial() {
         float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
         float deepMask = max(smoothstep(2.2, 12.0, vLakeDepth), basinCenter * 0.72);
         float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
-        float waveStrength = mix(0.62, 1.02, deepMask);
+        float waveStrength = mix(0.78, 1.18, deepMask);
         vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
@@ -743,10 +743,10 @@ function createLakeSurfaceMaterial() {
         color = mix(color, bedTint, bedInfluence);
         color = mix(color, uDeepColor * vec3(0.78, 0.94, 1.0), deepMask * 0.1);
 
-        float surfaceRipple = fbm(p * 0.2 + vec2(-uTime * 0.055, uTime * 0.034));
-        float fineRipple = fbm(p * 0.55 + vec2(uTime * 0.12, -uTime * 0.09));
-        color *= mix(0.88, 1.12, surfaceRipple);
-        color += uReflectionColor * smoothstep(0.58, 0.92, fineRipple) * edgeAlpha * 0.035;
+        float surfaceRipple = fbm(p * 0.22 + vec2(-uTime * 0.085, uTime * 0.052));
+        float fineRipple = fbm(p * 0.72 + vec2(uTime * 0.19, -uTime * 0.14));
+        color *= mix(0.84, 1.16, surfaceRipple);
+        color += uReflectionColor * smoothstep(0.54, 0.9, fineRipple) * edgeAlpha * 0.055;
 
         float caustics = getCaustics(p * 0.12);
         color += vec3(0.74, 0.96, 1.0) * caustics * shallowMask * vLakeBedVisibility * 0.13;
@@ -764,21 +764,23 @@ function createLakeSurfaceMaterial() {
         float sparkle = smoothstep(0.54, 0.9, fbm(p * 0.55 + vec2(-uTime * 0.28, uTime * 0.07)));
         color += uSunReflectionColor * (spec * sparkle * 0.44 + broadSpec * reflectionMask * 0.06);
 
-        float shoreBand = (1.0 - smoothstep(0.03, 0.2, vLakeEdge)) * smoothstep(0.08, 2.4, vLakeDepth);
-        float innerBreak = smoothstep(0.0, 0.045, vLakeEdge + (edgeNoise * 0.035));
-        float foamDrift = fbm(p * 0.42 + vec2(-uTime * 0.12, uTime * 0.05));
-        float foamCells = fbm(p * 1.15 + vec2(uTime * 0.18, -uTime * 0.07) + foamDrift);
-        float foamThreads = fbm(vec2(vLakeEdge * 52.0, foamDrift * 8.0 + uTime * 0.28));
+        float foamStart = smoothstep(0.035, 0.095, vLakeEdge + edgeNoise * 0.025);
+        float foamEnd = 1.0 - smoothstep(0.18, 0.32, vLakeEdge);
+        float shoreBand = foamStart * foamEnd;
+        float shallowFoamSupport = mix(0.72, 1.0, smoothstep(0.0, 1.4, vLakeDepth));
+        float foamDrift = fbm(p * 0.42 + vec2(-uTime * 0.16, uTime * 0.07));
+        float foamCells = fbm(p * 1.2 + vec2(uTime * 0.24, -uTime * 0.1) + foamDrift);
+        float foamThreads = fbm(vec2(vLakeEdge * 42.0, foamDrift * 8.0 + uTime * 0.36));
         float shoreFoamNoise = max(
-          smoothstep(0.42, 0.78, foamCells),
-          smoothstep(0.5, 0.88, foamThreads) * 0.75
+          smoothstep(0.34, 0.74, foamCells),
+          smoothstep(0.42, 0.84, foamThreads) * 0.82
         );
-        float shoreFoam = shoreBand * innerBreak * shoreFoamNoise;
-        color = mix(color, uFoamColor, shoreFoam * 0.78);
+        float shoreFoam = shoreBand * shallowFoamSupport * mix(0.38, 1.0, shoreFoamNoise);
+        color = mix(color, uFoamColor, shoreFoam * 0.86);
 
         float alpha = edgeAlpha * mix(0.12, 0.48, max(depthMask, basinCenter * 0.74));
         alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
-        alpha = max(alpha, shoreFoam * 0.42);
+        alpha = max(alpha, shoreFoam * 0.5);
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
