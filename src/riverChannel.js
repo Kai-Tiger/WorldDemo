@@ -1,4 +1,13 @@
 import * as THREE from 'three';
+import {
+  WATER_BANK_REFLECTION_COLOR,
+  WATER_DEEP_COLOR,
+  WATER_FOAM_COLOR,
+  WATER_HORIZON_REFLECTION_COLOR,
+  WATER_REFLECTION_COLOR,
+  WATER_SHALLOW_COLOR,
+  WATER_SUN_REFLECTION_COLOR,
+} from './waterPalette.js';
 
 const CHANNEL_POINTS = [
   new THREE.Vector3(420, 0, -423),
@@ -365,13 +374,13 @@ function createRiverWaterMaterial() {
     depthTest: true,
     uniforms: {
       uTime: { value: 0 },
-      uShallowColor: { value: new THREE.Color(0x66c7b7) },
-      uDeepColor: { value: new THREE.Color(0x0d5b77) },
-      uFoamColor: { value: new THREE.Color(0xf1fbff) },
-      uReflectionColor: { value: new THREE.Color(0x8ed8ff) },
-      uHorizonReflectionColor: { value: new THREE.Color(0xd7f3ff) },
-      uBankReflectionColor: { value: new THREE.Color(0x4f6f58) },
-      uSunReflectionColor: { value: new THREE.Color(0xfff1bd) },
+      uShallowColor: { value: new THREE.Color(WATER_SHALLOW_COLOR) },
+      uDeepColor: { value: new THREE.Color(WATER_DEEP_COLOR) },
+      uFoamColor: { value: new THREE.Color(WATER_FOAM_COLOR) },
+      uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
+      uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
+      uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
+      uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
       uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
       uCameraPosition: { value: new THREE.Vector3() },
     },
@@ -469,16 +478,16 @@ function createRiverWaterMaterial() {
       void main() {
         float edge = min(vUv.y, 1.0 - vUv.y);
         float centerMask = smoothstep(0.04, 0.46, edge);
-        float depthMask = smoothstep(0.15, 1.6, vWaterDepth);
-        float deepMask = centerMask * depthMask;
+        float depthMask = smoothstep(0.12, 1.45, vWaterDepth);
+        float deepMask = max(centerMask * depthMask, depthMask * 0.18);
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
         float depthAlpha = mix(0.58, 1.0, depthMask);
-        float surfaceAlpha = mix(0.1, 0.48, max(centerMask * 0.72, depthMask));
+        float surfaceAlpha = mix(0.12, 0.52, max(centerMask * 0.72, depthMask));
         float alpha = edgeAlpha * surfaceAlpha * depthAlpha;
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
-        float bottomVisibility = mix(0.98, 0.54, depthMask);
+        float bottomVisibility = mix(0.92, 0.5, depthMask);
         vec2 bedUv = vWorldPosition.xz;
 
         float flowSpeed = mix(0.18, 0.42, deepMask);
@@ -499,8 +508,8 @@ function createRiverWaterMaterial() {
         vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
         float bankNoise = fbm(vWorldPosition.xz * 0.18 + vec2(uTime * 0.018, -uTime * 0.012));
         float bankReflection = (1.0 - centerMask) * edgeAlpha * smoothstep(0.32, 0.86, bankNoise);
-        waterColor = mix(waterColor, skyReflection, 0.18 + glancingReflection * 0.42);
-        waterColor = mix(waterColor, uBankReflectionColor, bankReflection * 0.18);
+        waterColor = mix(waterColor, skyReflection, 0.16 + glancingReflection * 0.38);
+        waterColor = mix(waterColor, uBankReflectionColor, bankReflection * 0.2);
         alpha = max(alpha, glancingReflection * 0.32);
 
         vec3 lightDir = normalize(uSunDirection);

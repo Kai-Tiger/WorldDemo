@@ -1,5 +1,14 @@
 import * as THREE from 'three';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
+import {
+  WATER_BANK_REFLECTION_COLOR,
+  WATER_DEEP_COLOR,
+  WATER_FOAM_COLOR,
+  WATER_HORIZON_REFLECTION_COLOR,
+  WATER_REFLECTION_COLOR,
+  WATER_SHALLOW_COLOR,
+  WATER_SUN_REFLECTION_COLOR,
+} from './waterPalette.js';
 
 export const LAKE_CENTER = new THREE.Vector2(300, -400);
 export const LAKE_WATER_LEVEL = 31;
@@ -60,13 +69,6 @@ const SNOWMELT_PATHS = [
 const SNOWMELT_WIDTH = 1.25;
 const SNOWMELT_INFLUENCE = 5.2;
 const SNOWMELT_SURFACE_OFFSET = 0.38;
-const WATER_SHALLOW_COLOR = 0x66c7b7;
-const WATER_DEEP_COLOR = 0x0d5b77;
-const WATER_FOAM_COLOR = 0xf1fbff;
-const WATER_REFLECTION_COLOR = 0x8ed8ff;
-const WATER_HORIZON_REFLECTION_COLOR = 0xd7f3ff;
-const WATER_BANK_REFLECTION_COLOR = 0x4f6f58;
-const WATER_SUN_REFLECTION_COLOR = 0xfff1bd;
 const WATER_SURFACE_RENDER_ORDER = 20;
 
 const outletCurve = new THREE.CatmullRomCurve3(OUTLET_POINTS, false, 'centripetal');
@@ -724,20 +726,20 @@ function createLakeSurfaceMaterial() {
         vec2 p = vWorldPosition.xz;
         float edgeNoise = fbm(p * 0.24 + vec2(uTime * 0.01, -uTime * 0.006)) - 0.5;
         float edgeAlpha = smoothstep(0.035, 0.23, vLakeEdge + edgeNoise * 0.045);
-        float depthMask = smoothstep(0.55, 8.0, vLakeDepth);
+        float depthMask = smoothstep(0.65, 9.5, vLakeDepth);
         float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
-        float deepMask = max(smoothstep(1.6, 10.5, vLakeDepth), basinCenter * 0.86);
+        float deepMask = max(smoothstep(2.2, 12.0, vLakeDepth), basinCenter * 0.72);
         float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
-        float waveStrength = mix(0.5, 0.92, deepMask);
+        float waveStrength = mix(0.5, 0.84, deepMask);
         vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
         float reflectionMask = smoothstep(0.06, 0.78, fresnel);
         vec3 color = mix(uShallowColor, uDeepColor, deepMask);
-        vec3 bedTint = mix(uShallowColor, uDeepColor, 0.35) * vec3(0.58, 0.68, 0.62);
-        float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.18;
+        vec3 bedTint = mix(uShallowColor, uDeepColor, 0.26) * vec3(0.68, 0.74, 0.68);
+        float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.12;
         color = mix(color, bedTint, bedInfluence);
-        color = mix(color, uDeepColor * vec3(0.68, 0.9, 1.08), deepMask * 0.18);
+        color = mix(color, uDeepColor * vec3(0.78, 0.94, 1.0), deepMask * 0.1);
 
         float surfaceRipple = fbm(p * 0.16 + vec2(-uTime * 0.02, uTime * 0.014));
         color *= mix(0.92, 1.08, surfaceRipple);
@@ -746,25 +748,25 @@ function createLakeSurfaceMaterial() {
         color += vec3(0.74, 0.96, 1.0) * caustics * shallowMask * vLakeBedVisibility * 0.13;
 
         vec3 skyReflection = mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y));
-        color = mix(color, skyReflection, 0.14 + reflectionMask * 0.36);
+        color = mix(color, skyReflection, 0.12 + reflectionMask * 0.3);
         float bankNoise = fbm(p * 0.18 + vec2(uTime * 0.018, -uTime * 0.012));
         float bankReflection = (1.0 - basinCenter) * edgeAlpha * smoothstep(0.32, 0.86, bankNoise);
-        color = mix(color, uBankReflectionColor, bankReflection * 0.14);
+        color = mix(color, uBankReflectionColor, bankReflection * 0.18);
 
         vec3 lightDir = normalize(uSunDirection);
         vec3 halfDir = normalize(lightDir + viewDir);
         float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
         float broadSpec = pow(max(dot(normal, halfDir), 0.0), 38.0);
         float sparkle = smoothstep(0.54, 0.9, fbm(p * 0.55 + vec2(-uTime * 0.28, uTime * 0.07)));
-        color += uSunReflectionColor * (spec * sparkle * 0.52 + broadSpec * reflectionMask * 0.07);
+        color += uSunReflectionColor * (spec * sparkle * 0.44 + broadSpec * reflectionMask * 0.06);
 
         float shoreFoamBase = (1.0 - smoothstep(0.02, 0.12, vLakeEdge)) * smoothstep(0.15, 2.6, vLakeDepth);
         float shoreFoamNoise = smoothstep(0.48, 0.9, fbm(vUv * vec2(32.0, 48.0) + vec2(-uTime * 0.08, uTime * 0.03)));
         float shoreFoam = shoreFoamBase * shoreFoamNoise * 0.28;
         color = mix(color, uFoamColor, shoreFoam * 0.35);
 
-        float alpha = edgeAlpha * mix(0.14, 0.54, max(depthMask, basinCenter * 0.82));
-        alpha = max(alpha, reflectionMask * 0.28 * edgeAlpha);
+        float alpha = edgeAlpha * mix(0.12, 0.48, max(depthMask, basinCenter * 0.74));
+        alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
         alpha = max(alpha, shoreFoam * 0.18);
 
         gl_FragColor = vec4(color, alpha);
@@ -906,8 +908,8 @@ function createStreamMaterial(options) {
 
 function createSnowmeltMaterial() {
   return createStreamMaterial({
-    shallow: 0x9edbd4,
-    deep: 0x2b8398,
+    shallow: WATER_SHALLOW_COLOR,
+    deep: WATER_DEEP_COLOR,
     foam: WATER_FOAM_COLOR,
     speed: 0.5,
     alpha: 0.26,
