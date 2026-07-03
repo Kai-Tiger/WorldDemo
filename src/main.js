@@ -3,7 +3,9 @@ import './style.css';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { createScene } from './scene.js';
+import { applyEnvironmentLighting } from './environmentLighting.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
+import { configureRenderer, createPostProcessing } from './postProcessing.js';
 import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
@@ -15,15 +17,19 @@ const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const { scene, terrain, water, wetBanks, waterSystem, grassManager, sunLight, clouds, smallLakes } = await createScene();
+const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+configureRenderer(renderer);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
+await applyEnvironmentLighting(renderer, scene, hemisphereLight);
+const postProcessing = createPostProcessing(renderer, scene, camera);
 
 const input = new Input(canvas);
 const player = new Player();
@@ -42,6 +48,7 @@ function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  postProcessing.resize(window.innerWidth, window.innerHeight);
 }
 
 function updateSunLight() {
@@ -66,7 +73,7 @@ function animate() {
   updateSmallLakes(smallLakes, camera, clock.elapsedTime);
   updateSunLight();
 
-  renderer.render(scene, camera);
+  postProcessing.render(deltaTime);
 }
 
 window.addEventListener('resize', resize);
