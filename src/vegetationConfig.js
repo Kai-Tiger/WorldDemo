@@ -88,6 +88,9 @@ export const TREE_MODEL_PATHS = [
   '/assets/vegetation/tree_04.glb',
 ];
 
+/** 树木阴影可读性曝光倍率，1 = 基础补偿  |  Tree-only exposure multiplier for shadow readability, 1 = base lift */
+export const TREE_EXPOSURE = 1.8;
+
 // --- 放置 (Placement) ---
 
 /** 树与树之间的最小间距（米）  |  Min spacing between trees (m) */

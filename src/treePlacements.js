@@ -7,6 +7,7 @@ import { hash2 } from './grassClumps.js';
 import {
   MAP_SIZE,
   TREE_MODEL_PATHS,
+  TREE_EXPOSURE,
   TREE_MIN_SPACING,
   TREE_RIVER_BUFFER,
   TREE_DENSITY_LOWLAND,
@@ -31,7 +32,7 @@ const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
 const TREE_ALPHA_TEST = 0.38;
 const TREE_EMISSIVE_COLOR = 0x1f2a1b;
-const TREE_EMISSIVE_INTENSITY = 0.1;
+const TREE_BASE_EMISSIVE_INTENSITY = 0.1;
 
 const loader = new GLTFLoader();
 
@@ -79,7 +80,7 @@ function createTreeMaterial(sourceMaterial) {
   material.depthTest = true;
   if ('emissive' in material) {
     material.emissive = new THREE.Color(TREE_EMISSIVE_COLOR);
-    material.emissiveIntensity = TREE_EMISSIVE_INTENSITY;
+    material.emissiveIntensity = TREE_BASE_EMISSIVE_INTENSITY * TREE_EXPOSURE;
   }
   material.needsUpdate = true;
 
