@@ -9,10 +9,11 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 const COLOR_GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null },
-    uContrast: { value: 1.08 },
-    uSaturation: { value: 1.04 },
-    uShadowTint: { value: new THREE.Color(0xddeaff) },
+    uContrast: { value: 1.02 },
+    uSaturation: { value: 1.02 },
+    uShadowTint: { value: new THREE.Color(0xf3f7ff) },
     uHighlightTint: { value: new THREE.Color(0xfff1d4) },
+    uShadowLift: { value: 0.045 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -28,6 +29,7 @@ const COLOR_GRADE_SHADER = {
     uniform float uSaturation;
     uniform vec3 uShadowTint;
     uniform vec3 uHighlightTint;
+    uniform float uShadowLift;
 
     varying vec2 vUv;
 
@@ -38,6 +40,7 @@ const COLOR_GRADE_SHADER = {
 
       graded = (graded - 0.5) * uContrast + 0.5;
       graded *= mix(uShadowTint, uHighlightTint, smoothstep(0.18, 0.82, luma));
+      graded += uShadowLift * (1.0 - smoothstep(0.02, 0.42, luma));
 
       gl_FragColor = vec4(max(graded, vec3(0.0)), color.a);
     }
@@ -47,20 +50,20 @@ const COLOR_GRADE_SHADER = {
 export function configureRenderer(renderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.35;
 }
 
 export function createPostProcessing(renderer, scene, camera) {
   const composer = new EffectComposer(renderer);
   const renderPass = new RenderPass(scene, camera);
   const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight, undefined, {
-    radius: 3.2,
+    radius: 2.6,
     distanceExponent: 1.6,
     thickness: 1.1,
-    scale: 0.55,
+    scale: 0.38,
     samples: 12,
   }, {
-    radius: 5,
+    radius: 4,
     radiusExponent: 1.8,
     samples: 12,
   });
@@ -69,7 +72,7 @@ export function createPostProcessing(renderer, scene, camera) {
   const outputPass = new OutputPass();
 
   gtaoPass.output = GTAOPass.OUTPUT.Default;
-  gtaoPass.blendIntensity = 0.72;
+  gtaoPass.blendIntensity = 0.4;
 
   composer.addPass(renderPass);
   composer.addPass(gtaoPass);
