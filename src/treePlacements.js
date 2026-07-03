@@ -30,6 +30,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
 const TREE_ALPHA_TEST = 0.38;
+const TREE_EMISSIVE_COLOR = 0x1f2a1b;
+const TREE_EMISSIVE_INTENSITY = 0.1;
 
 const loader = new GLTFLoader();
 
@@ -75,6 +77,10 @@ function createTreeMaterial(sourceMaterial) {
   material.alphaTest = Math.max(material.alphaTest || 0, TREE_ALPHA_TEST);
   material.depthWrite = true;
   material.depthTest = true;
+  if ('emissive' in material) {
+    material.emissive = new THREE.Color(TREE_EMISSIVE_COLOR);
+    material.emissiveIntensity = TREE_EMISSIVE_INTENSITY;
+  }
   material.needsUpdate = true;
 
   return material;
