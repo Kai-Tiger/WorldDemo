@@ -6,6 +6,9 @@ const PLAYER_MODEL_PATH = '/assets/player/stand.fbx';
 const WALK_ANIMATION_PATH = '/assets/player/walk.fbx';
 const PLAYER_HEIGHT = 1.8;
 const PLAYER_RADIUS = 0.35;
+const PLAYER_EMISSIVE_COLOR = 0x1c2630;
+const PLAYER_EMISSIVE_INTENSITY = 0.07;
+const PLAYER_MAX_METALNESS = 0.35;
 const GROUND_OFFSET = 0.03;
 const MIN_WALKABLE_NORMAL_Y = Math.cos(THREE.MathUtils.degToRad(50));
 const GROUND_SPEED = 5;
@@ -59,6 +62,7 @@ export class Player {
 
       child.castShadow = true;
       child.receiveShadow = true;
+      this.configureReadableMaterial(child);
     });
 
     const box = new THREE.Box3().setFromObject(model);
@@ -74,6 +78,28 @@ export class Player {
     model.position.x -= center.x;
     model.position.y -= scaledBox.min.y;
     model.position.z -= center.z;
+  }
+
+  configureReadableMaterial(mesh) {
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+    const readableMaterials = materials.map((material) => {
+      const readableMaterial = material.clone();
+
+      if ('emissive' in readableMaterial) {
+        readableMaterial.emissive = new THREE.Color(PLAYER_EMISSIVE_COLOR);
+        readableMaterial.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
+      }
+
+      if ('metalness' in readableMaterial) {
+        readableMaterial.metalness = Math.min(readableMaterial.metalness, PLAYER_MAX_METALNESS);
+      }
+
+      readableMaterial.needsUpdate = true;
+      return readableMaterial;
+    });
+
+    mesh.material = Array.isArray(mesh.material) ? readableMaterials : readableMaterials[0];
   }
 
   setupIdleAnimation(model) {

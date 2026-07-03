@@ -9,11 +9,11 @@ import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 const COLOR_GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null },
-    uContrast: { value: 1.02 },
+    uContrast: { value: 1.05 },
     uSaturation: { value: 1.02 },
     uShadowTint: { value: new THREE.Color(0xf3f7ff) },
     uHighlightTint: { value: new THREE.Color(0xfff1d4) },
-    uShadowLift: { value: 0.045 },
+    uShadowLift: { value: 0.015 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -50,7 +50,7 @@ const COLOR_GRADE_SHADER = {
 export function configureRenderer(renderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.35;
+  renderer.toneMappingExposure = 1.2;
 }
 
 export function createPostProcessing(renderer, scene, camera) {
@@ -72,7 +72,7 @@ export function createPostProcessing(renderer, scene, camera) {
   const outputPass = new OutputPass();
 
   gtaoPass.output = GTAOPass.OUTPUT.Default;
-  gtaoPass.blendIntensity = 0.4;
+  gtaoPass.blendIntensity = 0.34;
 
   composer.addPass(renderPass);
   composer.addPass(gtaoPass);
