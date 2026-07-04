@@ -14,6 +14,9 @@ const COLOR_GRADE_SHADER = {
     uShadowTint: { value: new THREE.Color(0xf3f7ff) },
     uHighlightTint: { value: new THREE.Color(0xfff1d4) },
     uShadowLift: { value: 0.015 },
+    uTexelSize: { value: new THREE.Vector2(1, 1) },
+    uSharpenStrength: { value: 0.18 },
+    uVignetteStrength: { value: 0.18 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -30,17 +33,31 @@ const COLOR_GRADE_SHADER = {
     uniform vec3 uShadowTint;
     uniform vec3 uHighlightTint;
     uniform float uShadowLift;
+    uniform vec2 uTexelSize;
+    uniform float uSharpenStrength;
+    uniform float uVignetteStrength;
 
     varying vec2 vUv;
 
     void main() {
       vec4 color = texture2D(tDiffuse, vUv);
-      float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-      vec3 graded = mix(vec3(luma), color.rgb, uSaturation);
+      vec3 center = color.rgb;
+      vec3 blur = (
+        texture2D(tDiffuse, vUv + vec2(uTexelSize.x, 0.0)).rgb
+        + texture2D(tDiffuse, vUv - vec2(uTexelSize.x, 0.0)).rgb
+        + texture2D(tDiffuse, vUv + vec2(0.0, uTexelSize.y)).rgb
+        + texture2D(tDiffuse, vUv - vec2(0.0, uTexelSize.y)).rgb
+      ) * 0.25;
+      vec3 sharpColor = max(center + (center - blur) * uSharpenStrength, vec3(0.0));
+      float luma = dot(sharpColor, vec3(0.2126, 0.7152, 0.0722));
+      vec3 graded = mix(vec3(luma), sharpColor, uSaturation);
 
       graded = (graded - 0.5) * uContrast + 0.5;
       graded *= mix(uShadowTint, uHighlightTint, smoothstep(0.18, 0.82, luma));
       graded += uShadowLift * (1.0 - smoothstep(0.02, 0.42, luma));
+      vec2 centeredUv = vUv * 2.0 - 1.0;
+      float vignette = 1.0 - dot(centeredUv, centeredUv) * uVignetteStrength;
+      graded *= clamp(vignette, 0.72, 1.0);
 
       gl_FragColor = vec4(max(graded, vec3(0.0)), color.a);
     }
@@ -73,6 +90,7 @@ export function createPostProcessing(renderer, scene, camera) {
 
   gtaoPass.output = GTAOPass.OUTPUT.Default;
   gtaoPass.blendIntensity = 0.34;
+  colorGradePass.uniforms.uTexelSize.value.set(1 / window.innerWidth, 1 / window.innerHeight);
 
   composer.addPass(renderPass);
   composer.addPass(gtaoPass);
@@ -84,6 +102,7 @@ export function createPostProcessing(renderer, scene, camera) {
     composer,
     resize(width, height) {
       composer.setSize(width, height);
+      colorGradePass.uniforms.uTexelSize.value.set(1 / width, 1 / height);
     },
     render(deltaTime) {
       composer.render(deltaTime);

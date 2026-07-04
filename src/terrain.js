@@ -494,6 +494,20 @@ function createTerrainMaterial(textures) {
         return value;
       }
 
+      vec3 applyDetailNormal(vec3 baseNormal, vec2 worldPosition, float groundInfluence, float rockInfluence, float wetInfluence) {
+        float detailScale = mix(1.8, 4.2, clamp(rockInfluence, 0.0, 1.0));
+        vec2 p = worldPosition * detailScale;
+        float sampleOffset = 0.23;
+        float hL = fbm((p - vec2(sampleOffset, 0.0)) * 0.92);
+        float hR = fbm((p + vec2(sampleOffset, 0.0)) * 0.92);
+        float hD = fbm((p - vec2(0.0, sampleOffset)) * 0.92);
+        float hU = fbm((p + vec2(0.0, sampleOffset)) * 0.92);
+        vec2 gradient = vec2(hR - hL, hU - hD);
+        float strength = groundInfluence * 0.13 + rockInfluence * 0.24 + wetInfluence * 0.08;
+
+        return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
+      }
+
       void main() {
         vec3 normal = normalize(vWorldNormal);
         vec2 blendUv = vWorldUv * uTextureWorldSize;
@@ -563,17 +577,24 @@ function createTerrainMaterial(textures) {
         baseColor = mix(baseColor, plungeColor, plungeMask * 0.78);
         baseColor = mix(baseColor, wetRockColor, max(wetShoreMask * 0.65, snowmeltWetMask * 0.9));
 
-        float sunLight = max(dot(normal, normalize(uSunDirection)), 0.0);
+        float detailShade = fbm(blendUv * 3.1 + vec2(19.0, -6.0));
+        float materialDetail = groundMask * 0.08 + max(screeMask, rockMask) * 0.12 + wetShoreMask * 0.06;
+        baseColor *= mix(1.0 - materialDetail, 1.0 + materialDetail, detailShade);
+
+        float rockInfluence = clamp(max(screeMask, rockMask), 0.0, 1.0);
+        float wetInfluence = clamp(max(wetShoreMask, snowmeltWetMask), 0.0, 1.0);
+        vec3 surfaceNormal = applyDetailNormal(normal, vWorldPosition.xz, groundMask, rockInfluence, wetInfluence);
+        float sunLight = max(dot(surfaceNormal, normalize(uSunDirection)), 0.0);
         float rawShadowMask = getShadowMask();
         float shadowMask = mix(0.18, 1.0, rawShadowMask);
         float ambientShadow = mix(0.72, 1.0, rawShadowMask);
-        float skyLight = normal.y * 0.5 + 0.5;
+        float skyLight = surfaceNormal.y * 0.5 + 0.5;
         vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
         vec3 litColor = baseColor * (ambient * ambientShadow + uSunLightColor * sunLight * shadowMask * 0.62);
         vec3 viewDir = normalize(cameraPosition - vWorldPosition);
         vec3 halfDir = normalize(normalize(uSunDirection) + viewDir);
-        float wetSpec = pow(max(dot(normal, halfDir), 0.0), 72.0);
-        float glancing = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
+        float wetSpec = pow(max(dot(surfaceNormal, halfDir), 0.0), 72.0);
+        float glancing = pow(1.0 - max(dot(viewDir, surfaceNormal), 0.0), 3.0);
         float wetReflect = max(wetShoreMask * 0.4, snowmeltWetMask) * max(wetSpec * 0.9, glancing * 0.16) * shadowMask;
         litColor += vec3(0.78, 0.95, 1.0) * wetReflect;
 
