@@ -35,7 +35,18 @@ const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize()
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
 const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
-const GRASS_SHADOW_LIFT_INTENSITY = 0.28;
+const GRASS_SHADOW_LIFT_INTENSITY = 0.12;
+const GRASS_EMISSIVE_INTENSITY = 0.015;
+const GRASS_COLOR_GRADE = {
+  brightness: 0.76,
+  saturation: 0.65,
+  highlightCompression: 0.45,
+};
+const GRASS_FAR_COLOR_GRADE = {
+  brightness: 0.5,
+  saturation: 0.36,
+  highlightCompression: 0.58,
+};
 
 export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
@@ -125,9 +136,9 @@ transformed.xz += (
   + grassSideDirection * grassFlutter * 0.28
 ) * uGrassSwayStrength * grassTipMask;`,
       );
-    applyGrassShadowLift(shader);
+    applyGrassColorGrade(shader, GRASS_COLOR_GRADE);
   };
-  material.customProgramCacheKey = () => 'grass-sway-shadow-lift-v1';
+  material.customProgramCacheKey = () => 'grass-sway-color-grade-v1';
 
   return material;
 }
@@ -136,9 +147,10 @@ function createSimpleMaterial(sourceMaterial, geometry) {
   const material = sourceMaterial.clone();
 
   configureGrassMaterial(material);
+  material.alphaTest = Math.max(material.alphaTest, 0.46);
   material.userData.grassUniforms = null;
-  material.onBeforeCompile = applyGrassShadowLift;
-  material.customProgramCacheKey = () => 'grass-shadow-lift-v1';
+  material.onBeforeCompile = (shader) => applyGrassColorGrade(shader, GRASS_FAR_COLOR_GRADE);
+  material.customProgramCacheKey = () => 'grass-far-color-grade-v1';
 
   return material;
 }
@@ -150,26 +162,38 @@ function configureGrassMaterial(material) {
   material.depthTest = true;
   if ('emissive' in material) {
     material.emissive = new THREE.Color(GRASS_SHADOW_LIFT_COLOR);
-    material.emissiveIntensity = Math.max(material.emissiveIntensity || 0, 0.08);
+    material.emissiveIntensity = Math.min(material.emissiveIntensity || GRASS_EMISSIVE_INTENSITY, GRASS_EMISSIVE_INTENSITY);
   }
   material.needsUpdate = true;
 }
 
-function applyGrassShadowLift(shader) {
+function applyGrassColorGrade(shader, grade) {
   shader.uniforms.uGrassShadowLiftColor = { value: new THREE.Color(GRASS_SHADOW_LIFT_COLOR) };
   shader.uniforms.uGrassShadowLiftIntensity = { value: GRASS_SHADOW_LIFT_INTENSITY };
+  shader.uniforms.uGrassBrightness = { value: grade.brightness };
+  shader.uniforms.uGrassSaturation = { value: grade.saturation };
+  shader.uniforms.uGrassHighlightCompression = { value: grade.highlightCompression };
   shader.fragmentShader = shader.fragmentShader
     .replace(
       '#include <common>',
       `#include <common>
 uniform vec3 uGrassShadowLiftColor;
-uniform float uGrassShadowLiftIntensity;`,
+uniform float uGrassShadowLiftIntensity;
+uniform float uGrassBrightness;
+uniform float uGrassSaturation;
+uniform float uGrassHighlightCompression;`,
     )
     .replace(
       '#include <dithering_fragment>',
       `float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
 gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
+grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+vec3 grassGray = vec3(grassLuminance);
+float grassHighlightMask = smoothstep(0.42, 0.92, grassLuminance);
+gl_FragColor.rgb = mix(grassGray, gl_FragColor.rgb, uGrassSaturation);
+gl_FragColor.rgb *= uGrassBrightness;
+gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * (1.0 - uGrassHighlightCompression), grassHighlightMask);
 #include <dithering_fragment>`,
     );
 }
