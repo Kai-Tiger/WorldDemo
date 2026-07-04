@@ -348,6 +348,7 @@ async function loadTerrainTextures() {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
   }
 
   return { grass, dirt, dryGrass, frozenDirt, scree, rock, snow, riverBank, riverBed };
