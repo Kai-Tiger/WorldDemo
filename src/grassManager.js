@@ -29,7 +29,7 @@ export class GrassManager {
   }
 
   update(cameraPosition, elapsedTime) {
-    updateGrassClumps(this.group, elapsedTime);
+    updateGrassClumps(this.group, cameraPosition, elapsedTime);
 
     const camX = cameraPosition.x;
     const camZ = cameraPosition.z;

@@ -32,6 +32,7 @@ const RIVER_BUFFER = GRASS_RIVER_BUFFER;
 const PATCH_COUNT = GRASS_PATCH_COUNT;
 const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
 const GRASS_SWAY_MOTION_SCALE = 0.32;
+const GRASS_SWAY_RADIUS = 2;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
@@ -100,6 +101,7 @@ export function createGrassSwayMaterial(sourceMaterial, geometry) {
     uGrassHeight: { value: height },
     uGrassWindDirection: { value: WIND_DIRECTION },
     uGrassSwayStrength: { value: SWAY_STRENGTH * GRASS_SWAY_MOTION_SCALE },
+    uGrassPlayerPosition: { value: new THREE.Vector2(PLAYER_SPAWN_POSITION.x, PLAYER_SPAWN_POSITION.z) },
   };
 
   if ('vertexColors' in material) {
@@ -118,7 +120,8 @@ uniform float uGrassTime;
 uniform float uGrassBaseY;
 uniform float uGrassHeight;
 uniform vec2 uGrassWindDirection;
-uniform float uGrassSwayStrength;`,
+uniform float uGrassSwayStrength;
+uniform vec2 uGrassPlayerPosition;`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -132,10 +135,12 @@ grassInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).x
 vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
 float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.24 + uGrassTime * 0.48 + position.y * 2.2);
 float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.36 + uGrassTime * 0.72 + position.y * 3.1);
+float grassPlayerDistance = distance(grassInstanceWorld.xz, uGrassPlayerPosition);
+float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
 transformed.xz += (
   uGrassWindDirection * grassWave
   + grassSideDirection * grassFlutter * 0.12
-) * uGrassSwayStrength * grassTipMask;`,
+) * uGrassSwayStrength * grassTipMask * grassPlayerSwayMask;`,
       );
     applyGrassColorGrade(shader, GRASS_COLOR_GRADE);
   };
@@ -463,12 +468,13 @@ export async function createGrassClumps(terrain) {
   return group;
 }
 
-export function updateGrassClumps(grassManager, elapsedTime) {
+export function updateGrassClumps(grassManager, playerPosition, elapsedTime) {
   grassManager?.traverse((child) => {
     const uniforms = child.material?.userData?.grassUniforms;
 
     if (uniforms) {
       uniforms.uGrassTime.value = elapsedTime;
+      uniforms.uGrassPlayerPosition.value.set(playerPosition.x, playerPosition.z);
     }
   });
 }
