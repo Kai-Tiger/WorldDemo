@@ -203,14 +203,16 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
 
           if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
             const patches = getPatchesForPoint(x, z);
+            const patchInfluence = getPatchInfluenceAt(x, z, patches);
 
-            if (shouldPlaceInPatch(x, z, gridX, gridZ, patches)) {
+            if (shouldPlaceInPatch(x, z, gridX, gridZ, patchInfluence)) {
               if (isGrassArea(terrain, x, z)) {
                 if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
                   const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
                   if (!isInRiverGrassExclusion(clustered.x, clustered.z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(clustered.x, clustered.z)) {
-                    placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ));
+                    const clusteredInfluence = getPatchInfluenceAt(clustered.x, clustered.z, patches);
+                    placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ, clusteredInfluence));
                   }
                 }
               }
@@ -282,15 +284,16 @@ function createPatchCell(minX, minZ, size) {
   return patches;
 }
 
-function shouldPlaceInPatch(worldX, worldZ, gridX, gridZ, patches) {
-  const patchInfluence = getPatchInfluenceAt(worldX, worldZ, patches);
+function shouldPlaceInPatch(worldX, worldZ, gridX, gridZ, patchInfluence) {
+  const edgeNoise = hash2(gridX * 1.73 + 19.2, gridZ * -2.11 - 7.4);
+  const fineBreakup = 0.5 + 0.5 * Math.sin(worldX * 2.1 + Math.sin(worldZ * 1.7) * 1.6);
   const localAcceptance = THREE.MathUtils.lerp(
-    PATCH_GAP_ACCEPTANCE,
+    Math.min(PATCH_GAP_ACCEPTANCE, 0.12),
     PATCH_FULL_ACCEPTANCE,
-    patchInfluence,
+    smoothstep(0.16, 0.88, patchInfluence),
   );
 
-  return hash2(gridX + 203.4, gridZ - 71.8) < localAcceptance;
+  return edgeNoise < localAcceptance - ((1 - patchInfluence) * 0.2) + ((fineBreakup - 0.5) * 0.14);
 }
 
 function getClusteredOffset(worldX, worldZ, gridX, gridZ, patches) {
@@ -337,16 +340,17 @@ function getPatchInfluenceAt(worldX, worldZ, patches) {
     const dx = worldX - patch.x;
     const dz = worldZ - patch.z;
     const distance = Math.sqrt(dx * dx + dz * dz);
-    const patchInfluence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
+    const patchInfluence = 1 - smoothstep(patch.radius * 0.42, patch.radius * 1.22, distance);
 
     influence = Math.max(influence, patchInfluence);
     layeredInfluence += patchInfluence * 0.42;
   }
 
   const broadBreakup = 0.5 + 0.5 * Math.sin(worldX * 0.72 + worldZ * 0.41);
+  const edgeBreakup = 0.5 + 0.5 * Math.sin(worldX * 1.37 - worldZ * 1.91);
 
   return THREE.MathUtils.clamp(
-    Math.max(influence, layeredInfluence) * 0.88 + broadBreakup * 0.12,
+    Math.max(influence, layeredInfluence) * 0.84 + broadBreakup * 0.1 + edgeBreakup * 0.06,
     0,
     1,
   );

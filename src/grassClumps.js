@@ -32,7 +32,8 @@ const RIVER_BUFFER = GRASS_RIVER_BUFFER;
 const PATCH_COUNT = GRASS_PATCH_COUNT;
 const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
 const GRASS_SWAY_MOTION_SCALE = 0.32;
-const GRASS_SWAY_RADIUS = 2;
+const GRASS_PLAYER_SWAY_RADIUS = 2;
+const GRASS_WIND_SWAY_RADIUS = 20;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
@@ -251,11 +252,13 @@ vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
 float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.24 + uGrassTime * 0.48 + position.y * 2.2);
 float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.36 + uGrassTime * 0.72 + position.y * 3.1);
 float grassPlayerDistance = distance(grassInstanceWorld.xz, uGrassPlayerPosition);
-float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
+float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_PLAYER_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_PLAYER_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
+float grassWindSwayMask = (1.0 - smoothstep(14.0, ${GRASS_WIND_SWAY_RADIUS.toFixed(1)}, grassPlayerDistance)) * 0.34;
+float grassSwayMask = max(grassPlayerSwayMask, grassWindSwayMask);
 transformed.xz += (
   uGrassWindDirection * grassWave
   + grassSideDirection * grassFlutter * 0.12
-) * uGrassSwayStrength * grassTipMask * grassPlayerSwayMask;`,
+) * uGrassSwayStrength * grassTipMask * grassSwayMask;`,
       );
     applyGrassColorGrade(shader, GRASS_COLOR_GRADE, true);
   };
@@ -360,7 +363,8 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
       if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
 
       const patches = getPatchesForPoint(x, z);
-      if (!shouldPlaceInPatch(x, z, gridX, gridZ, patches)) continue;
+      const patchInfluence = getPatchInfluenceAt(x, z, patches);
+      if (!shouldPlaceInPatch(x, z, gridX, gridZ, patchInfluence)) continue;
       if (!isGrassArea(terrain, x, z)) continue;
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
@@ -372,7 +376,8 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
       if (isInWaterSystemVegetationExclusion(clustered.x, clustered.z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(clustered.x, clustered.z)) continue;
 
-      placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ));
+      const clusteredInfluence = getPatchInfluenceAt(clustered.x, clustered.z, patches);
+      placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ, clusteredInfluence));
     }
   }
 
@@ -425,11 +430,12 @@ function smoothstepRange(edge0, edge1, value) {
   return smoothstep(edge0, edge1, value);
 }
 
-export function createPlacement(terrain, x, z, seedX, seedZ) {
+export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1) {
   const y = terrain.getHeightAt(x, z);
   const normal = terrain.getNormalAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
-  const scaleValue = THREE.MathUtils.lerp(0.82, 1.18, hash2(seedX + 5.7, seedZ + 33.1));
+  const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
+  const scaleValue = THREE.MathUtils.lerp(0.48, 1.18, edgeStrength) * THREE.MathUtils.lerp(0.86, 1.12, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
@@ -440,11 +446,26 @@ export function createPlacement(terrain, x, z, seedX, seedZ) {
 
   return {
     matrix,
-    variantName: getGrassVariantName(variantRoll),
+    variantName: getGrassVariantName(variantRoll, edgeStrength),
   };
 }
 
-function getGrassVariantName(roll) {
+function getGrassVariantName(roll, edgeStrength) {
+  if (edgeStrength < 0.36) {
+    if (roll < 0.58) return 'GrassGroundCover';
+    if (roll < 0.88) return 'GrassDryMixed';
+
+    return 'GrassBroadLeaf';
+  }
+
+  if (edgeStrength < 0.62) {
+    if (roll < 0.48) return 'GrassGroundCover';
+    if (roll < 0.78) return 'GrassDryMixed';
+    if (roll < 0.96) return 'GrassBroadLeaf';
+
+    return 'GrassClump_A';
+  }
+
   if (roll < 0.38) return 'GrassGroundCover';
   if (roll < 0.68) return 'GrassBroadLeaf';
   if (roll < 0.88) return 'GrassDryMixed';
@@ -501,15 +522,16 @@ function createPatchCell(minX, minZ, size) {
   return patches;
 }
 
-function shouldPlaceInPatch(worldX, worldZ, gridX, gridZ, patches) {
-  const patchInfluence = getPatchInfluenceAt(worldX, worldZ, patches);
+function shouldPlaceInPatch(worldX, worldZ, gridX, gridZ, patchInfluence) {
+  const edgeNoise = hash2(gridX * 1.73 + 19.2, gridZ * -2.11 - 7.4);
+  const fineBreakup = 0.5 + 0.5 * Math.sin(worldX * 2.1 + Math.sin(worldZ * 1.7) * 1.6);
   const localAcceptance = THREE.MathUtils.lerp(
-    PATCH_GAP_ACCEPTANCE,
+    Math.min(PATCH_GAP_ACCEPTANCE, 0.12),
     PATCH_FULL_ACCEPTANCE,
-    patchInfluence,
+    smoothstep(0.16, 0.88, patchInfluence),
   );
 
-  return hash2(gridX + 203.4, gridZ - 71.8) < localAcceptance;
+  return edgeNoise < localAcceptance - ((1 - patchInfluence) * 0.2) + ((fineBreakup - 0.5) * 0.14);
 }
 
 function getClusteredOffset(worldX, worldZ, gridX, gridZ, patches) {
@@ -556,16 +578,17 @@ function getPatchInfluenceAt(worldX, worldZ, patches) {
     const dx = worldX - patch.x;
     const dz = worldZ - patch.z;
     const distance = Math.sqrt(dx * dx + dz * dz);
-    const patchInfluence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
+    const patchInfluence = 1 - smoothstep(patch.radius * 0.42, patch.radius * 1.22, distance);
 
     influence = Math.max(influence, patchInfluence);
     layeredInfluence += patchInfluence * 0.42;
   }
 
   const broadBreakup = 0.5 + 0.5 * Math.sin(worldX * 0.72 + worldZ * 0.41);
+  const edgeBreakup = 0.5 + 0.5 * Math.sin(worldX * 1.37 - worldZ * 1.91);
 
   return THREE.MathUtils.clamp(
-    Math.max(influence, layeredInfluence) * 0.88 + broadBreakup * 0.12,
+    Math.max(influence, layeredInfluence) * 0.84 + broadBreakup * 0.1 + edgeBreakup * 0.06,
     0,
     1,
   );
@@ -627,7 +650,8 @@ function createGrassPlacements(terrain) {
         continue;
       }
 
-      if (!shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ)) continue;
+      const patchInfluence = getGrassPatchInfluence(offsetX, offsetZ);
+      if (!shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ, patchInfluence)) continue;
 
       const clusteredOffset = getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ);
       const x = PLAYER_SPAWN_POSITION.x + clusteredOffset.x;
@@ -637,22 +661,24 @@ function createGrassPlacements(terrain) {
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(x, z)) continue;
 
-      placements.push(createPlacement(terrain, x, z, gridX, gridZ));
+      const clusteredInfluence = getGrassPatchInfluence(clusteredOffset.x, clusteredOffset.z);
+      placements.push(createPlacement(terrain, x, z, gridX, gridZ, clusteredInfluence));
     }
   }
 
   return placements;
 }
 
-function shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ) {
-  const patchInfluence = getGrassPatchInfluence(offsetX, offsetZ);
+function shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ, patchInfluence) {
+  const edgeNoise = hash2(gridX * 1.73 + 19.2, gridZ * -2.11 - 7.4);
+  const fineBreakup = 0.5 + 0.5 * Math.sin(offsetX * 2.1 + Math.sin(offsetZ * 1.7) * 1.6);
   const localAcceptance = THREE.MathUtils.lerp(
-    PATCH_GAP_ACCEPTANCE,
+    Math.min(PATCH_GAP_ACCEPTANCE, 0.12),
     PATCH_FULL_ACCEPTANCE,
-    patchInfluence,
+    smoothstep(0.16, 0.88, patchInfluence),
   );
 
-  return hash2(gridX + 203.4, gridZ - 71.8) < localAcceptance;
+  return edgeNoise < localAcceptance - ((1 - patchInfluence) * 0.2) + ((fineBreakup - 0.5) * 0.14);
 }
 
 function getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ) {
@@ -699,16 +725,17 @@ function getGrassPatchInfluence(offsetX, offsetZ) {
     const dx = offsetX - patch.x;
     const dz = offsetZ - patch.z;
     const distance = Math.sqrt(dx * dx + dz * dz);
-    const patchInfluence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
+    const patchInfluence = 1 - smoothstep(patch.radius * 0.42, patch.radius * 1.22, distance);
 
     influence = Math.max(influence, patchInfluence);
     layeredInfluence += patchInfluence * 0.42;
   }
 
   const broadBreakup = 0.5 + 0.5 * Math.sin(offsetX * 0.72 + offsetZ * 0.41);
+  const edgeBreakup = 0.5 + 0.5 * Math.sin(offsetX * 1.37 - offsetZ * 1.91);
 
   return THREE.MathUtils.clamp(
-    Math.max(influence, layeredInfluence) * 0.88 + broadBreakup * 0.12,
+    Math.max(influence, layeredInfluence) * 0.84 + broadBreakup * 0.1 + edgeBreakup * 0.06,
     0,
     1,
   );
