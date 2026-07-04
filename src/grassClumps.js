@@ -101,10 +101,10 @@ export function createGrassVariants(scene) {
 
 function createProceduralGrassVariants() {
   const definitions = [
-    ['GrassGroundCover', { bladeCount: 28, radius: 0.28, minHeight: 0.18, maxHeight: 0.38, minWidth: 0.035, maxWidth: 0.075, dryMix: 0.18, lean: 0.16 }],
-    ['GrassBroadLeaf', { bladeCount: 22, radius: 0.34, minHeight: 0.36, maxHeight: 0.72, minWidth: 0.055, maxWidth: 0.12, dryMix: 0.12, lean: 0.24 }],
-    ['GrassDryMixed', { bladeCount: 24, radius: 0.36, minHeight: 0.28, maxHeight: 0.62, minWidth: 0.032, maxWidth: 0.09, dryMix: 0.55, lean: 0.28 }],
-    ['GrassTallAccent', { bladeCount: 16, radius: 0.22, minHeight: 0.62, maxHeight: 1.02, minWidth: 0.035, maxWidth: 0.075, dryMix: 0.25, lean: 0.36 }],
+    ['GrassGroundCover', { bladeCount: 34, radius: 0.3, minHeight: 0.14, maxHeight: 0.3, minWidth: 0.014, maxWidth: 0.034, dryMix: 0.22, lean: 0.22 }],
+    ['GrassBroadLeaf', { bladeCount: 24, radius: 0.34, minHeight: 0.28, maxHeight: 0.54, minWidth: 0.022, maxWidth: 0.052, dryMix: 0.16, lean: 0.34 }],
+    ['GrassDryMixed', { bladeCount: 28, radius: 0.36, minHeight: 0.2, maxHeight: 0.48, minWidth: 0.014, maxWidth: 0.04, dryMix: 0.58, lean: 0.36 }],
+    ['GrassTallAccent', { bladeCount: 12, radius: 0.24, minHeight: 0.42, maxHeight: 0.72, minWidth: 0.014, maxWidth: 0.032, dryMix: 0.32, lean: 0.42 }],
   ];
 
   return new Map(definitions.map(([name, options]) => {
@@ -124,7 +124,7 @@ function createProceduralGrassVariants() {
 
 function createProceduralGrassMaterial() {
   const material = new THREE.MeshStandardMaterial({
-    color: 0x8aa873,
+    color: 0x748465,
     roughness: 0.92,
     metalness: 0,
     side: THREE.DoubleSide,
@@ -141,10 +141,10 @@ function createBladeClumpGeometry(name, options) {
   const uvs = [];
   const colors = [];
   const indices = [];
-  const rootColor = new THREE.Color(0x314426);
-  const greenColor = new THREE.Color(0x7f9f68);
-  const paleColor = new THREE.Color(0x9daf7f);
-  const dryColor = new THREE.Color(0x8c7a4a);
+  const rootColor = new THREE.Color(0x46553a);
+  const greenColor = new THREE.Color(0x728464);
+  const paleColor = new THREE.Color(0x879476);
+  const dryColor = new THREE.Color(0x81734d);
 
   for (let i = 0; i < options.bladeCount; i += 1) {
     const seed = hash2(i * 13.7 + name.length, i * -5.9);
@@ -163,11 +163,12 @@ function createBladeClumpGeometry(name, options) {
     const leanZ = Math.sin(leanAngle) * lean;
     const midX = baseX + leanX * height * 0.34;
     const midZ = baseZ + leanZ * height * 0.34;
-    const tipX = baseX + leanX * height;
-    const tipZ = baseZ + leanZ * height;
+    const bend = (hash2(i - 12.4, name.length + 4.9) - 0.5) * width * 1.8;
+    const tipX = baseX + leanX * height + sideX * bend;
+    const tipZ = baseZ + leanZ * height + sideZ * bend;
     const dryAmount = hash2(i + 23.1, name.length - 31.8) < options.dryMix ? 1 : 0;
     const bladeColor = greenColor.clone().lerp(dryColor, dryAmount);
-    const tipColor = bladeColor.clone().lerp(paleColor, dryAmount > 0 ? 0.12 : 0.26);
+    const tipColor = bladeColor.clone().lerp(paleColor, dryAmount > 0 ? 0.08 : 0.16);
     const vertexStart = positions.length / 3;
 
     positions.push(
@@ -179,7 +180,7 @@ function createBladeClumpGeometry(name, options) {
     );
     uvs.push(0, 0, 1, 0, 0.18, 0.58, 0.82, 0.58, 0.5, 1);
     pushColor(colors, rootColor);
-    pushColor(colors, rootColor.clone().lerp(bladeColor, 0.28));
+    pushColor(colors, rootColor.clone().lerp(bladeColor, 0.42));
     pushColor(colors, bladeColor);
     pushColor(colors, bladeColor.clone().lerp(tipColor, 0.35));
     pushColor(colors, tipColor);
@@ -262,7 +263,7 @@ transformed.xz += (
       );
     applyGrassColorGrade(shader, GRASS_COLOR_GRADE, true);
   };
-  material.customProgramCacheKey = () => 'grass-calm-sway-color-grade-v1';
+  material.customProgramCacheKey = () => 'grass-calm-sway-color-grade-v2';
 
   return material;
 }
@@ -274,7 +275,7 @@ function createSimpleMaterial(sourceMaterial, geometry) {
   material.alphaTest = Math.max(material.alphaTest, 0.46);
   material.userData.grassUniforms = null;
   material.onBeforeCompile = (shader) => applyGrassColorGrade(shader, GRASS_FAR_COLOR_GRADE, false);
-  material.customProgramCacheKey = () => 'grass-far-color-grade-v1';
+  material.customProgramCacheKey = () => 'grass-far-color-grade-v2';
 
   return material;
 }
@@ -314,8 +315,8 @@ ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
 float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
 float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
-gl_FragColor.rgb *= mix(1.0, 0.42, grassRootMask);
-gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
+gl_FragColor.rgb *= mix(1.0, 0.72, grassRootMask);
+gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.018, 0.024, 0.012), grassTipMask * 0.16);
 float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
 gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
@@ -435,7 +436,7 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
   const normal = terrain.getNormalAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
-  const scaleValue = THREE.MathUtils.lerp(0.48, 1.18, edgeStrength) * THREE.MathUtils.lerp(0.86, 1.12, hash2(seedX + 5.7, seedZ + 33.1));
+  const scaleValue = THREE.MathUtils.lerp(0.42, 1.0, edgeStrength) * THREE.MathUtils.lerp(0.86, 1.1, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
@@ -452,24 +453,24 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
 
 function getGrassVariantName(roll, edgeStrength) {
   if (edgeStrength < 0.36) {
-    if (roll < 0.58) return 'GrassGroundCover';
-    if (roll < 0.88) return 'GrassDryMixed';
-
-    return 'GrassBroadLeaf';
-  }
-
-  if (edgeStrength < 0.62) {
-    if (roll < 0.48) return 'GrassGroundCover';
-    if (roll < 0.78) return 'GrassDryMixed';
-    if (roll < 0.96) return 'GrassBroadLeaf';
+    if (roll < 0.7) return 'GrassGroundCover';
+    if (roll < 0.96) return 'GrassDryMixed';
 
     return 'GrassClump_A';
   }
 
-  if (roll < 0.38) return 'GrassGroundCover';
-  if (roll < 0.68) return 'GrassBroadLeaf';
-  if (roll < 0.88) return 'GrassDryMixed';
-  if (roll < 0.96) return 'GrassClump_A';
+  if (edgeStrength < 0.62) {
+    if (roll < 0.6) return 'GrassGroundCover';
+    if (roll < 0.88) return 'GrassDryMixed';
+    if (roll < 0.98) return 'GrassBroadLeaf';
+
+    return 'GrassClump_A';
+  }
+
+  if (roll < 0.5) return 'GrassGroundCover';
+  if (roll < 0.72) return 'GrassBroadLeaf';
+  if (roll < 0.92) return 'GrassDryMixed';
+  if (roll < 0.98) return 'GrassClump_A';
   if (roll < 0.99) return 'GrassClump_B';
 
   return 'GrassTallAccent';
