@@ -168,7 +168,7 @@ function shouldKeepForLOD(x, z, lodLevel) {
   const quantize = 10;
   const gx = Math.floor(x * quantize);
   const gz = Math.floor(z * quantize);
-  const divisor = lodLevel === 1 ? 4 : 64;
+  const divisor = lodLevel === 1 ? 3 : 24;
 
   return hash2(gx + lodLevel * 997, gz + lodLevel * 2003) < (1 / divisor);
 }

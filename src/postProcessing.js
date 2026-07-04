@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { TAARenderPass } from 'three/examples/jsm/postprocessing/TAARenderPass.js';
 
 const COLOR_GRADE_SHADER = {
   uniforms: {
@@ -72,7 +72,7 @@ export function configureRenderer(renderer) {
 
 export function createPostProcessing(renderer, scene, camera) {
   const composer = new EffectComposer(renderer);
-  const renderPass = new RenderPass(scene, camera);
+  const taaPass = new TAARenderPass(scene, camera);
   const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight, undefined, {
     radius: 2.6,
     distanceExponent: 1.6,
@@ -88,11 +88,14 @@ export function createPostProcessing(renderer, scene, camera) {
   const smaaPass = new SMAAPass();
   const outputPass = new OutputPass();
 
+  taaPass.sampleLevel = 2;
+  taaPass.unbiased = false;
+  taaPass.accumulate = false;
   gtaoPass.output = GTAOPass.OUTPUT.Default;
   gtaoPass.blendIntensity = 0.34;
   colorGradePass.uniforms.uTexelSize.value.set(1 / window.innerWidth, 1 / window.innerHeight);
 
-  composer.addPass(renderPass);
+  composer.addPass(taaPass);
   composer.addPass(gtaoPass);
   composer.addPass(colorGradePass);
   composer.addPass(smaaPass);
