@@ -31,6 +31,7 @@ const PATCH_FULL_ACCEPTANCE = 1;
 const RIVER_BUFFER = GRASS_RIVER_BUFFER;
 const PATCH_COUNT = GRASS_PATCH_COUNT;
 const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
+const GRASS_SWAY_MOTION_SCALE = 0.32;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
@@ -98,7 +99,7 @@ export function createGrassSwayMaterial(sourceMaterial, geometry) {
     uGrassBaseY: { value: geometry.boundingBox.min.y },
     uGrassHeight: { value: height },
     uGrassWindDirection: { value: WIND_DIRECTION },
-    uGrassSwayStrength: { value: SWAY_STRENGTH },
+    uGrassSwayStrength: { value: SWAY_STRENGTH * GRASS_SWAY_MOTION_SCALE },
   };
 
   if ('vertexColors' in material) {
@@ -129,16 +130,16 @@ vec3 grassInstanceWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 grassInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 #endif
 vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
-float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.55 + uGrassTime * 1.35 + position.y * 5.0);
-float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.9 + uGrassTime * 2.1 + position.y * 7.0);
+float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.24 + uGrassTime * 0.48 + position.y * 2.2);
+float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.36 + uGrassTime * 0.72 + position.y * 3.1);
 transformed.xz += (
   uGrassWindDirection * grassWave
-  + grassSideDirection * grassFlutter * 0.28
+  + grassSideDirection * grassFlutter * 0.12
 ) * uGrassSwayStrength * grassTipMask;`,
       );
     applyGrassColorGrade(shader, GRASS_COLOR_GRADE);
   };
-  material.customProgramCacheKey = () => 'grass-sway-color-grade-v1';
+  material.customProgramCacheKey = () => 'grass-calm-sway-color-grade-v1';
 
   return material;
 }
