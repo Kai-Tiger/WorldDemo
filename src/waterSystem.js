@@ -20,7 +20,7 @@ const LAKE_MESH_SEGMENTS = 22;
 const WATER_SYSTEM_MIN_X = 205;
 const WATER_SYSTEM_MAX_X = 435;
 const WATER_SYSTEM_MIN_Z = -490;
-const WATER_SYSTEM_MAX_Z = -355;
+const WATER_SYSTEM_MAX_Z = -330;
 
 const OUTLET_POINTS = [
   new THREE.Vector3(340, 0, -410),
@@ -166,17 +166,22 @@ export function updateWaterSystemVisuals(system, camera, elapsedTime) {
 
 function applyLakeBasin(baseHeight, x, z) {
   const frame = getLakeFrame(x, z);
-  const shoreOuter = LAKE_BASE_RADIUS + LAKE_SHORE_WIDTH;
+  const lakeRadius = frame.lakeRadius;
+  const shoreOuter = lakeRadius + LAKE_SHORE_WIDTH;
 
   if (frame.radius > shoreOuter) return baseHeight;
 
-  const basinMask = 1 - smoothstep(LAKE_BASE_RADIUS * 0.2, shoreOuter, frame.radius);
-  const shoreShelf = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 1.2, LAKE_BASIN_FLOOR, basinMask);
-  const target = frame.radius < LAKE_BASE_RADIUS
-    ? shoreShelf
-    : THREE.MathUtils.lerp(baseHeight, LAKE_WATER_LEVEL - 0.25, 1 - smoothstep(LAKE_BASE_RADIUS, shoreOuter, frame.radius));
+  if (frame.radius <= lakeRadius) {
+    const basinT = smoothstep(lakeRadius * 0.18, lakeRadius, frame.radius);
+    const target = THREE.MathUtils.lerp(LAKE_BASIN_FLOOR, LAKE_WATER_LEVEL - 1.35, basinT);
 
-  return Math.min(baseHeight, THREE.MathUtils.lerp(baseHeight, target, basinMask));
+    return Math.min(baseHeight, target);
+  }
+
+  const shoreT = smoothstep(lakeRadius, shoreOuter, frame.radius);
+  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.45, baseHeight, shoreT);
+
+  return Math.min(baseHeight, target);
 }
 
 function applyOutletChannel(height, x, z) {
