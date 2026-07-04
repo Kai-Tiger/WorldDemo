@@ -89,7 +89,7 @@ export const TREE_MODEL_PATHS = [
 ];
 
 /** 树木阴影可读性曝光倍率，1 = 基础补偿  |  Tree-only exposure multiplier for shadow readability, 1 = base lift */
-export const TREE_EXPOSURE = 1.8;
+export const TREE_EXPOSURE = 4.8;
 
 // --- 放置 (Placement) ---
 

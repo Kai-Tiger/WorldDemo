@@ -34,6 +34,8 @@ const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
+const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
+const GRASS_SHADOW_LIFT_INTENSITY = 0.28;
 
 export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
@@ -123,8 +125,9 @@ transformed.xz += (
   + grassSideDirection * grassFlutter * 0.28
 ) * uGrassSwayStrength * grassTipMask;`,
       );
+    applyGrassShadowLift(shader);
   };
-  material.customProgramCacheKey = () => 'grass-sway-v1';
+  material.customProgramCacheKey = () => 'grass-sway-shadow-lift-v1';
 
   return material;
 }
@@ -134,6 +137,8 @@ function createSimpleMaterial(sourceMaterial, geometry) {
 
   configureGrassMaterial(material);
   material.userData.grassUniforms = null;
+  material.onBeforeCompile = applyGrassShadowLift;
+  material.customProgramCacheKey = () => 'grass-shadow-lift-v1';
 
   return material;
 }
@@ -143,7 +148,30 @@ function configureGrassMaterial(material) {
   material.alphaTest = Math.max(material.alphaTest || 0, GRASS_ALPHA_TEST);
   material.depthWrite = true;
   material.depthTest = true;
+  if ('emissive' in material) {
+    material.emissive = new THREE.Color(GRASS_SHADOW_LIFT_COLOR);
+    material.emissiveIntensity = Math.max(material.emissiveIntensity || 0, 0.08);
+  }
   material.needsUpdate = true;
+}
+
+function applyGrassShadowLift(shader) {
+  shader.uniforms.uGrassShadowLiftColor = { value: new THREE.Color(GRASS_SHADOW_LIFT_COLOR) };
+  shader.uniforms.uGrassShadowLiftIntensity = { value: GRASS_SHADOW_LIFT_INTENSITY };
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+uniform vec3 uGrassShadowLiftColor;
+uniform float uGrassShadowLiftIntensity;`,
+    )
+    .replace(
+      '#include <dithering_fragment>',
+      `float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
+gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
+#include <dithering_fragment>`,
+    );
 }
 
 export function isGrassArea(terrain, x, z) {
