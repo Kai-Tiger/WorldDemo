@@ -88,8 +88,11 @@ export const TREE_MODEL_PATHS = [
   '/assets/vegetation/tree_04.glb',
 ];
 
-/** 树木阴影可读性曝光倍率，1 = 基础补偿  |  Tree-only exposure multiplier for shadow readability, 1 = base lift */
-export const TREE_EXPOSURE = 4.8;
+/** 树木暗部补光颜色，保持偏绿避免逆光下发灰  |  Tree shadow lift color, green-tinted to avoid gray backlit trees */
+export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
+
+/** 树木暗部补光强度；逆光过黑时提高，发亮发平时降低  |  Tree shadow lift intensity; raise for dark backlight, lower if trees look flat */
+export const TREE_SHADOW_LIFT_INTENSITY = 0.68;
 
 // --- 放置 (Placement) ---
 
