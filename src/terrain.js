@@ -20,6 +20,8 @@ const ALPINE_SCREE_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
+const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
+const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
 const MAP_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
@@ -34,6 +36,7 @@ const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const GROUND_TEXTURE_WORLD_SIZE = 8;
+const GRAVEL_TEXTURE_WORLD_SIZE = 4.5;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -419,6 +422,8 @@ async function loadTerrainTextures() {
     rock,
     rockNormal,
     snow,
+    gravelAlbedo,
+    gravelNormal,
     riverBank,
     riverBed,
   ] = await Promise.all([
@@ -427,18 +432,20 @@ async function loadTerrainTextures() {
     loader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
     loader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
     loader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
+    loader.loadAsync(GRAVEL_ALBEDO_TEXTURE_PATH),
+    loader.loadAsync(GRAVEL_NORMAL_TEXTURE_PATH),
     loader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     loader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [frozenDirt, scree, rock, snow, riverBank, riverBed]) {
+  for (const texture of [frozenDirt, scree, rock, snow, gravelAlbedo, riverBank, riverBed]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
   }
 
-  for (const texture of [rockNormal]) {
+  for (const texture of [rockNormal, gravelNormal]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.NoColorSpace;
@@ -451,6 +458,8 @@ async function loadTerrainTextures() {
     rock,
     rockNormal,
     snow,
+    gravelAlbedo,
+    gravelNormal,
     riverBank,
     riverBed,
   };
@@ -467,9 +476,12 @@ function createTerrainMaterial(textures) {
         uRockTexture: { value: textures.rock },
         uRockNormalTexture: { value: textures.rockNormal },
         uSnowTexture: { value: textures.snow },
+        uGravelAlbedoTexture: { value: textures.gravelAlbedo },
+        uGravelNormalTexture: { value: textures.gravelNormal },
         uRiverBankTexture: { value: textures.riverBank },
         uRiverBedTexture: { value: textures.riverBed },
         uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
+        uGravelTextureWorldSize: { value: GRAVEL_TEXTURE_WORLD_SIZE },
         uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
         uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
         uSunDirection: { value: SUN_LIGHT_DIRECTION.clone() },
@@ -539,9 +551,12 @@ function createTerrainMaterial(textures) {
       uniform sampler2D uRockTexture;
       uniform sampler2D uRockNormalTexture;
       uniform sampler2D uSnowTexture;
+      uniform sampler2D uGravelAlbedoTexture;
+      uniform sampler2D uGravelNormalTexture;
       uniform sampler2D uRiverBankTexture;
       uniform sampler2D uRiverBedTexture;
       uniform float uTextureWorldSize;
+      uniform float uGravelTextureWorldSize;
       uniform float uRiverBedTextureWorldSize;
       uniform vec3 uSunDirection;
       uniform vec3 uSkyLightColor;
@@ -645,6 +660,11 @@ function createTerrainMaterial(textures) {
         vec3 scree = texture2D(uScreeTexture, vWorldUv * 0.78 + vec2(-13.0, 9.4)).rgb;
         vec3 rock = sampleTriplanarTexture(uRockTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
         vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
+        vec2 gravelUv = vWorldPosition.xz / uGravelTextureWorldSize;
+        float gravelWarp = (fbm(vWorldPosition.xz * 0.038 + vec2(6.0, -11.0)) - 0.5) * 0.08;
+        vec3 gravelA = texture2D(uGravelAlbedoTexture, gravelUv + gravelWarp).rgb;
+        vec3 gravelB = texture2D(uGravelAlbedoTexture, gravelUv * 0.57 + vec2(17.0, -9.0)).rgb;
+        vec3 gravel = mix(gravelA, gravelB, 0.22);
         vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
         vec2 lakeBedUv = vWorldUv * uTextureWorldSize / uRiverBedTextureWorldSize;
         float lakeMaskFactor = smoothstep(0.05, 0.95, vSmallLakesMask);
@@ -665,7 +685,7 @@ function createTerrainMaterial(textures) {
         float fineNoise = fbm(vWorldPosition.xz * 1.75 + vec2(19.0, -6.0));
         vec3 groundColor = mix(vec3(0.28, 0.20, 0.12), vec3(0.42, 0.32, 0.19), soilNoise);
         groundColor = mix(groundColor, vec3(0.50, 0.42, 0.25), dryPatch * 0.28);
-        groundColor = mix(groundColor, vec3(0.31, 0.29, 0.24), gravelPatch * 0.18);
+        groundColor = mix(groundColor, vec3(0.31, 0.29, 0.24), gravelPatch * 0.1);
         groundColor *= mix(0.92, 1.08, fineNoise);
 
         float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
@@ -688,6 +708,8 @@ function createTerrainMaterial(textures) {
         alpineColor = mix(alpineColor, rock, clamp(rockMask, 0.0, 1.0));
         alpineColor = mix(alpineColor, snow, clamp(snowMask, 0.0, 1.0));
         vec3 baseColor = mix(alpineColor, groundColor, groundMask);
+        float gravelLayerMask = groundMask * gravelPatch * smoothstep(0.72, 1.0, normal.y);
+        baseColor = mix(baseColor, gravel, gravelLayerMask * 0.58);
         float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
         float riverMaterialMask = smoothstep(0.05, 0.95, vRiverMask);
         float riverUnderwaterMask = smoothstep(0.05, 0.95, vRiverUnderwaterMask);
@@ -714,6 +736,11 @@ function createTerrainMaterial(textures) {
         float rockInfluence = clamp(max(screeMask, rockMask), 0.0, 1.0);
         float wetInfluence = clamp(max(wetShoreMask, snowmeltWetMask), 0.0, 1.0);
         vec3 surfaceNormal = applyDetailNormal(normal, vWorldPosition.xz, groundMask, rockInfluence, wetInfluence);
+        float gravelWaterFade = 1.0 - clamp(max(max(riverMask, riverBedMask), max(lakeBedMask, wetShoreMask)), 0.0, 1.0);
+        float gravelNormalMask = gravelLayerMask * gravelWaterFade;
+        vec3 gravelNormalSample = texture2D(uGravelNormalTexture, gravelUv).rgb * 2.0 - 1.0;
+        vec3 gravelMappedNormal = normalize(vec3(gravelNormalSample.x, gravelNormalSample.z, gravelNormalSample.y));
+        surfaceNormal = normalize(mix(surfaceNormal, gravelMappedNormal, gravelNormalMask * 0.36));
         float rockNormalMask = smoothstep(0.42, 0.92, rockMask);
         vec3 rockMappedNormal = sampleTriplanarNormal(uRockNormalTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
         surfaceNormal = normalize(mix(surfaceNormal, rockMappedNormal, rockNormalMask * 0.48));
