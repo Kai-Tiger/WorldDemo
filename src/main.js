@@ -49,7 +49,7 @@ const thirdPersonCamera = new ThirdPersonCamera(camera, player);
 thirdPersonCamera.update(input, terrain);
 updateSunLight();
 
-const terrainEditor = createTerrainEditor(terrain, camera, scene, canvas);
+createTerrainEditor(terrain, camera, scene, canvas, input);
 const clock = new THREE.Clock();
 
 function updateRenderToggles() {
@@ -78,12 +78,10 @@ function animate() {
   requestAnimationFrame(animate);
 
   const deltaTime = Math.min(clock.getDelta(), 0.05);
-  if (!terrainEditor.isOpen()) {
-    player.update(deltaTime, input, camera, terrain);
-    terrain.update(player.position);
-    gravelOverlay.update(player.position);
-    thirdPersonCamera.update(input, terrain);
-  }
+  player.update(deltaTime, input, camera, terrain);
+  terrain.update(player.position);
+  gravelOverlay.update(player.position);
+  thirdPersonCamera.update(input, terrain);
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);

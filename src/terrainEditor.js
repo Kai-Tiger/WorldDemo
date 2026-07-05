@@ -5,7 +5,7 @@ const DEFAULT_RADIUS = 18;
 const DEFAULT_STRENGTH = 0.9;
 const BRUSH_SEGMENTS = 96;
 
-export function createTerrainEditor(terrain, camera, scene, canvas) {
+export function createTerrainEditor(terrain, camera, scene, canvas, input) {
   const editButton = document.querySelector('#edit-terrain');
   const toolbar = document.querySelector('#terrain-editor');
   const closeButton = document.querySelector('#terrain-editor-close');
@@ -68,6 +68,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas) {
     toolbar.hidden = false;
     toolbar.setAttribute('aria-hidden', 'false');
     canvas.style.cursor = 'crosshair';
+    input.setPointerInputEnabled(false);
     status.textContent = '';
     updateBrushCursorColor();
   }
@@ -80,6 +81,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas) {
     toolbar.hidden = true;
     toolbar.setAttribute('aria-hidden', 'true');
     canvas.style.cursor = '';
+    input.setPointerInputEnabled(true);
   }
 
   function setBrush(brush) {

@@ -5,6 +5,7 @@ export class Input {
     this.pointerDelta = { x: 0, y: 0 };
     this.wheelDelta = 0;
     this.isDragging = false;
+    this.pointerInputEnabled = true;
 
     window.addEventListener('keydown', (event) => {
       this.keys.add(event.code);
@@ -15,11 +16,14 @@ export class Input {
     });
 
     target.addEventListener('pointerdown', (event) => {
+      if (!this.pointerInputEnabled) return;
+
       this.isDragging = true;
       target.setPointerCapture(event.pointerId);
     });
 
     target.addEventListener('pointermove', (event) => {
+      if (!this.pointerInputEnabled) return;
       if (!this.isDragging) return;
 
       this.pointerDelta.x += event.movementX;
@@ -27,6 +31,8 @@ export class Input {
     });
 
     target.addEventListener('pointerup', (event) => {
+      if (!this.pointerInputEnabled) return;
+
       this.isDragging = false;
       target.releasePointerCapture(event.pointerId);
     });
@@ -39,6 +45,8 @@ export class Input {
       'wheel',
       (event) => {
         event.preventDefault();
+        if (!this.pointerInputEnabled) return;
+
         this.wheelDelta += event.deltaY;
       },
       { passive: false },
@@ -47,6 +55,17 @@ export class Input {
 
   isKeyDown(code) {
     return this.keys.has(code);
+  }
+
+  setPointerInputEnabled(enabled) {
+    this.pointerInputEnabled = enabled;
+
+    if (!enabled) {
+      this.isDragging = false;
+      this.pointerDelta.x = 0;
+      this.pointerDelta.y = 0;
+      this.wheelDelta = 0;
+    }
   }
 
   consumePointerDelta() {
