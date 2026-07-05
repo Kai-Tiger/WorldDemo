@@ -17,6 +17,12 @@ const LAKE_SHORE_WIDTH = 9;
 const LAKE_BASIN_FLOOR = 24.5;
 const LAKE_SHAPE_SEGMENTS = 96;
 const LAKE_MESH_SEGMENTS = 22;
+const SOUTHWEST_SHORE_CENTER_X = 289;
+const SOUTHWEST_SHORE_CENTER_Z = -462;
+const SOUTHWEST_SHORE_RADIUS_X = 68;
+const SOUTHWEST_SHORE_RADIUS_Z = 24;
+const SOUTHWEST_SHORE_INNER_OFFSET = -9;
+const SOUTHWEST_SHORE_OUTER_OFFSET = 24;
 const WATER_SYSTEM_MIN_X = 205;
 const WATER_SYSTEM_MAX_X = 435;
 const WATER_SYSTEM_MIN_Z = -490;
@@ -177,19 +183,39 @@ function applyLakeBasin(baseHeight, x, z) {
   const lakeRadius = frame.lakeRadius;
   const shoreOuter = lakeRadius + LAKE_SHORE_WIDTH;
 
-  if (frame.radius > shoreOuter) return baseHeight;
+  if (frame.radius > shoreOuter) {
+    return applySouthwestShoreRaise(baseHeight, frame, x, z);
+  }
+
+  let height;
 
   if (frame.radius <= lakeRadius) {
     const basinT = smoothstep(lakeRadius * 0.18, lakeRadius, frame.radius);
     const target = THREE.MathUtils.lerp(LAKE_BASIN_FLOOR, LAKE_WATER_LEVEL - 1.35, basinT);
 
-    return Math.min(baseHeight, target);
+    height = Math.min(baseHeight, target);
+  } else {
+    const shoreT = smoothstep(lakeRadius, shoreOuter, frame.radius);
+    const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.45, baseHeight, shoreT);
+
+    height = Math.min(baseHeight, target);
   }
 
-  const shoreT = smoothstep(lakeRadius, shoreOuter, frame.radius);
-  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.45, baseHeight, shoreT);
+  return applySouthwestShoreRaise(height, frame, x, z);
+}
 
-  return Math.min(baseHeight, target);
+function applySouthwestShoreRaise(height, frame, x, z) {
+  const localX = (x - SOUTHWEST_SHORE_CENTER_X) / SOUTHWEST_SHORE_RADIUS_X;
+  const localZ = (z - SOUTHWEST_SHORE_CENTER_Z) / SOUTHWEST_SHORE_RADIUS_Z;
+  const localMask = 1 - smoothstep(0.58, 1, Math.sqrt(localX * localX + localZ * localZ));
+  const shoreOffset = frame.radius - frame.lakeRadius;
+  const shoreBand = smoothstep(SOUTHWEST_SHORE_INNER_OFFSET, -2, shoreOffset)
+    * (1 - smoothstep(16, SOUTHWEST_SHORE_OUTER_OFFSET, shoreOffset));
+  const bankT = smoothstep(-4, 14, shoreOffset);
+  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, LAKE_WATER_LEVEL + 1.15, bankT);
+  const raised = THREE.MathUtils.lerp(height, target, localMask * shoreBand);
+
+  return Math.max(height, raised);
 }
 
 function applyOutletChannel(height, x, z) {
