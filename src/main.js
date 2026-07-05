@@ -11,6 +11,7 @@ import { ThirdPersonCamera } from './thirdPersonCamera.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import { updateWaterSystemVisuals } from './waterSystem.js';
 import { updateSmallLakes } from './smallLakes.js';
+import { createTerrainEditor } from './terrainEditor.js';
 
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
@@ -48,6 +49,7 @@ const thirdPersonCamera = new ThirdPersonCamera(camera, player);
 thirdPersonCamera.update(input, terrain);
 updateSunLight();
 
+const terrainEditor = createTerrainEditor(terrain, camera, scene, canvas);
 const clock = new THREE.Clock();
 
 function updateRenderToggles() {
@@ -76,13 +78,15 @@ function animate() {
   requestAnimationFrame(animate);
 
   const deltaTime = Math.min(clock.getDelta(), 0.05);
-  player.update(deltaTime, input, camera, terrain);
-  terrain.update(player.position);
-  gravelOverlay.update(player.position);
+  if (!terrainEditor.isOpen()) {
+    player.update(deltaTime, input, camera, terrain);
+    terrain.update(player.position);
+    gravelOverlay.update(player.position);
+    thirdPersonCamera.update(input, terrain);
+  }
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);
-  thirdPersonCamera.update(input, terrain);
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
   updateWaterSystemVisuals(waterSystem, camera, clock.elapsedTime);
   if (toggleGrass.checked) {

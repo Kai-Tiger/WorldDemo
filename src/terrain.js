@@ -37,6 +37,7 @@ const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
+const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const GROUND_TEXTURE_WORLD_SIZE = 8;
 const GRAVEL_TEXTURE_WORLD_SIZE = 4.5;
 const HEIGHT_SMOOTHING_ENABLED = true;
@@ -158,6 +159,95 @@ export class Terrain {
     const [x, z] = key.split(',').map(Number);
 
     return { x, z };
+  }
+
+  getHeightMapData() {
+    return {
+      data: this.heightData,
+      width: this.width,
+      height: this.height,
+      worldSize: HEIGHT_MAP_WORLD_SIZE,
+      maxHeight: MAX_HEIGHT,
+      saveQuality: HEIGHTMAP_SAVE_QUALITY,
+    };
+  }
+
+  heightMapPixelToWorld(imageX, imageY) {
+    const x = (imageX / (this.width - 1)) * HEIGHT_MAP_WORLD_SIZE - HALF_HEIGHT_MAP_WORLD_SIZE;
+    const z = ((this.height - 1 - imageY) / (this.height - 1)) * HEIGHT_MAP_WORLD_SIZE - HALF_HEIGHT_MAP_WORLD_SIZE;
+
+    return { x, z };
+  }
+
+  applyHeightBrush(worldX, worldZ, radius, strength) {
+    const centerX = ((worldX + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1);
+    const centerY = (1 - ((worldZ + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE)) * (this.height - 1);
+    const pixelRadius = Math.max((radius / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1), 1);
+    const minX = Math.max(Math.floor(centerX - pixelRadius), 0);
+    const maxX = Math.min(Math.ceil(centerX + pixelRadius), this.width - 1);
+    const minY = Math.max(Math.floor(centerY - pixelRadius), 0);
+    const maxY = Math.min(Math.ceil(centerY + pixelRadius), this.height - 1);
+    const delta = (strength / MAX_HEIGHT) * 255;
+
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy) / pixelRadius;
+
+        if (distance > 1) continue;
+
+        const falloff = 1 - smoothstepRange(0.18, 1, distance);
+        const index = (y * this.width + x) * 4;
+        const value = THREE.MathUtils.clamp(this.getPixelLuminance(index) + delta * falloff, 0, 255);
+
+        this.heightData[index] = value;
+        this.heightData[index + 1] = value;
+        this.heightData[index + 2] = value;
+        this.heightData[index + 3] = 255;
+      }
+    }
+
+    const topLeft = this.heightMapPixelToWorld(minX, minY);
+    const bottomRight = this.heightMapPixelToWorld(maxX, maxY);
+    const bounds = {
+      minX: Math.min(topLeft.x, bottomRight.x) - 2,
+      maxX: Math.max(topLeft.x, bottomRight.x) + 2,
+      minZ: Math.min(topLeft.z, bottomRight.z) - 2,
+      maxZ: Math.max(topLeft.z, bottomRight.z) + 2,
+    };
+
+    this.refreshChunksInBounds(bounds);
+
+    return {
+      minX,
+      minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    };
+  }
+
+  refreshChunksInBounds(bounds) {
+    const minChunkX = this.getChunkCoord(bounds.minX);
+    const maxChunkX = this.getChunkCoord(bounds.maxX);
+    const minChunkZ = this.getChunkCoord(bounds.minZ);
+    const maxChunkZ = this.getChunkCoord(bounds.maxZ);
+
+    for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ += 1) {
+      for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX += 1) {
+        const key = this.getChunkKey(chunkX, chunkZ);
+
+        if (!this.loadedChunks.has(key)) continue;
+
+        const previous = this.loadedChunks.get(key);
+        const next = this.createChunk(chunkX, chunkZ);
+
+        this.group.remove(previous);
+        previous.geometry.dispose();
+        this.loadedChunks.set(key, next);
+        this.group.add(next);
+      }
+    }
   }
 
   createChunk(chunkX, chunkZ) {
@@ -386,12 +476,17 @@ export class Terrain {
 
   getPixelHeight(x, y) {
     const index = (y * this.width + x) * 4;
+    const luminance = this.getPixelLuminance(index) / 255;
+
+    return luminance * MAX_HEIGHT;
+  }
+
+  getPixelLuminance(index) {
     const r = this.heightData[index];
     const g = this.heightData[index + 1];
     const b = this.heightData[index + 2];
-    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 
-    return luminance * MAX_HEIGHT;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 }
 

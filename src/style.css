@@ -44,6 +44,82 @@ body {
   accent-color: #8fcf7a;
 }
 
+.hud-button,
+.terrain-editor-button {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f7fb;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hud-button {
+  width: 100%;
+  min-height: 26px;
+  margin-top: 7px;
+}
+
+.terrain-editor {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(17, 19, 24, 0.86);
+  color: #f5f7fb;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.terrain-editor[hidden] {
+  display: none;
+}
+
+.terrain-editor-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.terrain-editor-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.terrain-editor-button.is-active {
+  border-color: rgba(143, 207, 122, 0.95);
+  background: rgba(143, 207, 122, 0.2);
+}
+
+.terrain-editor-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.terrain-editor-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 170px;
+}
+
+.terrain-editor-control input {
+  width: 104px;
+  accent-color: #8fcf7a;
+}
+
+.terrain-editor-status {
+  min-width: 72px;
+  color: rgba(245, 247, 251, 0.72);
+}
+
 #game {
   display: block;
   width: 100vw;
