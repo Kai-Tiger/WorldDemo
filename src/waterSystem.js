@@ -916,7 +916,11 @@ function createLakeSurfaceMaterial() {
         float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
         float deepMask = max(smoothstep(2.2, 12.0, vLakeDepth), basinCenter * 0.72);
         float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
-        float waveStrength = mix(0.78, 1.18, deepMask);
+        float windField = fbm(p * 0.035 + vec2(uTime * 0.035, -uTime * 0.018));
+        float windSweep = sin(uTime * 0.38 + p.x * 0.018 + p.y * 0.011) * 0.18;
+        float windPulse = smoothstep(0.62, 0.92, windField + windSweep);
+        float windMask = windPulse * smoothstep(0.08, 0.86, vLakeEdge);
+        float waveStrength = mix(0.72, 1.08, deepMask) + windMask * 0.34;
         vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
@@ -929,8 +933,10 @@ function createLakeSurfaceMaterial() {
 
         float surfaceRipple = fbm(p * 0.22 + vec2(-uTime * 0.085, uTime * 0.052));
         float fineRipple = fbm(p * 0.72 + vec2(uTime * 0.19, -uTime * 0.14));
-        color *= mix(0.84, 1.16, surfaceRipple);
-        color += uReflectionColor * smoothstep(0.54, 0.9, fineRipple) * edgeAlpha * 0.055;
+        float windWrinkle = smoothstep(0.5, 0.9, fineRipple) * windMask;
+        color *= mix(0.88, 1.12, surfaceRipple);
+        color += uReflectionColor * smoothstep(0.54, 0.9, fineRipple) * edgeAlpha * (0.045 + windMask * 0.07);
+        color += uHorizonReflectionColor * windWrinkle * edgeAlpha * 0.045;
 
         float caustics = getCaustics(p * 0.12);
         color += vec3(0.74, 0.96, 1.0) * caustics * shallowMask * vLakeBedVisibility * 0.13;
@@ -946,25 +952,23 @@ function createLakeSurfaceMaterial() {
         float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
         float broadSpec = pow(max(dot(normal, halfDir), 0.0), 38.0);
         float sparkle = smoothstep(0.54, 0.9, fbm(p * 0.55 + vec2(-uTime * 0.28, uTime * 0.07)));
-        color += uSunReflectionColor * (spec * sparkle * 0.44 + broadSpec * reflectionMask * 0.06);
+        color += uSunReflectionColor * (spec * sparkle * (0.34 + windMask * 0.24) + broadSpec * reflectionMask * (0.045 + windMask * 0.045));
 
-        float foamStart = smoothstep(0.035, 0.095, vLakeEdge + edgeNoise * 0.025);
-        float foamEnd = 1.0 - smoothstep(0.18, 0.32, vLakeEdge);
+        float foamEdge = vLakeEdge + edgeNoise * 0.04;
+        float foamStart = smoothstep(0.035, 0.095, foamEdge);
+        float foamEnd = 1.0 - smoothstep(0.18, 0.31, foamEdge);
         float shoreBand = foamStart * foamEnd;
-        float shallowFoamSupport = mix(0.72, 1.0, smoothstep(0.0, 1.4, vLakeDepth));
-        float foamDrift = fbm(p * 0.42 + vec2(-uTime * 0.16, uTime * 0.07));
-        float foamCells = fbm(p * 1.2 + vec2(uTime * 0.24, -uTime * 0.1) + foamDrift);
-        float foamThreads = fbm(vec2(vLakeEdge * 42.0, foamDrift * 8.0 + uTime * 0.36));
-        float shoreFoamNoise = max(
-          smoothstep(0.34, 0.74, foamCells),
-          smoothstep(0.42, 0.84, foamThreads) * 0.82
-        );
-        float shoreFoam = shoreBand * shallowFoamSupport * mix(0.38, 1.0, shoreFoamNoise);
-        color = mix(color, uFoamColor, shoreFoam * 0.86);
+        float shallowFoamSupport = smoothstep(0.15, 1.15, vLakeDepth) * (1.0 - smoothstep(3.8, 8.0, vLakeDepth));
+        float foamBreakup = smoothstep(0.38, 0.78, fbm(p * 0.08 + vec2(-uTime * 0.012, uTime * 0.007)));
+        float foamDrift = fbm(p * 0.38 + vec2(-uTime * 0.12, uTime * 0.05));
+        float foamCells = smoothstep(0.58, 0.88, fbm(p * 0.95 + vec2(uTime * 0.16, -uTime * 0.07) + foamDrift));
+        float foamThreads = smoothstep(0.66, 0.92, fbm(p * 2.15 + vec2(-uTime * 0.22, uTime * 0.11) + edgeNoise));
+        float shoreFoam = shoreBand * shallowFoamSupport * foamBreakup * max(foamCells * 0.72, foamThreads * 0.36);
+        color = mix(color, uFoamColor, shoreFoam * 0.56);
 
         float alpha = edgeAlpha * mix(0.12, 0.48, max(depthMask, basinCenter * 0.74));
         alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
-        alpha = max(alpha, shoreFoam * 0.5);
+        alpha = max(alpha, shoreFoam * 0.28);
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
