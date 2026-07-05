@@ -195,7 +195,7 @@ function applyOutletChannel(height, x, z) {
   const bedMask = 1 - smoothstep(0, OUTLET_WIDTH * 0.5, lateralDistance);
   const bankMask = 1 - smoothstep(OUTLET_WIDTH * 0.5, OUTLET_INFLUENCE, lateralDistance);
   const flowT = frame.distance / outletSamples[outletSamples.length - 1].distance;
-  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 1.7, 4.0, flowT);
+  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 1.7, WATERFALL_LIP.y - 1.1, flowT);
   const carveMask = Math.max(bedMask, bankMask * 0.45);
 
   return Math.min(height, THREE.MathUtils.lerp(height, target, carveMask));
@@ -381,7 +381,7 @@ function createOutletStream(terrain) {
     OUTLET_WIDTH,
     90,
     10,
-    (_x, _z, t) => THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, 3.2, t) + OUTLET_WATER_OFFSET,
+    (_x, _z, t) => THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, WATERFALL_LIP.y, t) + OUTLET_WATER_OFFSET,
     (_x, _z, t) => smoothstep(0.08, 0.24, t),
   );
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
