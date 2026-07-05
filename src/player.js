@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { MAP_SIZE } from './vegetationConfig.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const PLAYER_MODEL_PATH = '/assets/player/stand.fbx';
@@ -14,7 +15,7 @@ const MIN_WALKABLE_NORMAL_Y = Math.cos(THREE.MathUtils.degToRad(50));
 const GROUND_SPEED = 5;
 const AIR_SPEED = 60;
 const GRAVITY = 30;
-const MAP_BOUNDARY = 1024 - 0.35;
+const MAP_BOUNDARY = MAP_SIZE / 2 - PLAYER_RADIUS;
 const MAX_FALL_SPEED = 55;
 const GROUND_SNAP_DISTANCE = 0.08;
 const LEDGE_DROP_THRESHOLD = 0.45;

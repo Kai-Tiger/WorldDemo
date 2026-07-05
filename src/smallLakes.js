@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MAP_SIZE } from './vegetationConfig.js';
 
 const LAKES = [
   { cx: 755, cz: -657, radius: 35, maxDepth: 3.5, waterDrop: 1.0, shapeAmp: 0.28 },
@@ -12,12 +13,14 @@ const VEG_BUFFER = 10;
 const ANGLE_SEGMENTS = 64;
 const RADIAL_RINGS = 12;
 const BED_MASK_RADIUS = 1;
+const HALF_MAP_SIZE = MAP_SIZE / 2;
+const ACTIVE_LAKES = LAKES.filter(isLakeFullyInsideMap);
 
 export function applySmallLakesTerrain(baseHeight, x, z) {
   let height = baseHeight;
 
-  for (let i = 0; i < LAKES.length; i += 1) {
-    const lake = LAKES[i];
+  for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
+    const lake = ACTIVE_LAKES[i];
     const dx = x - lake.cx;
     const dz = z - lake.cz;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -38,8 +41,8 @@ export function applySmallLakesTerrain(baseHeight, x, z) {
 }
 
 export function isInSmallLakeExclusion(x, z) {
-  for (let i = 0; i < LAKES.length; i += 1) {
-    const lake = LAKES[i];
+  for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
+    const lake = ACTIVE_LAKES[i];
     const dx = x - lake.cx;
     const dz = z - lake.cz;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -55,8 +58,8 @@ export function isInSmallLakeExclusion(x, z) {
 export function getSmallLakesMaterialMask(x, z) {
   let mask = 0;
 
-  for (let i = 0; i < LAKES.length; i += 1) {
-    const lake = LAKES[i];
+  for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
+    const lake = ACTIVE_LAKES[i];
     const dx = x - lake.cx;
     const dz = z - lake.cz;
     const dist = Math.sqrt(dx * dx + dz * dz);
@@ -75,8 +78,8 @@ export function createSmallLakes(terrain) {
   const group = new THREE.Group();
   group.name = 'SmallLakes';
 
-  for (let i = 0; i < LAKES.length; i += 1) {
-    const lake = LAKES[i];
+  for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
+    const lake = ACTIVE_LAKES[i];
     const terrainHeight = terrain.getBaseHeightAt(lake.cx, lake.cz);
     const waterLevel = terrainHeight - lake.waterDrop;
     const lr = lakeRadiusAt;
@@ -102,6 +105,15 @@ export function updateSmallLakes(group, camera, elapsedTime) {
       child.material.uniforms.uCameraPosition.value.copy(camera.position);
     }
   }
+}
+
+function isLakeFullyInsideMap(lake) {
+  const maxRadius = lake.radius * (1 + lake.shapeAmp) + SHORE_WIDTH;
+
+  return lake.cx - maxRadius >= -HALF_MAP_SIZE
+    && lake.cx + maxRadius <= HALF_MAP_SIZE
+    && lake.cz - maxRadius >= -HALF_MAP_SIZE
+    && lake.cz + maxRadius <= HALF_MAP_SIZE;
 }
 
 function lakeRadiusAt(angle, lake) {

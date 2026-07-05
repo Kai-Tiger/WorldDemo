@@ -13,6 +13,7 @@ import {
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
+import { MAP_SIZE } from './vegetationConfig.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const FROZEN_DIRT_TEXTURE_PATH = '/assets/terrain/dirt-frozen.webp';
@@ -22,7 +23,7 @@ const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png'
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
 const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
-const MAP_SIZE = 2048;
+const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
 const INITIAL_CHUNK_RADIUS = 1;
@@ -32,6 +33,7 @@ const CHUNK_LOADS_PER_FRAME = 2;
 const CHUNK_UNLOADS_PER_FRAME = 2;
 const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
+const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
@@ -280,8 +282,8 @@ export class Terrain {
   }
 
   getBaseHeightAt(x, z) {
-    const u = THREE.MathUtils.clamp((x + HALF_MAP_SIZE) / MAP_SIZE, 0, 1);
-    const v = THREE.MathUtils.clamp((z + HALF_MAP_SIZE) / MAP_SIZE, 0, 1);
+    const u = THREE.MathUtils.clamp((x + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE, 0, 1);
+    const v = THREE.MathUtils.clamp((z + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE, 0, 1);
     const imageX = u * (this.width - 1);
     const imageY = (1 - v) * (this.height - 1);
     const x0 = Math.floor(imageX);
