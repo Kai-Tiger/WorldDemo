@@ -30,6 +30,16 @@ export const GRAVEL_OVERLAY_TEXTURE_WORLD_SIZE = 4.5;
 /** 每帧最多新增/移除的碎石覆盖层方块数  |  Max gravel overlay chunks added/removed per frame */
 export const GRAVEL_OVERLAY_CHUNK_MUTATIONS = 3;
 
+/** 碎石 patch 候选密度（片 / 平方米）  |  Gravel patch candidate density (patches / m²) */
+export const GRAVEL_PATCH_DENSITY = 0.024;
+
+/** 碎石 patch 随机缩放范围  |  Gravel patch random scale range */
+export const GRAVEL_PATCH_SCALE_MIN = 0.82;
+export const GRAVEL_PATCH_SCALE_MAX = 1.28;
+
+/** 碎石 patch 之间的近似最小间距（米）  |  Approximate minimum spacing between gravel patches (m) */
+export const GRAVEL_PATCH_MIN_SPACING = 3.5;
+
 // ============================================================
 // Grass  |  草
 // ============================================================

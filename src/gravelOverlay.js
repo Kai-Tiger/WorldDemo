@@ -1,36 +1,44 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import {
   GRAVEL_OVERLAY_CHUNK_MUTATIONS,
   GRAVEL_OVERLAY_RADIUS,
-  GRAVEL_OVERLAY_TEXTURE_WORLD_SIZE,
-  GRAVEL_OVERLAY_VERTEX_SPACING,
   GRAVEL_OVERLAY_Y_OFFSET,
+  GRAVEL_PATCH_DENSITY,
+  GRAVEL_PATCH_MIN_SPACING,
+  GRAVEL_PATCH_SCALE_MAX,
+  GRAVEL_PATCH_SCALE_MIN,
   KEEP_ALIVE_PADDING,
   MAP_SIZE,
   ZONE_SIZE,
 } from './vegetationConfig.js';
 
-const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
-const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
+const PATCH_PATHS = [
+  '/assets/terrain/gravel-patches/gravel_patch_small.glb',
+  '/assets/terrain/gravel-patches/gravel_patch_medium.glb',
+  '/assets/terrain/gravel-patches/gravel_patch_wide.glb',
+  '/assets/terrain/gravel-patches/gravel_patch_strip.glb',
+];
 const HALF_MAP_SIZE = MAP_SIZE / 2;
-const WATER_EXCLUSION_BUFFER = 1.5;
-const COVERAGE_THRESHOLD = 0.08;
+const WATER_EXCLUSION_BUFFER = 2.4;
+const UP = new THREE.Vector3(0, 1, 0);
+const loader = new GLTFLoader();
 
 export async function createGravelOverlay(terrain) {
-  const textures = await loadGravelOverlayTextures();
+  const patchModels = await loadGravelPatchModels();
 
-  return new GravelOverlayManager(terrain, textures);
+  return new GravelOverlayManager(terrain, patchModels);
 }
 
 export class GravelOverlayManager {
-  constructor(terrain, textures) {
+  constructor(terrain, patchModels) {
     this.terrain = terrain;
+    this.patchModels = patchModels;
     this.group = new THREE.Group();
     this.group.name = 'GravelOverlay';
-    this.material = createGravelOverlayMaterial(textures);
     this.chunks = new Map();
   }
 
@@ -95,23 +103,25 @@ export class GravelOverlayManager {
   addChunk(key, chunkX, chunkZ) {
     const minX = chunkX * ZONE_SIZE - HALF_MAP_SIZE;
     const minZ = chunkZ * ZONE_SIZE - HALF_MAP_SIZE;
-    const mesh = createGravelChunkMesh(this.terrain, this.material, minX, minZ);
+    const placements = createPatchPlacements(this.terrain, minX, minZ);
+    const group = buildPatchChunk(placements, this.patchModels, minX, minZ);
 
-    if (!mesh) {
-      this.chunks.set(key, null);
-      return;
+    this.chunks.set(key, group);
+
+    if (group.children.length > 0) {
+      this.group.add(group);
     }
-
-    this.chunks.set(key, mesh);
-    this.group.add(mesh);
   }
 
   removeChunk(key) {
-    const mesh = this.chunks.get(key);
+    const group = this.chunks.get(key);
 
-    if (mesh) {
-      this.group.remove(mesh);
-      mesh.geometry.dispose();
+    if (group?.parent) {
+      this.group.remove(group);
+    }
+
+    if (group) {
+      disposeChunk(group);
     }
 
     this.chunks.delete(key);
@@ -122,103 +132,162 @@ export class GravelOverlayManager {
       this.removeChunk(key);
     }
 
-    this.material.dispose();
+    for (const model of this.patchModels) {
+      for (const mesh of model.meshes) {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+      }
+    }
   }
 }
 
-async function loadGravelOverlayTextures() {
-  const loader = new THREE.TextureLoader();
-  const [albedo, normal] = await Promise.all([
-    loader.loadAsync(GRAVEL_ALBEDO_TEXTURE_PATH),
-    loader.loadAsync(GRAVEL_NORMAL_TEXTURE_PATH),
-  ]);
+async function loadGravelPatchModels() {
+  const assets = await Promise.all(PATCH_PATHS.map((path) => loader.loadAsync(path)));
 
-  for (const texture of [albedo]) {
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
-  }
-
-  for (const texture of [normal]) {
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.anisotropy = 8;
-  }
-
-  return { albedo, normal };
+  return assets.map((asset, index) => extractPatchModel(asset.scene, index));
 }
 
-function createGravelChunkMesh(terrain, material, minX, minZ) {
-  const segments = Math.ceil(ZONE_SIZE / GRAVEL_OVERLAY_VERTEX_SPACING);
-  const verticesPerSide = segments + 1;
-  const vertexCount = verticesPerSide * verticesPerSide;
-  const positions = new Float32Array(vertexCount * 3);
-  const uvs = new Float32Array(vertexCount * 2);
-  const coverages = new Float32Array(vertexCount);
-  const indices = [];
-  let positionOffset = 0;
-  let uvOffset = 0;
-  let coverageOffset = 0;
+function extractPatchModel(scene, modelIndex) {
+  scene.updateMatrixWorld(true);
 
-  for (let z = 0; z <= segments; z += 1) {
-    for (let x = 0; x <= segments; x += 1) {
-      const worldX = minX + x * GRAVEL_OVERLAY_VERTEX_SPACING;
-      const worldZ = minZ + z * GRAVEL_OVERLAY_VERTEX_SPACING;
-      const height = terrain.getHeightAt(worldX, worldZ);
-      const coverage = getGravelCoverage(terrain, worldX, worldZ);
+  const meshes = [];
 
-      positions[positionOffset] = worldX;
-      positions[positionOffset + 1] = height + GRAVEL_OVERLAY_Y_OFFSET;
-      positions[positionOffset + 2] = worldZ;
-      positionOffset += 3;
+  scene.traverse((child) => {
+    if (!child.isMesh) return;
 
-      uvs[uvOffset] = worldX / GRAVEL_OVERLAY_TEXTURE_WORLD_SIZE;
-      uvs[uvOffset + 1] = worldZ / GRAVEL_OVERLAY_TEXTURE_WORLD_SIZE;
-      uvOffset += 2;
+    const geometry = child.geometry.clone();
+    geometry.applyMatrix4(child.matrixWorld);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
 
-      coverages[coverageOffset] = coverage;
-      coverageOffset += 1;
+    meshes.push({
+      geometry,
+      material: createPatchMaterial(child.material),
+    });
+  });
+
+  return {
+    modelIndex,
+    meshes,
+  };
+}
+
+function createPatchMaterial(sourceMaterial) {
+  const material = sourceMaterial.clone();
+
+  material.roughness = 0.94;
+  material.metalness = 0;
+  material.vertexColors = true;
+  material.transparent = false;
+  material.depthWrite = true;
+  material.depthTest = true;
+  material.needsUpdate = true;
+
+  return material;
+}
+
+function createPatchPlacements(terrain, minX, minZ) {
+  const cellSize = Math.sqrt(1 / GRAVEL_PATCH_DENSITY);
+  const placements = [];
+  const occupied = [];
+
+  for (let worldZ = minZ - cellSize * 0.5; worldZ <= minZ + ZONE_SIZE + cellSize * 0.5; worldZ += cellSize) {
+    for (let worldX = minX - cellSize * 0.5; worldX <= minX + ZONE_SIZE + cellSize * 0.5; worldX += cellSize) {
+      const gridX = Math.round(worldX / cellSize);
+      const gridZ = Math.round(worldZ / cellSize);
+      const jitterX = (hash2(gridX, gridZ) - 0.5) * cellSize;
+      const jitterZ = (hash2(gridX + 17.31, gridZ - 9.73) - 0.5) * cellSize;
+      const x = worldX + jitterX;
+      const z = worldZ + jitterZ;
+
+      if (x < minX || x > minX + ZONE_SIZE || z < minZ || z > minZ + ZONE_SIZE) continue;
+
+      const coverage = getGravelCoverage(terrain, x, z);
+      const acceptance = coverage * 0.72;
+
+      if (hash2(gridX + 101.7, gridZ - 55.2) > acceptance) continue;
+      if (isTooClose(x, z, occupied)) continue;
+
+      const placement = createPatchPlacement(terrain, x, z, gridX, gridZ, coverage);
+      occupied.push({ x, z });
+      placements.push(placement);
     }
   }
 
-  for (let z = 0; z < segments; z += 1) {
-    for (let x = 0; x < segments; x += 1) {
-      const topLeft = z * verticesPerSide + x;
-      const topRight = topLeft + 1;
-      const bottomLeft = topLeft + verticesPerSide;
-      const bottomRight = bottomLeft + 1;
-      const coverage = (
-        coverages[topLeft]
-        + coverages[topRight]
-        + coverages[bottomLeft]
-        + coverages[bottomRight]
-      ) * 0.25;
+  return placements;
+}
 
-      if (coverage < COVERAGE_THRESHOLD) continue;
+function createPatchPlacement(terrain, x, z, seedX, seedZ, coverage) {
+  const y = terrain.getHeightAt(x, z) + GRAVEL_OVERLAY_Y_OFFSET;
+  const normal = terrain.getNormalAt(x, z);
+  const modelRoll = hash2(seedX + 220.4, seedZ - 91.6);
+  const modelIndex = getPatchModelIndex(modelRoll);
+  const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
+  const scaleBase = THREE.MathUtils.lerp(GRAVEL_PATCH_SCALE_MIN, GRAVEL_PATCH_SCALE_MAX, hash2(seedX + 5.7, seedZ + 33.1));
+  const scale = scaleBase * THREE.MathUtils.lerp(0.82, 1.18, coverage);
+  const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
+  const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
+  const matrix = new THREE.Matrix4();
 
-      indices.push(topLeft, bottomLeft, topRight, topRight, bottomLeft, bottomRight);
+  matrix.compose(
+    new THREE.Vector3(x, y, z),
+    rotation,
+    new THREE.Vector3(scale, scale, scale),
+  );
+
+  return { matrix, modelIndex };
+}
+
+function getPatchModelIndex(roll) {
+  if (roll < 0.32) return 0;
+  if (roll < 0.66) return 1;
+  if (roll < 0.86) return 2;
+
+  return 3;
+}
+
+function buildPatchChunk(placements, patchModels, minX, minZ) {
+  const group = new THREE.Group();
+  group.name = `GravelPatchChunk_${minX}_${minZ}`;
+
+  for (const model of patchModels) {
+    const modelPlacements = placements.filter((placement) => placement.modelIndex === model.modelIndex);
+
+    if (modelPlacements.length === 0) continue;
+
+    for (let meshIndex = 0; meshIndex < model.meshes.length; meshIndex += 1) {
+      const source = model.meshes[meshIndex];
+      const instanced = new THREE.InstancedMesh(
+        source.geometry,
+        source.material,
+        modelPlacements.length,
+      );
+
+      instanced.name = `GravelPatch_${model.modelIndex}_${meshIndex}_Instances`;
+      instanced.castShadow = true;
+      instanced.receiveShadow = true;
+
+      for (let i = 0; i < modelPlacements.length; i += 1) {
+        instanced.setMatrixAt(i, modelPlacements[i].matrix);
+      }
+
+      instanced.instanceMatrix.needsUpdate = true;
+      instanced.computeBoundingBox();
+      instanced.computeBoundingSphere();
+      group.add(instanced);
     }
   }
 
-  if (indices.length === 0) return null;
+  return group;
+}
 
-  const geometry = new THREE.BufferGeometry();
+function disposeChunk(group) {
+  while (group.children.length > 0) {
+    const child = group.children[0];
 
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setAttribute('coverage', new THREE.BufferAttribute(coverages, 1));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = `GravelOverlay_${minX}_${minZ}`;
-  mesh.receiveShadow = true;
-  mesh.renderOrder = 2;
-
-  return mesh;
+    group.remove(child);
+    child.dispose?.();
+  }
 }
 
 function getGravelCoverage(terrain, x, z) {
@@ -231,107 +300,27 @@ function getGravelCoverage(terrain, x, z) {
   const groundMask = smoothstep(0.08, 0.82, terrain.getTerrainGroundMask(x, z));
   const heightMask = 1 - smoothstep(95, 155, height);
   const flatMask = smoothstep(0.66, 0.92, normal.y);
-  const gravelPatch = smoothstep(0.46, 0.78, fbm(x * 0.13 + 5.4, z * 0.13 + 18.0));
-  const breakup = smoothstep(0.22, 0.64, fbm(x * 0.19 - 8.0, z * 0.19 + 3.0));
+  const gravelPatch = smoothstep(0.42, 0.76, fbm(x * 0.08 + 5.4, z * 0.08 + 18.0));
+  const breakup = smoothstep(0.2, 0.58, fbm(x * 0.12 - 8.0, z * 0.12 + 3.0));
 
   return THREE.MathUtils.clamp(
-    groundMask * heightMask * flatMask * THREE.MathUtils.lerp(0.28, 1.0, gravelPatch) * breakup,
+    groundMask * heightMask * flatMask * THREE.MathUtils.lerp(0.2, 1.0, gravelPatch) * breakup,
     0,
     1,
   );
 }
 
-function createGravelOverlayMaterial(textures) {
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x8c8373,
-    map: textures.albedo,
-    normalMap: textures.normal,
-    normalScale: new THREE.Vector2(0.46, 0.46),
-    roughness: 0.94,
-    metalness: 0,
-    alphaTest: 0.3,
-    depthWrite: true,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+function isTooClose(x, z, occupied) {
+  const minDistanceSq = GRAVEL_PATCH_MIN_SPACING * GRAVEL_PATCH_MIN_SPACING;
 
-  material.name = 'GravelOverlayMaterial';
-  material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-attribute float coverage;
-varying float vGravelCoverage;
-varying vec3 vGravelWorldPosition;`,
-      )
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-vGravelCoverage = coverage;`,
-      )
-      .replace(
-        '#include <worldpos_vertex>',
-        `#include <worldpos_vertex>
-vGravelWorldPosition = worldPosition.xyz;`,
-      );
+  for (let i = 0; i < occupied.length; i += 1) {
+    const dx = occupied[i].x - x;
+    const dz = occupied[i].z - z;
 
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-varying float vGravelCoverage;
-varying vec3 vGravelWorldPosition;
-
-float gravelHash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-}
-
-float gravelNoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  float a = gravelHash(i);
-  float b = gravelHash(i + vec2(1.0, 0.0));
-  float c = gravelHash(i + vec2(0.0, 1.0));
-  float d = gravelHash(i + vec2(1.0, 1.0));
-  vec2 u = f * f * (3.0 - 2.0 * f);
-
-  return mix(a, b, u.x)
-    + (c - a) * u.y * (1.0 - u.x)
-    + (d - b) * u.x * u.y;
-}
-
-float gravelFbm(vec2 p) {
-  float value = 0.0;
-  float amplitude = 0.5;
-
-  for (int i = 0; i < 4; i += 1) {
-    value += gravelNoise(p) * amplitude;
-    p = p * 2.02 + vec2(7.3, 13.1);
-    amplitude *= 0.5;
+    if (dx * dx + dz * dz < minDistanceSq) return true;
   }
 
-  return value;
-}`,
-      )
-      .replace(
-        '#include <alphatest_fragment>',
-        `float gravelEdgeNoise = gravelFbm(vGravelWorldPosition.xz * 0.45);
-float gravelAlpha = smoothstep(0.16, 0.58, vGravelCoverage + (gravelEdgeNoise - 0.5) * 0.42);
-diffuseColor.a *= gravelAlpha;
-#include <alphatest_fragment>`,
-      )
-      .replace(
-        '#include <dithering_fragment>',
-        `float gravelToneNoise = gravelFbm(vGravelWorldPosition.xz * 1.15);
-gl_FragColor.rgb *= mix(0.72, 1.02, gravelToneNoise);
-#include <dithering_fragment>`,
-      );
-  };
-  material.customProgramCacheKey = () => 'terrain-following-gravel-overlay-v1';
-
-  return material;
+  return false;
 }
 
 function fbm(x, z) {
