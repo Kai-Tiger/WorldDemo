@@ -381,7 +381,7 @@ function createOutletStream(terrain) {
     OUTLET_WIDTH,
     90,
     10,
-    (_x, _z, t) => THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 0.35, WATERFALL_LIP.y, t) + OUTLET_WATER_OFFSET,
+    (x, z, _t, terrain) => terrain.getHeightAt(x, z) + OUTLET_WATER_OFFSET,
     (_x, _z, t) => smoothstep(0.08, 0.24, t),
   );
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
