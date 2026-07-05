@@ -4,8 +4,12 @@ import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
 import { hash2 } from './grassClumps.js';
+import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
+  SPAWN_TREE_MODEL_PATH,
+  SPAWN_TREE_REPLACEMENT_COUNT,
+  SPAWN_TREE_SCALE_MULTIPLIER,
   TREE_MODEL_PATHS,
   TREE_SHADOW_LIFT_COLOR,
   TREE_SHADOW_LIFT_INTENSITY,
@@ -37,8 +41,9 @@ const loader = new GLTFLoader();
 
 export async function loadTreeModels() {
   const models = [];
+  const paths = [...TREE_MODEL_PATHS, SPAWN_TREE_MODEL_PATH];
 
-  for (const path of TREE_MODEL_PATHS) {
+  for (const path of paths) {
     const asset = await loader.loadAsync(path);
     const meshes = extractMeshes(asset.scene);
 
@@ -214,7 +219,10 @@ export async function generateAllTreePlacements(terrain) {
       const done = iterator.step(BATCH_SIZE);
 
       if (done) {
-        resolve(iterator.getPlacements());
+        const placements = iterator.getPlacements();
+
+        replaceSpawnAreaTrees(placements);
+        resolve(placements);
       } else {
         requestAnimationFrame(batch);
       }
@@ -222,6 +230,35 @@ export async function generateAllTreePlacements(terrain) {
 
     requestAnimationFrame(batch);
   });
+}
+
+function replaceSpawnAreaTrees(placements) {
+  const spawnTreeModelIndex = TREE_MODEL_PATHS.length;
+  const nearestPlacements = placements
+    .map((placement) => {
+      const elements = placement.matrix.elements;
+      const dx = elements[12] - PLAYER_SPAWN_POSITION.x;
+      const dz = elements[14] - PLAYER_SPAWN_POSITION.z;
+
+      return { placement, distanceSq: dx * dx + dz * dz };
+    })
+    .sort((a, b) => a.distanceSq - b.distanceSq)
+    .slice(0, SPAWN_TREE_REPLACEMENT_COUNT);
+
+  for (const { placement } of nearestPlacements) {
+    placement.modelIndex = spawnTreeModelIndex;
+    scaleTreePlacement(placement.matrix, SPAWN_TREE_SCALE_MULTIPLIER);
+  }
+}
+
+function scaleTreePlacement(matrix, multiplier) {
+  const position = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+
+  matrix.decompose(position, rotation, scale);
+  scale.multiplyScalar(multiplier);
+  matrix.compose(position, rotation, scale);
 }
 
 function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex) {

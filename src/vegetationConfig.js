@@ -117,6 +117,15 @@ export const TREE_MODEL_PATHS = [
   '/assets/vegetation/tree_04.glb',
 ];
 
+/** 出生点附近替换用树木模型路径  |  Tree model path used only for spawn-area replacements */
+export const SPAWN_TREE_MODEL_PATH = '/assets/vegetation/tree_spawn.glb';
+
+/** 出生点附近替换的现有树木数量  |  Existing tree count replaced near spawn */
+export const SPAWN_TREE_REPLACEMENT_COUNT = 10;
+
+/** 出生点替换树模型缩放倍率  |  Scale multiplier for the spawn replacement tree model */
+export const SPAWN_TREE_SCALE_MULTIPLIER = 0.35;
+
 /** 树木暗部补光颜色，保持偏绿避免逆光下发灰  |  Tree shadow lift color, green-tinted to avoid gray backlit trees */
 export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
 
