@@ -15,11 +15,9 @@ import {
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
-const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/materials/moss_albedo.png';
 const GROUND_DIRT_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
 const GROUND_DRY_GRASS_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_albedo.png';
 const GROUND_GRAVEL_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
-const GROUND_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/moss_normal.png';
 const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
 const GROUND_DRY_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_normal.png';
 const GROUND_GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
@@ -422,11 +420,9 @@ async function loadHeightMap(path) {
 async function loadTerrainTextures() {
   const loader = new THREE.TextureLoader();
   const [
-    grass,
     dirt,
     dryGrass,
     gravel,
-    grassNormal,
     dirtNormal,
     dryGrassNormal,
     gravelNormal,
@@ -438,11 +434,9 @@ async function loadTerrainTextures() {
     riverBank,
     riverBed,
   ] = await Promise.all([
-    loader.loadAsync(GROUND_GRASS_TEXTURE_PATH),
     loader.loadAsync(GROUND_DIRT_TEXTURE_PATH),
     loader.loadAsync(GROUND_DRY_GRASS_TEXTURE_PATH),
     loader.loadAsync(GROUND_GRAVEL_TEXTURE_PATH),
-    loader.loadAsync(GROUND_GRASS_NORMAL_TEXTURE_PATH),
     loader.loadAsync(GROUND_DIRT_NORMAL_TEXTURE_PATH),
     loader.loadAsync(GROUND_DRY_GRASS_NORMAL_TEXTURE_PATH),
     loader.loadAsync(GROUND_GRAVEL_NORMAL_TEXTURE_PATH),
@@ -455,14 +449,14 @@ async function loadTerrainTextures() {
     loader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [grass, dirt, dryGrass, gravel, frozenDirt, scree, rock, snow, riverBank, riverBed]) {
+  for (const texture of [dirt, dryGrass, gravel, frozenDirt, scree, rock, snow, riverBank, riverBed]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
   }
 
-  for (const texture of [grassNormal, dirtNormal, dryGrassNormal, gravelNormal, rockNormal]) {
+  for (const texture of [dirtNormal, dryGrassNormal, gravelNormal, rockNormal]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.NoColorSpace;
@@ -470,11 +464,9 @@ async function loadTerrainTextures() {
   }
 
   return {
-    grass,
     dirt,
     dryGrass,
     gravel,
-    grassNormal,
     dirtNormal,
     dryGrassNormal,
     gravelNormal,
@@ -494,11 +486,9 @@ function createTerrainMaterial(textures) {
     uniforms: THREE.UniformsUtils.merge([
       THREE.UniformsLib.lights,
       {
-        uGrassTexture: { value: textures.grass },
         uDirtTexture: { value: textures.dirt },
         uDryGrassTexture: { value: textures.dryGrass },
         uGravelTexture: { value: textures.gravel },
-        uGrassNormalTexture: { value: textures.grassNormal },
         uDirtNormalTexture: { value: textures.dirtNormal },
         uDryGrassNormalTexture: { value: textures.dryGrassNormal },
         uGravelNormalTexture: { value: textures.gravelNormal },
@@ -574,11 +564,9 @@ function createTerrainMaterial(textures) {
       #include <shadowmap_pars_fragment>
       #include <shadowmask_pars_fragment>
 
-      uniform sampler2D uGrassTexture;
       uniform sampler2D uDirtTexture;
       uniform sampler2D uDryGrassTexture;
       uniform sampler2D uGravelTexture;
-      uniform sampler2D uGrassNormalTexture;
       uniform sampler2D uDirtNormalTexture;
       uniform sampler2D uDryGrassNormalTexture;
       uniform sampler2D uGravelNormalTexture;
@@ -719,11 +707,9 @@ function createTerrainMaterial(textures) {
         vec3 normal = normalize(vWorldNormal);
         vec2 blendUv = vWorldUv * uTextureWorldSize;
 
-        vec3 grass = sampleGroundTexture(uGrassTexture, vWorldPosition.xz, 24.0, 41.0, vec2(0.0, 0.0), 0.58);
         vec3 dirt = sampleGroundTexture(uDirtTexture, vWorldPosition.xz, 26.0, 37.0, vec2(17.3, 4.8), -0.36);
         vec3 dryGrass = sampleGroundTexture(uDryGrassTexture, vWorldPosition.xz, 22.0, 43.0, vec2(-9.1, 12.4), 0.82);
         vec3 gravel = sampleGroundTexture(uGravelTexture, vWorldPosition.xz, 18.0, 33.0, vec2(6.6, -15.2), -0.64);
-        vec3 grassNormal = sampleGroundNormalTexture(uGrassNormalTexture, vWorldPosition.xz, 24.0, 41.0, vec2(0.0, 0.0), 0.58);
         vec3 dirtNormal = sampleGroundNormalTexture(uDirtNormalTexture, vWorldPosition.xz, 26.0, 37.0, vec2(17.3, 4.8), -0.36);
         vec3 dryGrassNormal = sampleGroundNormalTexture(uDryGrassNormalTexture, vWorldPosition.xz, 22.0, 43.0, vec2(-9.1, 12.4), 0.82);
         vec3 gravelNormal = sampleGroundNormalTexture(uGravelNormalTexture, vWorldPosition.xz, 18.0, 33.0, vec2(6.6, -15.2), -0.64);
@@ -745,13 +731,12 @@ function createTerrainMaterial(textures) {
         vec3 riverBedB = texture2D(uRiverBedTexture, riverBedUv * vec2(0.61, 1.27) + vec2(12.7, -4.4)).rgb;
         vec3 riverBed = mix(riverBedA, riverBedB, 0.28);
 
-        float dirtPatch = smoothstep(0.48, 0.78, fbm(blendUv * 0.045 + vec2(2.0, -5.0)));
         float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
         float gravelPatch = smoothstep(0.64, 0.9, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
-        vec3 groundColor = mix(grass, dirt, dirtPatch * 0.72);
+        vec3 groundColor = dirt;
         groundColor = mix(groundColor, dryGrass, dryPatch * 0.46);
         groundColor = mix(groundColor, gravel, gravelPatch * 0.28);
-        vec3 groundMappedNormal = normalize(mix(grassNormal, dirtNormal, dirtPatch * 0.72));
+        vec3 groundMappedNormal = dirtNormal;
         groundMappedNormal = normalize(mix(groundMappedNormal, dryGrassNormal, dryPatch * 0.46));
         groundMappedNormal = normalize(mix(groundMappedNormal, gravelNormal, gravelPatch * 0.28));
 
