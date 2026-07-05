@@ -12,14 +12,36 @@ body {
   top: 12px;
   left: 12px;
   z-index: 1;
-  min-width: 96px;
-  padding: 8px 10px;
+  min-width: 112px;
+  padding: 8px 10px 9px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   background: rgba(17, 19, 24, 0.72);
   color: #f5f7fb;
   font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.position-readout {
+  margin-bottom: 6px;
   pointer-events: none;
+}
+
+.render-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+  color: #f5f7fb;
+  cursor: pointer;
+}
+
+.render-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #8fcf7a;
 }
 
 #game {

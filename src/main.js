@@ -16,8 +16,12 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
+const toggleGrass = document.querySelector('#toggle-grass');
+const toggleTrees = document.querySelector('#toggle-trees');
 const { scene, terrain, water, wetBanks, waterSystem, grassManager, sunLight, clouds, smallLakes } = await createScene();
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
+const treeGroup = scene.getObjectByName('Trees');
+const leafGroup = scene.getObjectByName('LeafDecals');
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -45,6 +49,15 @@ updateSunLight();
 
 const clock = new THREE.Clock();
 
+function updateRenderToggles() {
+  const showGrass = toggleGrass.checked;
+  const showTrees = toggleTrees.checked;
+
+  grassManager.group.visible = showGrass;
+  if (treeGroup) treeGroup.visible = showTrees;
+  if (leafGroup) leafGroup.visible = showTrees;
+}
+
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -70,7 +83,9 @@ function animate() {
   thirdPersonCamera.update(input, terrain);
   updateRiverVisuals(water, wetBanks, camera, clock.elapsedTime);
   updateWaterSystemVisuals(waterSystem, camera, clock.elapsedTime);
-  grassManager.update(player.position, clock.elapsedTime);
+  if (toggleGrass.checked) {
+    grassManager.update(player.position, clock.elapsedTime);
+  }
   clouds.update(clock.elapsedTime, camera);
   updateSmallLakes(smallLakes, camera, clock.elapsedTime);
   updateSunLight();
@@ -79,4 +94,7 @@ function animate() {
 }
 
 window.addEventListener('resize', resize);
+toggleGrass.addEventListener('change', updateRenderToggles);
+toggleTrees.addEventListener('change', updateRenderToggles);
+updateRenderToggles();
 animate();
