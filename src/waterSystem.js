@@ -141,7 +141,7 @@ export function createWaterSystem(terrain) {
   const lake = createLakeWater(terrain);
   const outletStream = createOutletStream(terrain);
   const snowmelt = createSnowmeltGroup(terrain);
-  const waterfall = createWaterfallGroup();
+  const waterfall = createWaterfallGroup(terrain);
   const confluence = createConfluenceFoam();
   const group = new THREE.Group();
 
@@ -381,7 +381,7 @@ function createOutletStream(terrain) {
     OUTLET_WIDTH,
     90,
     10,
-    (x, z, _t, terrain) => terrain.getHeightAt(x, z) + OUTLET_WATER_OFFSET,
+    (x, z, _t, terrain) => getOutletSurfaceHeight(terrain, x, z),
     (_x, _z, t) => smoothstep(0.08, 0.24, t),
   );
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
@@ -422,12 +422,32 @@ function createSnowmeltGroup(terrain) {
   return group;
 }
 
-function createWaterfallGroup() {
+function getOutletSurfaceHeight(terrain, x, z) {
+  return terrain.getHeightAt(x, z) + OUTLET_WATER_OFFSET;
+}
+
+function getWaterfallLip(terrain) {
+  const point = outletCurve.getPointAt(1);
+
+  return new THREE.Vector3(
+    point.x,
+    getOutletSurfaceHeight(terrain, point.x, point.z),
+    point.z,
+  );
+}
+
+function getOutletLipSide() {
+  const tangent = outletCurve.getTangentAt(1).normalize();
+
+  return new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+}
+
+function createWaterfallGroup(terrain) {
   const group = new THREE.Group();
   group.name = 'WaterfallSystem';
 
   for (const layer of WATERFALL_LAYERS) {
-    const mesh = new THREE.Mesh(createWaterfallGeometry(layer), createWaterfallMaterial(layer));
+    const mesh = new THREE.Mesh(createWaterfallGeometry(layer, terrain), createWaterfallMaterial(layer));
     mesh.name = layer.name;
     mesh.renderOrder = 30;
     group.add(mesh);
@@ -543,30 +563,43 @@ function createPathStripGeometry(
   return geometry;
 }
 
-function createWaterfallGeometry(layer) {
+function createWaterfallGeometry(layer, terrain) {
   const verticalSegments = 28;
   const lateralSegments = 7;
   const verticesPerRow = lateralSegments + 1;
   const positions = new Float32Array((verticalSegments + 1) * verticesPerRow * 3);
   const uvs = new Float32Array((verticalSegments + 1) * verticesPerRow * 2);
   const indices = new Uint32Array(verticalSegments * lateralSegments * 6);
-  const right = new THREE.Vector3(1, 0, 0);
+  const lip = getWaterfallLip(terrain);
+  const right = getOutletLipSide();
+  const forward = new THREE.Vector3(
+    WATERFALL_BASE.x - lip.x,
+    0,
+    WATERFALL_BASE.z - lip.z,
+  ).normalize();
   let positionOffset = 0;
   let uvOffset = 0;
 
   for (let i = 0; i <= verticalSegments; i += 1) {
     const t = i / verticalSegments;
     const eased = t * t * (3 - 2 * t);
-    const center = new THREE.Vector3().lerpVectors(WATERFALL_LIP, WATERFALL_BASE, eased);
-    center.x += Math.sin(t * Math.PI) * 2.8 + layer.xOffset;
-    center.z += Math.sin(t * Math.PI * 0.7) * 1.4 + layer.zOffset;
+    const center = new THREE.Vector3().lerpVectors(lip, WATERFALL_BASE, eased);
+    const offsetMask = smoothstep(0.04, 0.28, t);
+    center.addScaledVector(right, layer.xOffset);
+    center.addScaledVector(forward, Math.sin(t * Math.PI) * 2.8 + layer.zOffset * offsetMask);
     const width = WATERFALL_WIDTH * layer.width * THREE.MathUtils.lerp(0.62, 1.28, t);
+    const lipBlend = 1 - smoothstep(0, 0.12, t);
 
     for (let j = 0; j <= lateralSegments; j += 1) {
       const lateralT = j / lateralSegments;
       const lateral = (lateralT - 0.5) * width;
       const breakup = Math.sin(i * 1.9 + j * 2.7) * 0.18 * t;
       const point = center.clone().addScaledVector(right, lateral + breakup);
+      point.y = THREE.MathUtils.lerp(
+        point.y,
+        getOutletSurfaceHeight(terrain, point.x, point.z),
+        lipBlend,
+      );
 
       positions[positionOffset] = point.x;
       positions[positionOffset + 1] = point.y;
