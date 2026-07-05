@@ -50,7 +50,7 @@ export const GRASS_MODEL_PATH = '/assets/vegetation/grass-clumps.glb';
 // --- 放置 (Placement) ---
 
 /** LOD 各级密度（丛 / 平方米）  |  Density per LOD level (clumps / m²) */
-export const GRASS_LOD_DENSITIES = [20, 5, 1.25];
+export const GRASS_LOD_DENSITIES = [16, 4, 1];
 
 /** LOD 距离阈值（米），距玩家超过此距离则使用对应级别的密度  |  LOD distance thresholds (m) */
 export const GRASS_LOD_DISTANCES = [20, 50, 150];

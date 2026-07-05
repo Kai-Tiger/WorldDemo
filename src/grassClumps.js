@@ -34,6 +34,7 @@ const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
 const GRASS_SWAY_MOTION_SCALE = 0.32;
 const GRASS_PLAYER_SWAY_RADIUS = 2;
 const GRASS_WIND_SWAY_RADIUS = 20;
+const GRASS_WIND_REGION_SIZE = 12;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
 const GRASS_ALPHA_TEST = 0.34;
@@ -249,20 +250,25 @@ vec3 grassInstanceWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 grassInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 #endif
 vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
-float grassWave = sin(dot(grassInstanceWorld.xz, uGrassWindDirection) * 0.24 + uGrassTime * 0.48 + position.y * 2.2);
-float grassFlutter = sin(dot(grassInstanceWorld.xz, grassSideDirection) * 0.36 + uGrassTime * 0.72 + position.y * 3.1);
 float grassPlayerDistance = distance(grassInstanceWorld.xz, uGrassPlayerPosition);
 float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_PLAYER_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_PLAYER_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
 float grassWindSwayMask = (1.0 - smoothstep(14.0, ${GRASS_WIND_SWAY_RADIUS.toFixed(1)}, grassPlayerDistance)) * 0.34;
 float grassSwayMask = max(grassPlayerSwayMask, grassWindSwayMask);
+float grassNearDetailMask = 1.0 - smoothstep(4.0, 12.0, grassPlayerDistance);
+vec2 grassWindRegion = floor(grassInstanceWorld.xz / ${GRASS_WIND_REGION_SIZE.toFixed(1)} + 0.5) * ${GRASS_WIND_REGION_SIZE.toFixed(1)};
+vec2 grassLocalOffset = grassInstanceWorld.xz - grassWindRegion;
+float grassRegionalPhase = dot(grassWindRegion, uGrassWindDirection) * 0.08;
+float grassLocalPhase = dot(grassLocalOffset, uGrassWindDirection) * 0.05 * grassNearDetailMask;
+float grassWave = sin(grassRegionalPhase + grassLocalPhase + uGrassTime * 0.38 + position.y * 1.15);
+float grassFlutter = sin(dot(grassWindRegion, grassSideDirection) * 0.1 + uGrassTime * 0.45 + position.y * 1.7) * grassNearDetailMask;
 transformed.xz += (
   uGrassWindDirection * grassWave
-  + grassSideDirection * grassFlutter * 0.12
+  + grassSideDirection * grassFlutter * 0.05
 ) * uGrassSwayStrength * grassTipMask * grassSwayMask;`,
       );
     applyGrassColorGrade(shader, GRASS_COLOR_GRADE, true);
   };
-  material.customProgramCacheKey = () => 'grass-calm-sway-color-grade-v1';
+  material.customProgramCacheKey = () => 'grass-regional-sway-color-grade-v1';
 
   return material;
 }
