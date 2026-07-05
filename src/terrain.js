@@ -31,6 +31,11 @@ const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const MAP_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
+const INITIAL_CHUNK_RADIUS = 1;
+const LOAD_CHUNK_RADIUS = 2;
+const UNLOAD_CHUNK_RADIUS = 3;
+const CHUNK_LOADS_PER_FRAME = 2;
+const CHUNK_UNLOADS_PER_FRAME = 2;
 const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
@@ -56,8 +61,7 @@ export class Terrain {
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
     this.material = createTerrainMaterial(textures);
-
-    this.createChunks();
+    this.loadedChunks = new Map();
   }
 
   static async create() {
@@ -72,12 +76,91 @@ export class Terrain {
     return new Terrain(data, width, height, textures);
   }
 
-  createChunks() {
-    for (let z = 0; z < CHUNKS_PER_SIDE; z += 1) {
-      for (let x = 0; x < CHUNKS_PER_SIDE; x += 1) {
-        this.group.add(this.createChunk(x, z));
+  update(centerPosition) {
+    const centerChunkX = this.getChunkCoord(centerPosition.x);
+    const centerChunkZ = this.getChunkCoord(centerPosition.z);
+    const loadRadius = this.loadedChunks.size === 0 ? INITIAL_CHUNK_RADIUS : LOAD_CHUNK_RADIUS;
+    const loadKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, loadRadius);
+    const keepKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, UNLOAD_CHUNK_RADIUS);
+
+    this.loadMissingChunks(loadKeys, centerChunkX, centerChunkZ);
+    this.unloadDistantChunks(keepKeys);
+  }
+
+  getChunkCoord(value) {
+    return THREE.MathUtils.clamp(
+      Math.floor((value + HALF_MAP_SIZE) / CHUNK_SIZE),
+      0,
+      CHUNKS_PER_SIDE - 1,
+    );
+  }
+
+  getChunkKeysInRadius(centerChunkX, centerChunkZ, radius) {
+    const keys = [];
+
+    for (let z = centerChunkZ - radius; z <= centerChunkZ + radius; z += 1) {
+      for (let x = centerChunkX - radius; x <= centerChunkX + radius; x += 1) {
+        if (x < 0 || x >= CHUNKS_PER_SIDE || z < 0 || z >= CHUNKS_PER_SIDE) continue;
+        keys.push(this.getChunkKey(x, z));
       }
     }
+
+    return keys;
+  }
+
+  loadMissingChunks(loadKeys, centerChunkX, centerChunkZ) {
+    const missing = loadKeys
+      .filter((key) => !this.loadedChunks.has(key))
+      .map((key) => {
+        const { x, z } = this.parseChunkKey(key);
+        return {
+          key,
+          x,
+          z,
+          distance: Math.max(Math.abs(x - centerChunkX), Math.abs(z - centerChunkZ)),
+        };
+      })
+      .sort((a, b) => a.distance - b.distance);
+
+    const loadCount = this.loadedChunks.size === 0 ? missing.length : CHUNK_LOADS_PER_FRAME;
+
+    for (let i = 0; i < Math.min(missing.length, loadCount); i += 1) {
+      const chunk = missing[i];
+      const mesh = this.createChunk(chunk.x, chunk.z);
+
+      this.loadedChunks.set(chunk.key, mesh);
+      this.group.add(mesh);
+    }
+  }
+
+  unloadDistantChunks(keepKeys) {
+    const keepKeySet = new Set(keepKeys);
+    const staleKeys = [];
+
+    for (const key of this.loadedChunks.keys()) {
+      if (!keepKeySet.has(key)) {
+        staleKeys.push(key);
+      }
+    }
+
+    for (let i = 0; i < Math.min(staleKeys.length, CHUNK_UNLOADS_PER_FRAME); i += 1) {
+      const key = staleKeys[i];
+      const mesh = this.loadedChunks.get(key);
+
+      this.group.remove(mesh);
+      mesh.geometry.dispose();
+      this.loadedChunks.delete(key);
+    }
+  }
+
+  getChunkKey(chunkX, chunkZ) {
+    return `${chunkX},${chunkZ}`;
+  }
+
+  parseChunkKey(key) {
+    const [x, z] = key.split(',').map(Number);
+
+    return { x, z };
   }
 
   createChunk(chunkX, chunkZ) {

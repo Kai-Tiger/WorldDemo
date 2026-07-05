@@ -36,6 +36,7 @@ const player = new Player();
 player.position.x = PLAYER_SPAWN_POSITION.x;
 player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
+terrain.update(player.position);
 scene.add(player.group);
 
 const thirdPersonCamera = new ThirdPersonCamera(camera, player);
@@ -62,6 +63,7 @@ function animate() {
 
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   player.update(deltaTime, input, camera, terrain);
+  terrain.update(player.position);
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);
