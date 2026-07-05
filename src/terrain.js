@@ -680,12 +680,12 @@ function createTerrainMaterial(textures) {
         vec3 riverBed = mix(riverBedA, riverBedB, 0.28);
 
         float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
-        float gravelPatch = smoothstep(0.64, 0.9, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
+        float gravelPatch = smoothstep(0.46, 0.78, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
         float soilNoise = fbm(blendUv * 0.055 + vec2(3.0, -9.0));
         float fineNoise = fbm(vWorldPosition.xz * 1.75 + vec2(19.0, -6.0));
         vec3 groundColor = mix(vec3(0.28, 0.20, 0.12), vec3(0.42, 0.32, 0.19), soilNoise);
         groundColor = mix(groundColor, vec3(0.50, 0.42, 0.25), dryPatch * 0.28);
-        groundColor = mix(groundColor, vec3(0.31, 0.29, 0.24), gravelPatch * 0.1);
+        groundColor = mix(groundColor, vec3(0.31, 0.29, 0.24), gravelPatch * 0.18);
         groundColor *= mix(0.92, 1.08, fineNoise);
 
         float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
@@ -708,8 +708,10 @@ function createTerrainMaterial(textures) {
         alpineColor = mix(alpineColor, rock, clamp(rockMask, 0.0, 1.0));
         alpineColor = mix(alpineColor, snow, clamp(snowMask, 0.0, 1.0));
         vec3 baseColor = mix(alpineColor, groundColor, groundMask);
-        float gravelLayerMask = groundMask * gravelPatch * smoothstep(0.72, 1.0, normal.y);
-        baseColor = mix(baseColor, gravel, gravelLayerMask * 0.58);
+        float gravelHeightMask = 1.0 - smoothstep(95.0, 155.0, noisyHeight);
+        float gravelFlatMask = smoothstep(0.66, 0.92, normal.y);
+        float gravelLayerMask = groundMask * gravelHeightMask * gravelFlatMask * mix(0.32, 1.0, gravelPatch);
+        baseColor = mix(baseColor, gravel * vec3(1.08, 1.06, 1.0), clamp(gravelLayerMask * 0.82, 0.0, 1.0));
         float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
         float riverMaterialMask = smoothstep(0.05, 0.95, vRiverMask);
         float riverUnderwaterMask = smoothstep(0.05, 0.95, vRiverUnderwaterMask);
@@ -740,7 +742,7 @@ function createTerrainMaterial(textures) {
         float gravelNormalMask = gravelLayerMask * gravelWaterFade;
         vec3 gravelNormalSample = texture2D(uGravelNormalTexture, gravelUv).rgb * 2.0 - 1.0;
         vec3 gravelMappedNormal = normalize(vec3(gravelNormalSample.x, gravelNormalSample.z, gravelNormalSample.y));
-        surfaceNormal = normalize(mix(surfaceNormal, gravelMappedNormal, gravelNormalMask * 0.36));
+        surfaceNormal = normalize(mix(surfaceNormal, gravelMappedNormal, gravelNormalMask * 0.55));
         float rockNormalMask = smoothstep(0.42, 0.92, rockMask);
         vec3 rockMappedNormal = sampleTriplanarNormal(uRockNormalTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
         surfaceNormal = normalize(mix(surfaceNormal, rockMappedNormal, rockNormalMask * 0.48));
