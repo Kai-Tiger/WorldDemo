@@ -484,6 +484,7 @@ function createRiverWaterMaterial() {
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
         float depthAlpha = mix(0.58, 1.0, depthMask);
         float surfaceAlpha = mix(0.12, 0.52, max(centerMask * 0.72, depthMask));
+        float startFade = smoothstep(0.08, 1.35, vUv.x);
         float alpha = edgeAlpha * surfaceAlpha * depthAlpha;
 
         vec3 waterColor = mix(uShallowColor, uDeepColor, deepMask);
@@ -526,9 +527,14 @@ function createRiverWaterMaterial() {
         float bigFoam = smoothstep(0.62, 0.88, fbm(bigFoamUv));
         float smallFoam = smoothstep(0.72, 0.93, fbm(smallFoamUv));
         float foam = foamBase * max(bigFoam * 0.45, smallFoam * 0.28) * 0.2;
+        float startFoam = (1.0 - smoothstep(0.08, 1.55, vUv.x))
+          * smoothstep(0.08, 0.62, centerMask)
+          * smoothstep(0.22, 0.86, fbm(vec2(vUv.x * 8.0 - uTime * 0.18, vUv.y * 18.0)));
 
-        waterColor = mix(waterColor, uFoamColor, foam * 0.22);
+        waterColor = mix(waterColor, uFoamColor, max(foam * 0.22, startFoam * 0.28));
         alpha = max(alpha, foam * 0.16);
+        alpha = max(alpha, startFoam * 0.12);
+        alpha *= startFade;
 
         gl_FragColor = vec4(waterColor, alpha);
         #include <tonemapping_fragment>

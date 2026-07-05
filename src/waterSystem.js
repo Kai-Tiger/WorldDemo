@@ -48,9 +48,9 @@ const PLUNGE_CENTER = new THREE.Vector2(418, -424);
 const PLUNGE_RADIUS = 10;
 const PLUNGE_FLOOR = -2.2;
 const PLUNGE_OUTFLOW_DIRECTION = new THREE.Vector2(0.82, 0.57).normalize();
-const PLUNGE_OUTFLOW_LENGTH = 28;
-const PLUNGE_OUTFLOW_START_WIDTH = 12;
-const PLUNGE_OUTFLOW_END_WIDTH = 5.5;
+const PLUNGE_OUTFLOW_LENGTH = 24;
+const PLUNGE_OUTFLOW_START_WIDTH = 8.5;
+const PLUNGE_OUTFLOW_END_WIDTH = 4.2;
 
 const SNOWMELT_PATHS = [
   [
@@ -1216,13 +1216,14 @@ function createFoamOverlayMaterial() {
 
       void main() {
         float lateral = abs(vUv.y - 0.5) * 2.0;
-        float center = 1.0 - smoothstep(0.18, 0.92, lateral);
-        float head = 1.0 - smoothstep(0.0, 0.32, vUv.x);
-        float tail = 1.0 - smoothstep(0.48, 1.0, vUv.x);
-        float broken = smoothstep(0.3, 0.82, noise(vUv * vec2(16.0, 24.0) + vec2(-uTime * 0.32, uTime * 0.08)));
-        float threads = smoothstep(0.42, 0.88, noise(vUv * vec2(7.0, 48.0) + vec2(-uTime * 0.16, uTime * 0.22)));
-        float alpha = max(head * 0.13, center * tail * max(broken * 0.12, threads * 0.075));
-        alpha *= 1.0 - smoothstep(0.82, 1.0, lateral);
+        float startFade = smoothstep(0.04, 0.24, vUv.x);
+        float tailFade = 1.0 - smoothstep(0.62, 1.0, vUv.x);
+        float lateralFade = 1.0 - smoothstep(0.58, 1.0, lateral);
+        float center = 1.0 - smoothstep(0.12, 0.76, lateral);
+        float broken = smoothstep(0.36, 0.86, noise(vUv * vec2(16.0, 24.0) + vec2(-uTime * 0.32, uTime * 0.08)));
+        float threads = smoothstep(0.48, 0.9, noise(vUv * vec2(7.0, 48.0) + vec2(-uTime * 0.16, uTime * 0.22)));
+        float impact = 1.0 - smoothstep(0.1, 0.42, vUv.x);
+        float alpha = (impact * 0.035 + center * max(broken * 0.07, threads * 0.045)) * startFade * tailFade * lateralFade;
 
         gl_FragColor = vec4(vec3(0.68, 0.9, 0.96), alpha);
         #include <tonemapping_fragment>
@@ -1294,7 +1295,7 @@ function createWaterfallLipFoamMaterial() {
 }
 
 function createMistParticles() {
-  const count = 86;
+  const count = 54;
   const positions = new Float32Array(count * 3);
   const randoms = new Float32Array(count);
   const outflow = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
@@ -1302,9 +1303,9 @@ function createMistParticles() {
 
   for (let i = 0; i < count; i += 1) {
     const r = pseudoRandom(i * 12.2);
-    const lateral = (pseudoRandom(i * 4.7) - 0.5) * 5.4;
-    const downstream = pseudoRandom(i * 9.3) * 7.8 - 1.6;
-    const lift = pseudoRandom(i * 2.1) * 8.5;
+    const lateral = (pseudoRandom(i * 4.7) - 0.5) * 3.4;
+    const downstream = pseudoRandom(i * 9.3) * 5.6 - 1.0;
+    const lift = pseudoRandom(i * 2.1) * 9.2;
     const point = WATERFALL_BASE.clone()
       .addScaledVector(side, lateral)
       .addScaledVector(outflow, downstream);
@@ -1336,13 +1337,13 @@ function createMistParticles() {
 
       void main() {
         vec3 animated = position;
-        animated.x += sin(uTime * 0.7 + randomSeed * 11.0) * 0.55;
-        animated.y += fract(uTime * 0.08 + randomSeed) * 2.4;
-        animated.z += cos(uTime * 0.62 + randomSeed * 9.0) * 0.42;
+        animated.x += sin(uTime * 0.7 + randomSeed * 11.0) * 0.32;
+        animated.y += fract(uTime * 0.08 + randomSeed) * 2.1;
+        animated.z += cos(uTime * 0.62 + randomSeed * 9.0) * 0.28;
         vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
         gl_Position = projectionMatrix * mvPosition;
-        gl_PointSize = (12.0 + randomSeed * 12.0) * (300.0 / -mvPosition.z);
-        vAlpha = 0.008 + randomSeed * 0.016;
+        gl_PointSize = (8.0 + randomSeed * 9.0) * (300.0 / -mvPosition.z);
+        vAlpha = 0.004 + randomSeed * 0.01;
       }
     `,
     fragmentShader: `
