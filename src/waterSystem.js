@@ -47,6 +47,10 @@ const WATERFALL_LAYERS = [
 const PLUNGE_CENTER = new THREE.Vector2(418, -424);
 const PLUNGE_RADIUS = 10;
 const PLUNGE_FLOOR = -2.2;
+const PLUNGE_OUTFLOW_DIRECTION = new THREE.Vector2(0.82, 0.57).normalize();
+const PLUNGE_OUTFLOW_LENGTH = 28;
+const PLUNGE_OUTFLOW_START_WIDTH = 12;
+const PLUNGE_OUTFLOW_END_WIDTH = 5.5;
 
 const SNOWMELT_PATHS = [
   [
@@ -479,32 +483,76 @@ function createWaterfallLipFoam(terrain) {
 }
 
 function createConfluenceFoam() {
-  const shape = new THREE.Shape();
-  const length = 24;
-  const width = 9;
-  const segments = 48;
-
-  for (let i = 0; i < segments; i += 1) {
-    const a = (i / segments) * Math.PI * 2;
-    const forward = Math.cos(a) * length * 0.5;
-    const side = Math.sin(a) * width * 0.5;
-    const x = PLUNGE_CENTER.x + forward * 0.7 + side * 0.25;
-    const z = PLUNGE_CENTER.y + forward * 0.2 + side * 0.95;
-
-    if (i === 0) shape.moveTo(x, z);
-    else shape.lineTo(x, z);
-  }
-  shape.closePath();
-
-  const geometry = new THREE.ShapeGeometry(shape);
-  geometry.rotateX(Math.PI * 0.5);
-  geometry.translate(0, 1.0, 0);
-
+  const geometry = createConfluenceFoamGeometry();
   const mesh = new THREE.Mesh(geometry, createFoamOverlayMaterial());
   mesh.name = 'WaterfallConfluenceFoam';
   mesh.renderOrder = 31;
 
   return mesh;
+}
+
+function createConfluenceFoamGeometry() {
+  const longitudinalSegments = 14;
+  const lateralSegments = 8;
+  const verticesPerRow = lateralSegments + 1;
+  const positions = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 3);
+  const uvs = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 2);
+  const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
+  const forward = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
+  const side = new THREE.Vector3(-forward.z, 0, forward.x);
+  const start = new THREE.Vector3(PLUNGE_CENTER.x, 1.02, PLUNGE_CENTER.y);
+  let positionOffset = 0;
+  let uvOffset = 0;
+
+  for (let i = 0; i <= longitudinalSegments; i += 1) {
+    const t = i / longitudinalSegments;
+    const width = THREE.MathUtils.lerp(PLUNGE_OUTFLOW_START_WIDTH, PLUNGE_OUTFLOW_END_WIDTH, t);
+    const center = start.clone().addScaledVector(forward, t * PLUNGE_OUTFLOW_LENGTH - 3.5);
+    const edgeNoise = Math.sin(i * 1.37) * 0.45 + Math.sin(i * 2.41) * 0.22;
+
+    for (let j = 0; j <= lateralSegments; j += 1) {
+      const lateralT = j / lateralSegments;
+      const edgeT = Math.abs(lateralT - 0.5) * 2;
+      const lateral = (lateralT - 0.5) * (width + edgeNoise * edgeT);
+      const point = center.clone().addScaledVector(side, lateral);
+
+      positions[positionOffset] = point.x;
+      positions[positionOffset + 1] = point.y;
+      positions[positionOffset + 2] = point.z;
+      positionOffset += 3;
+
+      uvs[uvOffset] = t;
+      uvs[uvOffset + 1] = lateralT;
+      uvOffset += 2;
+    }
+  }
+
+  let indexOffset = 0;
+  for (let i = 0; i < longitudinalSegments; i += 1) {
+    for (let j = 0; j < lateralSegments; j += 1) {
+      const a = i * verticesPerRow + j;
+      const b = a + 1;
+      const c = a + verticesPerRow;
+      const d = c + 1;
+
+      indices[indexOffset] = a;
+      indices[indexOffset + 1] = c;
+      indices[indexOffset + 2] = b;
+      indices[indexOffset + 3] = b;
+      indices[indexOffset + 4] = c;
+      indices[indexOffset + 5] = d;
+      indexOffset += 6;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
+  return geometry;
 }
 
 function createPathStripGeometry(
@@ -1167,11 +1215,14 @@ function createFoamOverlayMaterial() {
       }
 
       void main() {
-        vec2 centered = vUv - vec2(0.5);
-        float radial = 1.0 - smoothstep(0.12, 0.5, length(centered));
-        float broken = smoothstep(0.35, 0.82, noise(vUv * vec2(18.0, 9.0) + vec2(-uTime * 0.35, uTime * 0.06)));
-        float tail = 1.0 - smoothstep(0.45, 1.0, vUv.x);
-        float alpha = radial * broken * mix(0.035, 0.11, tail);
+        float lateral = abs(vUv.y - 0.5) * 2.0;
+        float center = 1.0 - smoothstep(0.18, 0.92, lateral);
+        float head = 1.0 - smoothstep(0.0, 0.32, vUv.x);
+        float tail = 1.0 - smoothstep(0.48, 1.0, vUv.x);
+        float broken = smoothstep(0.3, 0.82, noise(vUv * vec2(16.0, 24.0) + vec2(-uTime * 0.32, uTime * 0.08)));
+        float threads = smoothstep(0.42, 0.88, noise(vUv * vec2(7.0, 48.0) + vec2(-uTime * 0.16, uTime * 0.22)));
+        float alpha = max(head * 0.13, center * tail * max(broken * 0.12, threads * 0.075));
+        alpha *= 1.0 - smoothstep(0.82, 1.0, lateral);
 
         gl_FragColor = vec4(vec3(0.68, 0.9, 0.96), alpha);
         #include <tonemapping_fragment>
@@ -1243,17 +1294,24 @@ function createWaterfallLipFoamMaterial() {
 }
 
 function createMistParticles() {
-  const count = 120;
+  const count = 86;
   const positions = new Float32Array(count * 3);
   const randoms = new Float32Array(count);
+  const outflow = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
+  const side = new THREE.Vector3(-outflow.z, 0, outflow.x);
 
   for (let i = 0; i < count; i += 1) {
     const r = pseudoRandom(i * 12.2);
-    const angle = pseudoRandom(i * 4.7) * Math.PI * 2;
-    const radius = 1.2 + pseudoRandom(i * 9.3) * 5.8;
-    positions[i * 3] = WATERFALL_BASE.x + Math.cos(angle) * radius;
-    positions[i * 3 + 1] = WATERFALL_BASE.y + pseudoRandom(i * 2.1) * 6.2;
-    positions[i * 3 + 2] = WATERFALL_BASE.z + Math.sin(angle) * radius * 0.55;
+    const lateral = (pseudoRandom(i * 4.7) - 0.5) * 5.4;
+    const downstream = pseudoRandom(i * 9.3) * 7.8 - 1.6;
+    const lift = pseudoRandom(i * 2.1) * 8.5;
+    const point = WATERFALL_BASE.clone()
+      .addScaledVector(side, lateral)
+      .addScaledVector(outflow, downstream);
+
+    positions[i * 3] = point.x;
+    positions[i * 3 + 1] = WATERFALL_BASE.y + lift;
+    positions[i * 3 + 2] = point.z;
     randoms[i] = r;
   }
 
@@ -1278,13 +1336,13 @@ function createMistParticles() {
 
       void main() {
         vec3 animated = position;
-        animated.x += sin(uTime * 0.7 + randomSeed * 11.0) * 1.2;
-        animated.y += fract(uTime * 0.08 + randomSeed) * 2.8;
-        animated.z += cos(uTime * 0.62 + randomSeed * 9.0) * 0.8;
+        animated.x += sin(uTime * 0.7 + randomSeed * 11.0) * 0.55;
+        animated.y += fract(uTime * 0.08 + randomSeed) * 2.4;
+        animated.z += cos(uTime * 0.62 + randomSeed * 9.0) * 0.42;
         vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
         gl_Position = projectionMatrix * mvPosition;
-        gl_PointSize = (18.0 + randomSeed * 16.0) * (300.0 / -mvPosition.z);
-        vAlpha = 0.015 + randomSeed * 0.026;
+        gl_PointSize = (12.0 + randomSeed * 12.0) * (300.0 / -mvPosition.z);
+        vAlpha = 0.008 + randomSeed * 0.016;
       }
     `,
     fragmentShader: `
