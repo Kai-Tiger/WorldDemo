@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 const SAVE_ENDPOINT = '/__terrain-heightmap';
-const DEFAULT_RADIUS = 18;
+const DEFAULT_RADIUS = 5;
 const DEFAULT_STRENGTH = 0.9;
 const BRUSH_SEGMENTS = 96;
 
