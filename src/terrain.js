@@ -15,9 +15,14 @@ import {
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
-const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/ground-grass.webp';
-const GROUND_DIRT_TEXTURE_PATH = '/assets/terrain/ground-dirt.webp';
-const GROUND_DRY_GRASS_TEXTURE_PATH = '/assets/terrain/ground-dry-grass.webp';
+const GROUND_GRASS_TEXTURE_PATH = '/assets/terrain/materials/moss_albedo.png';
+const GROUND_DIRT_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
+const GROUND_DRY_GRASS_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_albedo.png';
+const GROUND_GRAVEL_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
+const GROUND_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/moss_normal.png';
+const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
+const GROUND_DRY_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_normal.png';
+const GROUND_GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
 const FROZEN_DIRT_TEXTURE_PATH = '/assets/terrain/dirt-frozen.webp';
 const ALPINE_SCREE_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
@@ -333,10 +338,31 @@ async function loadHeightMap(path) {
 
 async function loadTerrainTextures() {
   const loader = new THREE.TextureLoader();
-  const [grass, dirt, dryGrass, frozenDirt, scree, rock, rockNormal, snow, riverBank, riverBed] = await Promise.all([
+  const [
+    grass,
+    dirt,
+    dryGrass,
+    gravel,
+    grassNormal,
+    dirtNormal,
+    dryGrassNormal,
+    gravelNormal,
+    frozenDirt,
+    scree,
+    rock,
+    rockNormal,
+    snow,
+    riverBank,
+    riverBed,
+  ] = await Promise.all([
     loader.loadAsync(GROUND_GRASS_TEXTURE_PATH),
     loader.loadAsync(GROUND_DIRT_TEXTURE_PATH),
     loader.loadAsync(GROUND_DRY_GRASS_TEXTURE_PATH),
+    loader.loadAsync(GROUND_GRAVEL_TEXTURE_PATH),
+    loader.loadAsync(GROUND_GRASS_NORMAL_TEXTURE_PATH),
+    loader.loadAsync(GROUND_DIRT_NORMAL_TEXTURE_PATH),
+    loader.loadAsync(GROUND_DRY_GRASS_NORMAL_TEXTURE_PATH),
+    loader.loadAsync(GROUND_GRAVEL_NORMAL_TEXTURE_PATH),
     loader.loadAsync(FROZEN_DIRT_TEXTURE_PATH),
     loader.loadAsync(ALPINE_SCREE_TEXTURE_PATH),
     loader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
@@ -346,19 +372,37 @@ async function loadTerrainTextures() {
     loader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [grass, dirt, dryGrass, frozenDirt, scree, rock, snow, riverBank, riverBed]) {
+  for (const texture of [grass, dirt, dryGrass, gravel, frozenDirt, scree, rock, snow, riverBank, riverBed]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
   }
 
-  rockNormal.wrapS = THREE.RepeatWrapping;
-  rockNormal.wrapT = THREE.RepeatWrapping;
-  rockNormal.colorSpace = THREE.NoColorSpace;
-  rockNormal.anisotropy = 8;
+  for (const texture of [grassNormal, dirtNormal, dryGrassNormal, gravelNormal, rockNormal]) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 8;
+  }
 
-  return { grass, dirt, dryGrass, frozenDirt, scree, rock, rockNormal, snow, riverBank, riverBed };
+  return {
+    grass,
+    dirt,
+    dryGrass,
+    gravel,
+    grassNormal,
+    dirtNormal,
+    dryGrassNormal,
+    gravelNormal,
+    frozenDirt,
+    scree,
+    rock,
+    rockNormal,
+    snow,
+    riverBank,
+    riverBed,
+  };
 }
 
 function createTerrainMaterial(textures) {
@@ -370,6 +414,11 @@ function createTerrainMaterial(textures) {
         uGrassTexture: { value: textures.grass },
         uDirtTexture: { value: textures.dirt },
         uDryGrassTexture: { value: textures.dryGrass },
+        uGravelTexture: { value: textures.gravel },
+        uGrassNormalTexture: { value: textures.grassNormal },
+        uDirtNormalTexture: { value: textures.dirtNormal },
+        uDryGrassNormalTexture: { value: textures.dryGrassNormal },
+        uGravelNormalTexture: { value: textures.gravelNormal },
         uFrozenDirtTexture: { value: textures.frozenDirt },
         uScreeTexture: { value: textures.scree },
         uRockTexture: { value: textures.rock },
@@ -445,6 +494,11 @@ function createTerrainMaterial(textures) {
       uniform sampler2D uGrassTexture;
       uniform sampler2D uDirtTexture;
       uniform sampler2D uDryGrassTexture;
+      uniform sampler2D uGravelTexture;
+      uniform sampler2D uGrassNormalTexture;
+      uniform sampler2D uDirtNormalTexture;
+      uniform sampler2D uDryGrassNormalTexture;
+      uniform sampler2D uGravelNormalTexture;
       uniform sampler2D uFrozenDirtTexture;
       uniform sampler2D uScreeTexture;
       uniform sampler2D uRockTexture;
@@ -517,6 +571,36 @@ function createTerrainMaterial(textures) {
         return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
       }
 
+      vec2 rotateUv(vec2 uv, float angle) {
+        float s = sin(angle);
+        float c = cos(angle);
+
+        return mat2(c, -s, s, c) * uv;
+      }
+
+      vec3 sampleGroundTexture(sampler2D groundTexture, vec2 worldPosition, float primarySize, float secondarySize, vec2 offset, float angle) {
+        vec3 primary = texture2D(groundTexture, worldPosition / primarySize + offset).rgb;
+        vec3 secondary = texture2D(
+          groundTexture,
+          rotateUv(worldPosition / secondarySize, angle) + offset.yx + vec2(19.0, -7.0)
+        ).rgb;
+        float breakup = smoothstep(0.24, 0.82, fbm(worldPosition * 0.055 + offset * 1.7));
+
+        return mix(primary, secondary, breakup * 0.42);
+      }
+
+      vec3 sampleGroundNormalTexture(sampler2D normalTexture, vec2 worldPosition, float primarySize, float secondarySize, vec2 offset, float angle) {
+        vec3 primary = texture2D(normalTexture, worldPosition / primarySize + offset).rgb * 2.0 - 1.0;
+        vec3 secondary = texture2D(
+          normalTexture,
+          rotateUv(worldPosition / secondarySize, angle) + offset.yx + vec2(19.0, -7.0)
+        ).rgb * 2.0 - 1.0;
+        float breakup = smoothstep(0.24, 0.82, fbm(worldPosition * 0.055 + offset * 1.7));
+        vec3 tangentNormal = normalize(mix(primary, secondary, breakup * 0.42));
+
+        return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
+      }
+
       vec3 sampleTriplanarTexture(sampler2D terrainTexture, vec3 worldPosition, vec3 worldNormal, float textureScale, vec2 offset) {
         vec3 blend = pow(abs(worldNormal), vec3(4.0));
         blend /= max(blend.x + blend.y + blend.z, 0.0001);
@@ -552,9 +636,14 @@ function createTerrainMaterial(textures) {
         vec3 normal = normalize(vWorldNormal);
         vec2 blendUv = vWorldUv * uTextureWorldSize;
 
-        vec3 grass = texture2D(uGrassTexture, vWorldUv).rgb;
-        vec3 dirt = texture2D(uDirtTexture, vWorldUv * 0.92 + vec2(17.3, 4.8)).rgb;
-        vec3 dryGrass = texture2D(uDryGrassTexture, vWorldUv * 1.08 + vec2(-9.1, 12.4)).rgb;
+        vec3 grass = sampleGroundTexture(uGrassTexture, vWorldPosition.xz, 24.0, 41.0, vec2(0.0, 0.0), 0.58);
+        vec3 dirt = sampleGroundTexture(uDirtTexture, vWorldPosition.xz, 26.0, 37.0, vec2(17.3, 4.8), -0.36);
+        vec3 dryGrass = sampleGroundTexture(uDryGrassTexture, vWorldPosition.xz, 22.0, 43.0, vec2(-9.1, 12.4), 0.82);
+        vec3 gravel = sampleGroundTexture(uGravelTexture, vWorldPosition.xz, 18.0, 33.0, vec2(6.6, -15.2), -0.64);
+        vec3 grassNormal = sampleGroundNormalTexture(uGrassNormalTexture, vWorldPosition.xz, 24.0, 41.0, vec2(0.0, 0.0), 0.58);
+        vec3 dirtNormal = sampleGroundNormalTexture(uDirtNormalTexture, vWorldPosition.xz, 26.0, 37.0, vec2(17.3, 4.8), -0.36);
+        vec3 dryGrassNormal = sampleGroundNormalTexture(uDryGrassNormalTexture, vWorldPosition.xz, 22.0, 43.0, vec2(-9.1, 12.4), 0.82);
+        vec3 gravelNormal = sampleGroundNormalTexture(uGravelNormalTexture, vWorldPosition.xz, 18.0, 33.0, vec2(6.6, -15.2), -0.64);
         vec3 frozenDirt = texture2D(uFrozenDirtTexture, vWorldUv * 0.88 + vec2(4.7, -8.2)).rgb;
         vec3 scree = texture2D(uScreeTexture, vWorldUv * 0.78 + vec2(-13.0, 9.4)).rgb;
         vec3 rock = sampleTriplanarTexture(uRockTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
@@ -575,8 +664,13 @@ function createTerrainMaterial(textures) {
 
         float dirtPatch = smoothstep(0.48, 0.78, fbm(blendUv * 0.045 + vec2(2.0, -5.0)));
         float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
+        float gravelPatch = smoothstep(0.64, 0.9, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
         vec3 groundColor = mix(grass, dirt, dirtPatch * 0.72);
         groundColor = mix(groundColor, dryGrass, dryPatch * 0.46);
+        groundColor = mix(groundColor, gravel, gravelPatch * 0.28);
+        vec3 groundMappedNormal = normalize(mix(grassNormal, dirtNormal, dirtPatch * 0.72));
+        groundMappedNormal = normalize(mix(groundMappedNormal, dryGrassNormal, dryPatch * 0.46));
+        groundMappedNormal = normalize(mix(groundMappedNormal, gravelNormal, gravelPatch * 0.28));
 
         float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
         float noisyHeight = vWorldHeight + heightNoise;
@@ -624,6 +718,7 @@ function createTerrainMaterial(textures) {
         float rockInfluence = clamp(max(screeMask, rockMask), 0.0, 1.0);
         float wetInfluence = clamp(max(wetShoreMask, snowmeltWetMask), 0.0, 1.0);
         vec3 surfaceNormal = applyDetailNormal(normal, vWorldPosition.xz, groundMask, rockInfluence, wetInfluence);
+        surfaceNormal = normalize(mix(surfaceNormal, groundMappedNormal, groundMask * 0.36));
         float rockNormalMask = smoothstep(0.42, 0.92, rockMask);
         vec3 rockMappedNormal = sampleTriplanarNormal(uRockNormalTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
         surfaceNormal = normalize(mix(surfaceNormal, rockMappedNormal, rockNormalMask * 0.48));
