@@ -31,6 +31,8 @@ const OUTLET_POINTS = [
 const OUTLET_WIDTH = 5.2;
 const OUTLET_INFLUENCE = 8.5;
 const OUTLET_WATER_OFFSET = 0.35;
+const WATERFALL_LIP_FOAM_LENGTH = 4.2;
+const WATERFALL_LIP_FOAM_WIDTH = 7.2;
 
 const WATERFALL_LIP = new THREE.Vector3(409, LAKE_WATER_LEVEL - 0.6, -421);
 const WATERFALL_BASE = new THREE.Vector3(418, 1.5, -424);
@@ -142,11 +144,12 @@ export function createWaterSystem(terrain) {
   const outletStream = createOutletStream(terrain);
   const snowmelt = createSnowmeltGroup(terrain);
   const waterfall = createWaterfallGroup(terrain);
+  const waterfallLipFoam = createWaterfallLipFoam(terrain);
   const confluence = createConfluenceFoam();
   const group = new THREE.Group();
 
   group.name = 'WaterSystem';
-  group.add(lake, outletStream, snowmelt, waterfall, confluence);
+  group.add(lake, outletStream, snowmelt, waterfall, waterfallLipFoam, confluence);
 
   return {
     group,
@@ -154,6 +157,7 @@ export function createWaterSystem(terrain) {
     outletStream,
     snowmelt,
     waterfall,
+    waterfallLipFoam,
     confluence,
   };
 }
@@ -442,6 +446,12 @@ function getOutletLipSide() {
   return new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
 }
 
+function getOutletLipForward() {
+  const tangent = outletCurve.getTangentAt(1).normalize();
+
+  return new THREE.Vector3(tangent.x, 0, tangent.z).normalize();
+}
+
 function createWaterfallGroup(terrain) {
   const group = new THREE.Group();
   group.name = 'WaterfallSystem';
@@ -456,6 +466,16 @@ function createWaterfallGroup(terrain) {
   group.add(createMistParticles());
 
   return group;
+}
+
+function createWaterfallLipFoam(terrain) {
+  const geometry = createWaterfallLipFoamGeometry(terrain);
+  const mesh = new THREE.Mesh(geometry, createWaterfallLipFoamMaterial());
+
+  mesh.name = 'WaterfallLipFoam';
+  mesh.renderOrder = 32;
+
+  return mesh;
 }
 
 function createConfluenceFoam() {
@@ -627,6 +647,58 @@ function createWaterfallGeometry(layer, terrain) {
       indices[indexOffset + 5] = d;
       indexOffset += 6;
     }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+function createWaterfallLipFoamGeometry(terrain) {
+  const radialSegments = 44;
+  const lip = getWaterfallLip(terrain);
+  const side = getOutletLipSide();
+  const forward = getOutletLipForward();
+  const positions = new Float32Array((radialSegments + 1) * 3);
+  const uvs = new Float32Array((radialSegments + 1) * 2);
+  const indices = new Uint32Array(radialSegments * 3);
+  const center = lip.clone().addScaledVector(forward, -WATERFALL_LIP_FOAM_LENGTH * 0.24);
+
+  positions[0] = center.x;
+  positions[1] = getOutletSurfaceHeight(terrain, center.x, center.z) + 0.08;
+  positions[2] = center.z;
+  uvs[0] = 0.5;
+  uvs[1] = 0.5;
+
+  for (let i = 0; i < radialSegments; i += 1) {
+    const angle = (i / radialSegments) * Math.PI * 2;
+    const widthNoise = 0.88 + pseudoRandom(i * 13.7) * 0.24;
+    const lengthNoise = 0.82 + pseudoRandom(i * 7.9) * 0.32;
+    const lateral = Math.cos(angle) * WATERFALL_LIP_FOAM_WIDTH * 0.5 * widthNoise;
+    const longitudinal = Math.sin(angle) * WATERFALL_LIP_FOAM_LENGTH * 0.5 * lengthNoise;
+    const point = center.clone()
+      .addScaledVector(side, lateral)
+      .addScaledVector(forward, longitudinal);
+    const vertex = i + 1;
+
+    positions[vertex * 3] = point.x;
+    positions[vertex * 3 + 1] = getOutletSurfaceHeight(terrain, point.x, point.z) + 0.1;
+    positions[vertex * 3 + 2] = point.z;
+    uvs[vertex * 2] = 0.5 + (lateral / WATERFALL_LIP_FOAM_WIDTH);
+    uvs[vertex * 2 + 1] = 0.5 + (longitudinal / WATERFALL_LIP_FOAM_LENGTH);
+  }
+
+  for (let i = 0; i < radialSegments; i += 1) {
+    const next = i === radialSegments - 1 ? 1 : i + 2;
+
+    indices[i * 3] = 0;
+    indices[i * 3 + 1] = i + 1;
+    indices[i * 3 + 2] = next;
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -926,6 +998,8 @@ function createStreamMaterial(options) {
         float edge = min(vUv.y, 1.0 - vUv.y);
         float center = smoothstep(0.03, 0.45, edge);
         vec2 flowUv = vec2(vUv.x - uTime * uFlowSpeed, vUv.y);
+        float lipFade = smoothstep(6.9, 8.0, vUv.x);
+        float lipAlpha = 1.0 - smoothstep(7.45, 8.0, vUv.x);
         float streak = smoothstep(0.46, 0.88, fbm(flowUv * vec2(7.5, 26.0)));
         float foamEdge = (1.0 - smoothstep(0.018, 0.12, edge)) * smoothstep(0.46, 0.9, fbm(flowUv * vec2(16.0, 58.0))) * vWaterFade;
         vec3 color = mix(uShallowColor, uDeepColor, center);
@@ -944,10 +1018,11 @@ function createStreamMaterial(options) {
         float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
         color += uSunReflectionColor * spec * sparkle * 0.46;
         color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1 * vWaterFade));
+        color = mix(color, uFoamColor, lipFade * (0.28 + streak * 0.22));
         float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
         alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
         alpha = max(alpha, foamEdge * 0.18);
-        alpha *= vWaterFade;
+        alpha *= vWaterFade * mix(1.0, 0.42, lipFade) * lipAlpha;
 
         gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
@@ -1099,6 +1174,67 @@ function createFoamOverlayMaterial() {
         float alpha = radial * broken * mix(0.035, 0.11, tail);
 
         gl_FragColor = vec4(vec3(0.68, 0.9, 0.96), alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+}
+
+function createWaterfallLipFoamMaterial() {
+  return new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    uniforms: {
+      uTime: { value: 0 },
+      uCameraPosition: { value: new THREE.Vector3() },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vWorldPosition;
+
+      void main() {
+        vUv = uv;
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+
+      varying vec2 vUv;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+
+        return mix(a, b, u.x)
+          + (c - a) * u.y * (1.0 - u.x)
+          + (d - b) * u.x * u.y;
+      }
+
+      void main() {
+        vec2 centered = vUv - vec2(0.5);
+        float radial = 1.0 - smoothstep(0.18, 0.58, length(centered));
+        float downstream = smoothstep(0.22, 0.72, vUv.y);
+        float broken = smoothstep(0.36, 0.82, noise(vUv * vec2(18.0, 11.0) + vec2(-uTime * 0.3, uTime * 0.08)));
+        float fine = smoothstep(0.52, 0.9, noise(vUv * vec2(42.0, 24.0) + vec2(uTime * 0.18, -uTime * 0.13)));
+        float alpha = radial * mix(0.035, 0.17, max(broken, fine * 0.62)) * mix(0.65, 1.0, downstream);
+        vec3 color = mix(vec3(0.48, 0.84, 0.92), vec3(0.82, 0.95, 0.97), max(broken, downstream));
+
+        gl_FragColor = vec4(color, alpha);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
