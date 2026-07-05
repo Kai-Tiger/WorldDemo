@@ -508,6 +508,17 @@ function createTerrainMaterial(textures) {
         return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
       }
 
+      vec3 sampleTriplanarTexture(sampler2D terrainTexture, vec3 worldPosition, vec3 worldNormal, float textureScale, vec2 offset) {
+        vec3 blend = pow(abs(worldNormal), vec3(4.0));
+        blend /= max(blend.x + blend.y + blend.z, 0.0001);
+
+        vec3 xSample = texture2D(terrainTexture, worldPosition.zy / uTextureWorldSize * textureScale + offset).rgb;
+        vec3 ySample = texture2D(terrainTexture, worldPosition.xz / uTextureWorldSize * textureScale + offset).rgb;
+        vec3 zSample = texture2D(terrainTexture, worldPosition.xy / uTextureWorldSize * textureScale + offset).rgb;
+
+        return xSample * blend.x + ySample * blend.y + zSample * blend.z;
+      }
+
       void main() {
         vec3 normal = normalize(vWorldNormal);
         vec2 blendUv = vWorldUv * uTextureWorldSize;
@@ -517,7 +528,7 @@ function createTerrainMaterial(textures) {
         vec3 dryGrass = texture2D(uDryGrassTexture, vWorldUv * 1.08 + vec2(-9.1, 12.4)).rgb;
         vec3 frozenDirt = texture2D(uFrozenDirtTexture, vWorldUv * 0.88 + vec2(4.7, -8.2)).rgb;
         vec3 scree = texture2D(uScreeTexture, vWorldUv * 0.78 + vec2(-13.0, 9.4)).rgb;
-        vec3 rock = texture2D(uRockTexture, vWorldUv * 0.62 + vec2(21.0, 6.0)).rgb;
+        vec3 rock = sampleTriplanarTexture(uRockTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
         vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
         vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
         vec2 lakeBedUv = vWorldUv * uTextureWorldSize / uRiverBedTextureWorldSize;
