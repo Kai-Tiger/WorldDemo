@@ -492,7 +492,7 @@ export class Terrain {
 
 async function loadHeightMap(path) {
   const image = new Image();
-  image.src = path;
+  image.src = createCacheBustedUrl(path);
   await image.decode();
 
   const canvas = document.createElement('canvas');
@@ -509,6 +509,12 @@ async function loadHeightMap(path) {
     width: canvas.width,
     height: canvas.height,
   };
+}
+
+function createCacheBustedUrl(path) {
+  const separator = path.includes('?') ? '&' : '?';
+
+  return `${path}${separator}v=${Date.now()}`;
 }
 
 async function loadTerrainTextures() {
