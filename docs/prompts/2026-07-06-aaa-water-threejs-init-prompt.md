@@ -16,19 +16,7 @@
 
 请直接实现项目，不要只给说明。
 
-如果你的环境支持 Codex skills，请使用或模拟以下 skill 的工作方式：
-
-Skill: `river-creator`
-
-Skill 描述：
-Build advanced river systems for Three.js/WebGL games. Use when Codex needs to design, implement, debug, or improve terrain-following rivers, river meshes, water shaders, foam, shore blending, flow maps, obstacle disturbance, splashes, or gameplay water logic instead of using a simple Water.js plane.
-
-使用要求：
-- 在实现水体前，先按 `river-creator` 的思路设计水体系统。
-- 不要用一张简单的平面水面冒充河流。
-- 河流必须沿地形和河道路径生成。
-- 水体需要包含水面 shader、流向、岸线融合、浅水/深水颜色、泡沫、高光、Fresnel、程序化波纹、湿岸过渡。
-- 如果运行环境没有真实 skill 系统，也要把以上 skill 描述当作强制技术约束执行。
+实现高级水体时，可以参考 `river-creator` 的设计思路：优先使用沿地形和河道路径生成的河流网格、水面 shader、流向、岸线融合、浅水/深水颜色、泡沫、高光、Fresnel、程序化波纹和湿岸过渡，而不是简单放置一张平面水面。
 
 一、技术栈
 
