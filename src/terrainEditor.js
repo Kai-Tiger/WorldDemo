@@ -35,6 +35,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
   heightCanvas.height = heightMap.height;
   radiusInput.value = String(DEFAULT_RADIUS);
   strengthInput.value = String(DEFAULT_STRENGTH);
+  brushCursor.scale.setScalar(state.radius);
   brushCursor.visible = false;
   scene.add(brushCursor);
   updateBrushButtons();
