@@ -908,6 +908,19 @@ function createLakeSurfaceMaterial() {
         return smoothstep(0.74, 0.96, ridges);
       }
 
+      float getSunGlint(vec2 worldPosition, vec2 sunDir) {
+        vec2 sideDir = vec2(-sunDir.y, sunDir.x);
+        vec2 bandUv = vec2(
+          dot(worldPosition, sunDir) * 0.055 - uTime * 0.32,
+          dot(worldPosition, sideDir) * 0.42 + sin(uTime * 0.23) * 0.28
+        );
+        float bands = smoothstep(0.58, 0.92, fbm(bandUv));
+        float flecks = smoothstep(0.62, 0.9, fbm(worldPosition * 1.18 + sunDir * uTime * 0.58));
+        float breakup = smoothstep(0.34, 0.78, fbm(worldPosition * 0.16 + vec2(uTime * 0.045, -uTime * 0.028)));
+
+        return bands * max(flecks, 0.28) * breakup;
+      }
+
       void main() {
         vec2 p = vWorldPosition.xz;
         float edgeNoise = fbm(p * 0.24 + vec2(uTime * 0.01, -uTime * 0.006)) - 0.5;
@@ -952,7 +965,18 @@ function createLakeSurfaceMaterial() {
         float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
         float broadSpec = pow(max(dot(normal, halfDir), 0.0), 38.0);
         float sparkle = smoothstep(0.54, 0.9, fbm(p * 0.55 + vec2(-uTime * 0.28, uTime * 0.07)));
-        color += uSunReflectionColor * (spec * sparkle * (0.34 + windMask * 0.24) + broadSpec * reflectionMask * (0.045 + windMask * 0.045));
+        vec3 reflectedSun = reflect(-lightDir, normal);
+        float mirrorFacing = max(dot(reflectedSun, viewDir), 0.0);
+        float sharpGlint = pow(mirrorFacing, 96.0);
+        float broadGlint = pow(mirrorFacing, 20.0);
+        vec2 sunDir2 = normalize(lightDir.xz + vec2(0.001, -0.001));
+        float sunGlint = getSunGlint(p, sunDir2) * edgeAlpha * basinCenter;
+        float sunGlintMask = smoothstep(0.08, 0.72, mirrorFacing) * (0.55 + reflectionMask * 0.45);
+        color += uSunReflectionColor * (
+          spec * sparkle * (0.4 + windMask * 0.28)
+          + broadSpec * reflectionMask * (0.055 + windMask * 0.055)
+          + sunGlint * sunGlintMask * (sharpGlint * 1.35 + broadGlint * 0.16) * (0.78 + windMask * 0.5)
+        );
 
         float foamEdge = vLakeEdge + edgeNoise * 0.04;
         float foamStart = smoothstep(0.035, 0.095, foamEdge);

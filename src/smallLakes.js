@@ -305,6 +305,19 @@ function createLakeMaterial() {
         return smoothstep(0.72, 0.96, ridges) * smoothstep(0.35, 0.82, broken);
       }
 
+      float getSunGlint(vec2 worldPosition, vec2 sunDir) {
+        vec2 sideDir = vec2(-sunDir.y, sunDir.x);
+        vec2 bandUv = vec2(
+          dot(worldPosition, sunDir) * 0.07 - uTime * 0.28,
+          dot(worldPosition, sideDir) * 0.5 + sin(uTime * 0.2) * 0.22
+        );
+        float bands = smoothstep(0.6, 0.92, fbm(bandUv));
+        float flecks = smoothstep(0.64, 0.9, fbm(worldPosition * 1.05 + sunDir * uTime * 0.48));
+        float breakup = smoothstep(0.38, 0.82, fbm(worldPosition * 0.18 + vec2(uTime * 0.04, -uTime * 0.025)));
+
+        return bands * max(flecks, 0.24) * breakup;
+      }
+
       void main() {
         float edge = vLakeEdge;
         float centerMask = smoothstep(0.02, 0.46, edge);
@@ -338,7 +351,18 @@ function createLakeMaterial() {
         float spec = pow(max(dot(normal, halfDir), 0.0), 118.0);
         float broadSpec = pow(max(dot(normal, halfDir), 0.0), 32.0);
         float sparkle = smoothstep(0.5, 0.9, fbm(vWorldPosition.xz * 0.95 + vec2(-uTime * 0.3, uTime * 0.05)));
-        waterColor += uSunReflectionColor * (spec * sparkle * 0.6 + broadSpec * glancingReflection * 0.08);
+        vec3 reflectedSun = reflect(-lightDir, normal);
+        float mirrorFacing = max(dot(reflectedSun, viewDir), 0.0);
+        float sharpGlint = pow(mirrorFacing, 88.0);
+        float broadGlint = pow(mirrorFacing, 18.0);
+        vec2 sunDir2 = normalize(lightDir.xz + vec2(0.001, -0.001));
+        float sunGlint = getSunGlint(vWorldPosition.xz, sunDir2) * edgeAlpha * centerMask;
+        float sunGlintMask = smoothstep(0.1, 0.74, mirrorFacing) * (0.6 + glancingReflection * 0.4);
+        waterColor += uSunReflectionColor * (
+          spec * sparkle * 0.68
+          + broadSpec * glancingReflection * 0.09
+          + sunGlint * sunGlintMask * (sharpGlint * 0.75 + broadGlint * 0.08)
+        );
 
         float foamBase = smoothstep(0.5, 0.70, edge) * (1.0 - smoothstep(0.65, 0.85, edge));
         foamBase *= 1.0 - smoothstep(0.65, 1.45, vLakeDepth);
