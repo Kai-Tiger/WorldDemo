@@ -23,9 +23,9 @@ const SOUTHWEST_SHORE_RADIUS_X = 68;
 const SOUTHWEST_SHORE_RADIUS_Z = 24;
 const SOUTHWEST_SHORE_INNER_OFFSET = -9;
 const SOUTHWEST_SHORE_OUTER_OFFSET = 24;
-const WATER_SYSTEM_MIN_X = 205;
+const WATER_SYSTEM_MIN_X = 130;
 const WATER_SYSTEM_MAX_X = 435;
-const WATER_SYSTEM_MIN_Z = -490;
+const WATER_SYSTEM_MIN_Z = -640;
 const WATER_SYSTEM_MAX_Z = -330;
 
 const OUTLET_POINTS = [
@@ -60,23 +60,33 @@ const PLUNGE_OUTFLOW_END_WIDTH = 4.2;
 
 const SNOWMELT_PATHS = [
   [
-    new THREE.Vector3(250, 0, -472),
-    new THREE.Vector3(262, 0, -452),
-    new THREE.Vector3(267.8, 0, -444.4),
+    new THREE.Vector3(188, 0, -610),
+    new THREE.Vector3(205, 0, -570),
+    new THREE.Vector3(226, 0, -528),
+    new THREE.Vector3(244, 0, -490),
+    new THREE.Vector3(260, 0, -456),
+    new THREE.Vector3(272, 0, -433),
   ],
   [
-    new THREE.Vector3(314, 0, -474),
-    new THREE.Vector3(309, 0, -450),
-    new THREE.Vector3(308.8, 0, -449.1),
+    new THREE.Vector3(286, 0, -628),
+    new THREE.Vector3(294, 0, -586),
+    new THREE.Vector3(301, 0, -542),
+    new THREE.Vector3(307, 0, -501),
+    new THREE.Vector3(310, 0, -462),
+    new THREE.Vector3(308, 0, -432),
   ],
   [
-    new THREE.Vector3(224, 0, -430),
-    new THREE.Vector3(242, 0, -421),
-    new THREE.Vector3(257.3, 0, -415.3),
+    new THREE.Vector3(148, 0, -558),
+    new THREE.Vector3(176, 0, -530),
+    new THREE.Vector3(204, 0, -498),
+    new THREE.Vector3(230, 0, -466),
+    new THREE.Vector3(254, 0, -437),
+    new THREE.Vector3(276, 0, -421),
   ],
 ];
-const SNOWMELT_WIDTH = 1.25;
-const SNOWMELT_INFLUENCE = 5.2;
+const SNOWMELT_WIDTH = 2.1;
+const SNOWMELT_INFLUENCE = 6.6;
+const SNOWMELT_CARVE_DEPTH = 0.72;
 const SNOWMELT_SURFACE_OFFSET = 0.38;
 const WATER_SURFACE_RENDER_ORDER = 20;
 
@@ -246,8 +256,8 @@ function applySnowmeltChannels(height, x, z) {
     const lateralDistance = Math.abs(frame.lateral);
     if (lateralDistance > SNOWMELT_INFLUENCE) continue;
 
-    const groove = 1 - smoothstep(0, SNOWMELT_WIDTH * 0.6, lateralDistance);
-    nextHeight -= groove * 0.35;
+    const groove = 1 - smoothstep(0, SNOWMELT_WIDTH * 0.65, lateralDistance);
+    nextHeight -= groove * SNOWMELT_CARVE_DEPTH;
   }
 
   return nextHeight;
@@ -787,10 +797,11 @@ function createWaterfallLipFoamGeometry(terrain) {
 
 function getSnowmeltWaterFade(x, z, t) {
   const lake = getLakeFrame(x, z);
-  const lakeEdgeFade = smoothstep(lake.lakeRadius - 0.5, lake.lakeRadius + 5.5, lake.radius);
-  const endpointFade = 1 - smoothstep(0.76, 0.98, t);
+  const lakeEntryFade = 1 - smoothstep(7, 18, lake.lakeRadius - lake.radius);
+  const startFade = smoothstep(0.02, 0.1, t);
+  const endpointFade = 1 - smoothstep(0.92, 1, t);
 
-  return Math.min(lakeEdgeFade, endpointFade);
+  return Math.min(lakeEntryFade, startFade, endpointFade);
 }
 
 function createLakeSurfaceMaterial() {
@@ -1021,6 +1032,7 @@ function createStreamMaterial(options) {
       uSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
       uFlowSpeed: { value: options.speed },
       uBaseAlpha: { value: options.alpha },
+      uFoamStrength: { value: options.foamStrength ?? 1 },
     },
     vertexShader: `
       attribute float waterFade;
@@ -1041,6 +1053,7 @@ function createStreamMaterial(options) {
       uniform float uTime;
       uniform float uFlowSpeed;
       uniform float uBaseAlpha;
+      uniform float uFoamStrength;
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uFoamColor;
@@ -1119,11 +1132,11 @@ function createStreamMaterial(options) {
         float spec = pow(max(dot(normal, halfDir), 0.0), 110.0);
         float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
         color += uSunReflectionColor * spec * sparkle * 0.46;
-        color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1 * vWaterFade));
+        color = mix(color, uFoamColor, max(foamEdge * 0.5, streak * 0.1 * vWaterFade) * uFoamStrength);
         color = mix(color, uFoamColor, lipFade * (0.28 + streak * 0.22));
         float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
         alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
-        alpha = max(alpha, foamEdge * 0.18);
+        alpha = max(alpha, foamEdge * 0.18 * uFoamStrength);
         alpha *= vWaterFade * mix(1.0, 0.42, lipFade) * lipAlpha;
 
         gl_FragColor = vec4(color, alpha);
@@ -1140,7 +1153,8 @@ function createSnowmeltMaterial() {
     deep: WATER_DEEP_COLOR,
     foam: WATER_FOAM_COLOR,
     speed: 0.5,
-    alpha: 0.26,
+    alpha: 0.34,
+    foamStrength: 0.38,
   });
 }
 
