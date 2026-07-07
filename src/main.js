@@ -19,7 +19,7 @@ const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const toggleGrass = document.querySelector('#toggle-grass');
 const toggleTrees = document.querySelector('#toggle-trees');
-const { scene, terrain, water, wetBanks, waterSystem, gravelOverlay, grassManager, sunLight, clouds, smallLakes } = await createScene();
+const { scene, terrain, water, wetBanks, waterSystem, grassManager, sunLight, clouds, smallLakes } = await createScene();
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
 const treeGroup = scene.getObjectByName('Trees');
 const leafGroup = scene.getObjectByName('LeafDecals');
@@ -42,7 +42,6 @@ player.position.x = PLAYER_SPAWN_POSITION.x;
 player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
 terrain.update(player.position);
-gravelOverlay.update(player.position);
 scene.add(player.group);
 
 const thirdPersonCamera = new ThirdPersonCamera(camera, player);
@@ -80,7 +79,6 @@ function animate() {
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   player.update(deltaTime, input, camera, terrain);
   terrain.update(player.position);
-  gravelOverlay.update(player.position);
   thirdPersonCamera.update(input, terrain);
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);

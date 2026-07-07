@@ -4,7 +4,6 @@ import { GrassManager } from './grassManager.js';
 import { loadTreeModels, generateAllTreePlacements, buildTreeInstancedMeshes } from './treePlacements.js';
 import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
-import { createGravelOverlay } from './gravelOverlay.js';
 import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
 import { createSmallLakes } from './smallLakes.js';
@@ -27,11 +26,9 @@ export async function createScene() {
   scene.add(terrain.group);
   const water = createRiverWaterMesh(terrain);
   const waterSystem = createWaterSystem(terrain);
-  const gravelOverlay = await createGravelOverlay(terrain);
   const grassVariants = createGrassVariants(grassAsset.scene);
   const grassManager = new GrassManager(terrain, grassVariants);
 
-  scene.add(gravelOverlay.group);
   scene.add(grassManager.group);
   scene.add(water);
   scene.add(waterSystem.group);
@@ -67,5 +64,5 @@ export async function createScene() {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, waterSystem, gravelOverlay, grassManager, sunLight, clouds, smallLakes };
+  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, sunLight, clouds, smallLakes };
 }

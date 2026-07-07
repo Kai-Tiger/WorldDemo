@@ -12,35 +12,6 @@ export const ZONE_SIZE = 64;
 export const KEEP_ALIVE_PADDING = ZONE_SIZE;
 
 // ============================================================
-// Gravel overlay  |  碎石覆盖层
-// ============================================================
-
-/** 碎石覆盖层围绕玩家生成的半径（米）  |  Gravel overlay generation radius around player (m) */
-export const GRAVEL_OVERLAY_RADIUS = 120;
-
-/** 碎石覆盖层网格顶点间距（米）  |  Gravel overlay mesh vertex spacing (m) */
-export const GRAVEL_OVERLAY_VERTEX_SPACING = 1;
-
-/** 碎石覆盖层高出地形的距离（米），避免 z-fighting  |  Gravel overlay height offset above terrain (m) */
-export const GRAVEL_OVERLAY_Y_OFFSET = 0.06;
-
-/** 碎石贴图世界尺寸（米）  |  Gravel overlay texture world size (m) */
-export const GRAVEL_OVERLAY_TEXTURE_WORLD_SIZE = 4.5;
-
-/** 每帧最多新增/移除的碎石覆盖层方块数  |  Max gravel overlay chunks added/removed per frame */
-export const GRAVEL_OVERLAY_CHUNK_MUTATIONS = 3;
-
-/** 碎石 patch 候选密度（片 / 平方米）  |  Gravel patch candidate density (patches / m²) */
-export const GRAVEL_PATCH_DENSITY = 0.024;
-
-/** 碎石 patch 随机缩放范围  |  Gravel patch random scale range */
-export const GRAVEL_PATCH_SCALE_MIN = 0.82;
-export const GRAVEL_PATCH_SCALE_MAX = 1.28;
-
-/** 碎石 patch 之间的近似最小间距（米）  |  Approximate minimum spacing between gravel patches (m) */
-export const GRAVEL_PATCH_MIN_SPACING = 3.5;
-
-// ============================================================
 // Grass  |  草
 // ============================================================
 
