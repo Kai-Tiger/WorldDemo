@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { TAARenderPass } from 'three/examples/jsm/postprocessing/TAARenderPass.js';
 
 const COLOR_GRADE_SHADER = {
@@ -70,45 +70,74 @@ export function configureRenderer(renderer) {
   renderer.toneMappingExposure = 1.2;
 }
 
-export function createPostProcessing(renderer, scene, camera) {
+export function createPostProcessing(renderer, scene, camera, quality) {
   const composer = new EffectComposer(renderer);
-  const taaPass = new TAARenderPass(scene, camera);
-  const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight, undefined, {
-    radius: 2.6,
-    distanceExponent: 1.6,
-    thickness: 1.1,
-    scale: 0.38,
-    samples: 12,
-  }, {
-    radius: 4,
-    radiusExponent: 1.8,
-    samples: 12,
-  });
-  const colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
-  const smaaPass = new SMAAPass();
-  const outputPass = new OutputPass();
+  let colorGradePass = null;
 
-  taaPass.sampleLevel = 2;
-  taaPass.unbiased = false;
-  taaPass.accumulate = false;
-  gtaoPass.output = GTAOPass.OUTPUT.Default;
-  gtaoPass.blendIntensity = 0.34;
-  colorGradePass.uniforms.uTexelSize.value.set(1 / window.innerWidth, 1 / window.innerHeight);
-
-  composer.addPass(taaPass);
-  composer.addPass(gtaoPass);
-  composer.addPass(colorGradePass);
-  composer.addPass(smaaPass);
-  composer.addPass(outputPass);
+  applyQualityPreset(quality);
 
   return {
     composer,
     resize(width, height) {
       composer.setSize(width, height);
-      colorGradePass.uniforms.uTexelSize.value.set(1 / width, 1 / height);
+      colorGradePass?.uniforms.uTexelSize.value.set(1 / width, 1 / height);
+    },
+    applyQualityPreset,
+    setPixelRatio(pixelRatio) {
+      composer.setPixelRatio(pixelRatio);
     },
     render(deltaTime) {
       composer.render(deltaTime);
     },
   };
+
+  function applyQualityPreset(nextQuality) {
+    clearPasses(composer);
+
+    const settings = nextQuality.postProcessing;
+
+    if (settings.taa) {
+      const taaPass = new TAARenderPass(scene, camera);
+
+      taaPass.sampleLevel = settings.taaSampleLevel;
+      taaPass.unbiased = false;
+      taaPass.accumulate = false;
+      composer.addPass(taaPass);
+    } else {
+      composer.addPass(new RenderPass(scene, camera));
+    }
+
+    if (settings.gtao) {
+      const gtaoSamples = settings.gtaoSamples;
+      const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight, undefined, {
+        radius: 2.6,
+        distanceExponent: 1.6,
+        thickness: 1.1,
+        scale: 0.38,
+        samples: gtaoSamples,
+      }, {
+        radius: 4,
+        radiusExponent: 1.8,
+        samples: gtaoSamples,
+      });
+
+      gtaoPass.output = GTAOPass.OUTPUT.Default;
+      gtaoPass.blendIntensity = 0.34;
+      composer.addPass(gtaoPass);
+    }
+
+    colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
+    colorGradePass.uniforms.uTexelSize.value.set(1 / window.innerWidth, 1 / window.innerHeight);
+    composer.addPass(colorGradePass);
+
+    composer.addPass(new OutputPass());
+  }
+}
+
+function clearPasses(composer) {
+  for (const pass of composer.passes) {
+    pass.dispose?.();
+  }
+
+  composer.passes.length = 0;
 }

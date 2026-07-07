@@ -12,6 +12,7 @@ import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import { updateWaterSystemVisuals } from './waterSystem.js';
 import { updateSmallLakes } from './smallLakes.js';
 import { createTerrainEditor } from './terrainEditor.js';
+import { DEFAULT_RENDER_QUALITY, getRenderQualityPreset } from './renderQuality.js';
 
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
@@ -20,26 +21,29 @@ const positionY = document.querySelector('#position-y');
 const fpsValue = document.querySelector('#fps-value');
 const toggleGrass = document.querySelector('#toggle-grass');
 const toggleTrees = document.querySelector('#toggle-trees');
+const qualitySelect = document.querySelector('#quality-select');
 const { scene, terrain, water, wetBanks, waterSystem, grassManager, treeManager, sunLight, clouds, smallLakes } = await createScene();
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
+let renderQuality = getRenderQualityPreset(DEFAULT_RENDER_QUALITY);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 configureRenderer(renderer);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(getEffectivePixelRatio(renderQuality));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
 await applyEnvironmentLighting(renderer, scene, hemisphereLight);
-const postProcessing = createPostProcessing(renderer, scene, camera);
+const postProcessing = createPostProcessing(renderer, scene, camera, renderQuality);
 
 const input = new Input(canvas);
 const player = new Player();
 player.position.x = PLAYER_SPAWN_POSITION.x;
 player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
+applyRenderQuality(renderQuality, false);
 terrain.update(player.position);
 scene.add(player.group);
 
@@ -63,8 +67,28 @@ function updateRenderToggles() {
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(getEffectivePixelRatio(renderQuality));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  postProcessing.setPixelRatio(renderer.getPixelRatio());
   postProcessing.resize(window.innerWidth, window.innerHeight);
+}
+
+function getEffectivePixelRatio(quality) {
+  return Math.min(window.devicePixelRatio, quality.pixelRatioCap);
+}
+
+function applyRenderQuality(quality, rebuildPostProcessing = true) {
+  renderer.setPixelRatio(getEffectivePixelRatio(quality));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  postProcessing.setPixelRatio(renderer.getPixelRatio());
+  postProcessing.resize(window.innerWidth, window.innerHeight);
+  if (rebuildPostProcessing) {
+    postProcessing.applyQualityPreset(quality);
+  }
+  terrain.setQualityPreset(quality.terrain);
+  sunLight.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
+  sunLight.shadow.map?.dispose();
+  sunLight.shadow.map = null;
 }
 
 function updateSunLight() {
@@ -91,7 +115,9 @@ function animate(now) {
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   player.update(deltaTime, input, camera, terrain);
   terrain.update(player.position);
-  treeManager.update(player.position);
+  if (toggleTrees.checked) {
+    treeManager.update(player.position);
+  }
   thirdPersonCamera.update(input, terrain);
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
@@ -111,5 +137,9 @@ function animate(now) {
 window.addEventListener('resize', resize);
 toggleGrass.addEventListener('change', updateRenderToggles);
 toggleTrees.addEventListener('change', updateRenderToggles);
+qualitySelect.addEventListener('change', () => {
+  renderQuality = getRenderQualityPreset(qualitySelect.value);
+  applyRenderQuality(renderQuality);
+});
 updateRenderToggles();
 animate();

@@ -60,6 +60,8 @@ export class Terrain {
     this.group.name = 'Terrain';
     this.material = createTerrainMaterial(textures);
     this.loadedChunks = new Map();
+    this.loadChunkRadius = LOAD_CHUNK_RADIUS;
+    this.unloadChunkRadius = UNLOAD_CHUNK_RADIUS;
   }
 
   static async create() {
@@ -77,12 +79,17 @@ export class Terrain {
   update(centerPosition) {
     const centerChunkX = this.getChunkCoord(centerPosition.x);
     const centerChunkZ = this.getChunkCoord(centerPosition.z);
-    const loadRadius = this.loadedChunks.size === 0 ? INITIAL_CHUNK_RADIUS : LOAD_CHUNK_RADIUS;
+    const loadRadius = this.loadedChunks.size === 0 ? INITIAL_CHUNK_RADIUS : this.loadChunkRadius;
     const loadKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, loadRadius);
-    const keepKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, UNLOAD_CHUNK_RADIUS);
+    const keepKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, this.unloadChunkRadius);
 
     this.loadMissingChunks(loadKeys, centerChunkX, centerChunkZ);
     this.unloadDistantChunks(keepKeys);
+  }
+
+  setQualityPreset(preset) {
+    this.loadChunkRadius = preset.loadRadius;
+    this.unloadChunkRadius = preset.unloadRadius;
   }
 
   getChunkCoord(value) {
