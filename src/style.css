@@ -28,6 +28,11 @@ body {
   pointer-events: none;
 }
 
+.fps-readout {
+  margin-bottom: 6px;
+  pointer-events: none;
+}
+
 .render-toggle {
   display: flex;
   align-items: center;

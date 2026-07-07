@@ -17,6 +17,7 @@ const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
+const fpsValue = document.querySelector('#fps-value');
 const toggleGrass = document.querySelector('#toggle-grass');
 const toggleTrees = document.querySelector('#toggle-trees');
 const { scene, terrain, water, wetBanks, waterSystem, grassManager, treeManager, sunLight, clouds, smallLakes } = await createScene();
@@ -48,6 +49,8 @@ updateSunLight();
 
 createTerrainEditor(terrain, camera, scene, canvas, input);
 const clock = new THREE.Clock();
+let fpsFrameCount = 0;
+let fpsLastUpdate = performance.now();
 
 function updateRenderToggles() {
   const showGrass = toggleGrass.checked;
@@ -70,9 +73,21 @@ function updateSunLight() {
   sunLight.target.updateMatrixWorld();
 }
 
-function animate() {
+function updateFps(now) {
+  fpsFrameCount += 1;
+  const elapsed = now - fpsLastUpdate;
+
+  if (elapsed < 500) return;
+
+  fpsValue.textContent = Math.round((fpsFrameCount * 1000) / elapsed).toString();
+  fpsFrameCount = 0;
+  fpsLastUpdate = now;
+}
+
+function animate(now) {
   requestAnimationFrame(animate);
 
+  updateFps(now);
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   player.update(deltaTime, input, camera, terrain);
   terrain.update(player.position);
