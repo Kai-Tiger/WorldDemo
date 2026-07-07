@@ -19,10 +19,8 @@ const positionZ = document.querySelector('#position-z');
 const positionY = document.querySelector('#position-y');
 const toggleGrass = document.querySelector('#toggle-grass');
 const toggleTrees = document.querySelector('#toggle-trees');
-const { scene, terrain, water, wetBanks, waterSystem, grassManager, sunLight, clouds, smallLakes } = await createScene();
+const { scene, terrain, water, wetBanks, waterSystem, grassManager, treeManager, sunLight, clouds, smallLakes } = await createScene();
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
-const treeGroup = scene.getObjectByName('Trees');
-const leafGroup = scene.getObjectByName('LeafDecals');
 const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -56,8 +54,7 @@ function updateRenderToggles() {
   const showTrees = toggleTrees.checked;
 
   grassManager.group.visible = showGrass;
-  if (treeGroup) treeGroup.visible = showTrees;
-  if (leafGroup) leafGroup.visible = showTrees;
+  treeManager.group.visible = showTrees;
 }
 
 function resize() {
@@ -79,6 +76,7 @@ function animate() {
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   player.update(deltaTime, input, camera, terrain);
   terrain.update(player.position);
+  treeManager.update(player.position);
   thirdPersonCamera.update(input, terrain);
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);

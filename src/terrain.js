@@ -161,6 +161,28 @@ export class Terrain {
     return { x, z };
   }
 
+  getLoadedChunkBounds() {
+    const chunks = [];
+
+    for (const key of this.loadedChunks.keys()) {
+      const { x, z } = this.parseChunkKey(key);
+      const minX = -HALF_MAP_SIZE + x * CHUNK_SIZE;
+      const minZ = -HALF_MAP_SIZE + z * CHUNK_SIZE;
+
+      chunks.push({
+        key,
+        chunkX: x,
+        chunkZ: z,
+        minX,
+        minZ,
+        maxX: minX + CHUNK_SIZE,
+        maxZ: minZ + CHUNK_SIZE,
+      });
+    }
+
+    return chunks;
+  }
+
   getHeightMapData() {
     return {
       data: this.heightData,

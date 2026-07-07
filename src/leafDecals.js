@@ -13,6 +13,10 @@ const LEAF_HEIGHT_OFFSET = 0.05;
 const PLANE_NORMAL = new THREE.Vector3(0, 0, 1);
 
 export async function createLeafDecals(treePlacements, terrain) {
+  return buildLeafDecals(treePlacements, terrain, await loadLeafDecalTextures());
+}
+
+export async function loadLeafDecalTextures() {
   const loader = new THREE.TextureLoader();
   const [leaf1Texture, leaf2Texture] = await Promise.all([
     loader.loadAsync(LEAF1_PATH),
@@ -25,6 +29,11 @@ export async function createLeafDecals(treePlacements, terrain) {
     texture.colorSpace = THREE.SRGBColorSpace;
   }
 
+  return { leaf1Texture, leaf2Texture };
+}
+
+export function buildLeafDecals(treePlacements, terrain, textures) {
+  const { leaf1Texture, leaf2Texture } = textures;
   const leaf1Matrices = [];
   const leaf2Matrices = [];
 

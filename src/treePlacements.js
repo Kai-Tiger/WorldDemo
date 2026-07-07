@@ -232,7 +232,7 @@ export async function generateAllTreePlacements(terrain) {
   });
 }
 
-function replaceSpawnAreaTrees(placements) {
+export function replaceSpawnAreaTrees(placements) {
   const spawnTreeModelIndex = TREE_MODEL_PATHS.length;
   const nearestPlacements = placements
     .map((placement) => {
