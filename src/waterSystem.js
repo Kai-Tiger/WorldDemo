@@ -65,7 +65,7 @@ const SNOWMELT_PATHS = [
     new THREE.Vector3(226, 0, -528),
     new THREE.Vector3(244, 0, -490),
     new THREE.Vector3(260, 0, -456),
-    new THREE.Vector3(272, 0, -433),
+    new THREE.Vector3(267.3, 0, -441.9),
   ],
   [
     new THREE.Vector3(286, 0, -628),
@@ -73,7 +73,7 @@ const SNOWMELT_PATHS = [
     new THREE.Vector3(301, 0, -542),
     new THREE.Vector3(307, 0, -501),
     new THREE.Vector3(310, 0, -462),
-    new THREE.Vector3(308, 0, -432),
+    new THREE.Vector3(309.1, 0, -448.3),
   ],
   [
     new THREE.Vector3(148, 0, -558),
@@ -81,7 +81,7 @@ const SNOWMELT_PATHS = [
     new THREE.Vector3(204, 0, -498),
     new THREE.Vector3(230, 0, -466),
     new THREE.Vector3(254, 0, -437),
-    new THREE.Vector3(276, 0, -421),
+    new THREE.Vector3(265.9, 0, -428.3),
   ],
 ];
 const SNOWMELT_WIDTH = 2.1;
@@ -797,11 +797,11 @@ function createWaterfallLipFoamGeometry(terrain) {
 
 function getSnowmeltWaterFade(x, z, t) {
   const lake = getLakeFrame(x, z);
-  const lakeEntryFade = 1 - smoothstep(7, 18, lake.lakeRadius - lake.radius);
+  const shoreFade = smoothstep(0.5, 9, lake.radius - lake.lakeRadius);
   const startFade = smoothstep(0.02, 0.1, t);
   const endpointFade = 1 - smoothstep(0.92, 1, t);
 
-  return Math.min(lakeEntryFade, startFade, endpointFade);
+  return Math.min(shoreFade, startFade, endpointFade);
 }
 
 function createLakeSurfaceMaterial() {
