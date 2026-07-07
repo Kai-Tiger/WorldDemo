@@ -7,6 +7,8 @@ import { hash2 } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
+  SPAWN_TREE_COLOR_MULTIPLIER,
+  SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER,
   SPAWN_TREE_MODEL_PATH,
   SPAWN_TREE_REPLACEMENT_COUNT,
   SPAWN_TREE_SCALE_MULTIPLIER,
@@ -45,7 +47,7 @@ export async function loadTreeModels() {
 
   for (const path of paths) {
     const asset = await loader.loadAsync(path);
-    const meshes = extractMeshes(asset.scene);
+    const meshes = extractMeshes(asset.scene, path === SPAWN_TREE_MODEL_PATH);
 
     models.push({ meshes });
   }
@@ -53,7 +55,7 @@ export async function loadTreeModels() {
   return models;
 }
 
-function extractMeshes(scene) {
+function extractMeshes(scene, isSpawnTree = false) {
   scene.updateMatrixWorld(true);
 
   const meshes = [];
@@ -68,23 +70,28 @@ function extractMeshes(scene) {
 
     meshes.push({
       geometry,
-      material: createTreeMaterial(child.material),
+      material: createTreeMaterial(child.material, isSpawnTree),
     });
   });
 
   return meshes;
 }
 
-function createTreeMaterial(sourceMaterial) {
+function createTreeMaterial(sourceMaterial, isSpawnTree) {
   const material = sourceMaterial.clone();
 
   material.transparent = false;
   material.alphaTest = Math.max(material.alphaTest || 0, TREE_ALPHA_TEST);
   material.depthWrite = true;
   material.depthTest = true;
+  if (isSpawnTree && 'color' in material) {
+    material.color.multiply(new THREE.Color(SPAWN_TREE_COLOR_MULTIPLIER));
+  }
   if ('emissive' in material) {
     material.emissive = new THREE.Color(TREE_SHADOW_LIFT_COLOR);
-    material.emissiveIntensity = TREE_SHADOW_LIFT_INTENSITY;
+    material.emissiveIntensity = isSpawnTree
+      ? TREE_SHADOW_LIFT_INTENSITY * SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER
+      : TREE_SHADOW_LIFT_INTENSITY;
   }
   material.needsUpdate = true;
 

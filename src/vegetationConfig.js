@@ -97,6 +97,12 @@ export const SPAWN_TREE_REPLACEMENT_COUNT = 10;
 /** 出生点替换树模型缩放倍率  |  Scale multiplier for the spawn replacement tree model */
 export const SPAWN_TREE_SCALE_MULTIPLIER = 0.35;
 
+/** 出生点替换树颜色乘色，压暗偏浅的导入模型  |  Color multiplier for the pale imported spawn tree */
+export const SPAWN_TREE_COLOR_MULTIPLIER = 0x6f8054;
+
+/** 出生点替换树暗部补光倍率，避免浅色树叶发亮  |  Emissive multiplier for the imported spawn tree */
+export const SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER = 0.45;
+
 /** 树木暗部补光颜色，保持偏绿避免逆光下发灰  |  Tree shadow lift color, green-tinted to avoid gray backlit trees */
 export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
 
