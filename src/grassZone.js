@@ -4,6 +4,15 @@ import {
   hash2,
   createPlacement,
 } from './grassClumps.js';
+import { isInRiverGrassExclusion } from './riverChannel.js';
+import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
+import { isInSmallLakeExclusion } from './smallLakes.js';
+
+const GRASS_WATER_BUFFER = 4;
+const GRASS_MIN_NORMAL_Y = 0.88;
+const GRASS_MIN_GROUND_MASK = 0.35;
+const LOD1_KEEP_RATIO = 0.5;
+const LOD2_KEEP_RATIO = 0.16;
 
 export class GrassZone {
   constructor(terrain, variants, minX, minZ, maxX, maxZ) {
@@ -18,8 +27,11 @@ export class GrassZone {
     this.group.name = `GrassZone_${minX}_${minZ}`;
     this.group.visible = false;
 
-    this.grassGroup = new THREE.Group();
-    this.group.add(this.grassGroup);
+    this.lodGroups = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+    this.lodGroups.forEach((lodGroup, index) => {
+      lodGroup.name = `GrassZone_${minX}_${minZ}_LOD${index}`;
+      this.group.add(lodGroup);
+    });
 
     this.allPlacements = null;
     this._generator = null;
@@ -70,8 +82,10 @@ export class GrassZone {
   rebuildLOD(playerX, playerZ, lodDistances) {
     if (!this.hasPlacements) return;
 
-    const visibleGrass = [];
-    const maxDistance = lodDistances[lodDistances.length - 1];
+    const lodPlacements = [[], [], []];
+    const nearDistance = lodDistances[0];
+    const midDistance = lodDistances[1];
+    const farDistance = lodDistances[2];
 
     for (let i = 0; i < this.allPlacements.length; i += 1) {
       const p = this.allPlacements[i];
@@ -80,16 +94,22 @@ export class GrassZone {
       const dz = el[14] - playerZ;
       const dist = Math.sqrt(dx * dx + dz * dz);
 
-      if (dist <= maxDistance) {
-        visibleGrass.push(p);
+      if (dist <= nearDistance) {
+        lodPlacements[0].push(p);
+      } else if (dist <= midDistance) {
+        if (shouldKeepForLOD(p, 1)) lodPlacements[1].push(p);
+      } else if (dist <= farDistance) {
+        if (shouldKeepForLOD(p, 2)) lodPlacements[2].push(p);
       }
     }
 
-    this.clearGroup(this.grassGroup);
+    this.lodGroups.forEach((lodGroup) => this.clearGroup(lodGroup));
 
-    if (visibleGrass.length > 0) {
-      buildInstancedMeshes(visibleGrass, this.variants, this.grassGroup, 0);
-    }
+    lodPlacements.forEach((placements, lodLevel) => {
+      if (placements.length > 0) {
+        buildInstancedMeshes(placements, this.variants, this.lodGroups[lodLevel], lodLevel);
+      }
+    });
 
     this.group.visible = true;
     this.builtForPosition = { x: playerX, z: playerZ };
@@ -102,7 +122,7 @@ export class GrassZone {
   }
 
   clearAll() {
-    this.clearGroup(this.grassGroup);
+    this.lodGroups.forEach((lodGroup) => this.clearGroup(lodGroup));
     this.allPlacements = null;
     this.group.visible = false;
     this.builtForPosition = null;
@@ -146,7 +166,7 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
           const x = worldX + jitterX;
           const z = worldZ + jitterZ;
 
-          if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+          if (x >= minX && x <= maxX && z >= minZ && z <= maxZ && shouldPlaceGrassAt(terrain, x, z)) {
             placements.push(createPlacement(terrain, x, z, gridX, gridZ, 1));
           }
 
@@ -163,4 +183,23 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
       return worldZ > endZ;
     },
   };
+}
+
+function shouldPlaceGrassAt(terrain, x, z) {
+  if (isInRiverGrassExclusion(x, z, GRASS_WATER_BUFFER)) return false;
+  if (isInWaterSystemVegetationExclusion(x, z, GRASS_WATER_BUFFER)) return false;
+  if (isInSmallLakeExclusion(x, z)) return false;
+
+  const normal = terrain.getNormalAt(x, z);
+
+  return normal.y >= GRASS_MIN_NORMAL_Y
+    && terrain.getTerrainGroundMask(x, z) >= GRASS_MIN_GROUND_MASK;
+}
+
+function shouldKeepForLOD(placement, lodLevel) {
+  const el = placement.matrix.elements;
+  const keepRatio = lodLevel === 1 ? LOD1_KEEP_RATIO : LOD2_KEEP_RATIO;
+  const roll = hash2(el[12] * 0.73 + lodLevel * 19.1, el[14] * 0.61 - lodLevel * 7.4);
+
+  return roll < keepRatio;
 }

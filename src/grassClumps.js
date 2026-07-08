@@ -8,8 +8,6 @@ import {
   MAP_SIZE,
   ZONE_SIZE,
   GRASS_ASSET_BASE_PATH,
-  GRASS_LOD_DENSITIES,
-  GRASS_LOD_DISTANCES,
   GRASS_RIVER_BUFFER,
   GRASS_SWAY_STRENGTH,
   GRASS_WIND_X,
@@ -57,11 +55,11 @@ const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
 const RIBBON_GRASS_SCALE = 0.0135;
-const FULL_COVERAGE_GRASS_DENSITIES = [2.5];
-const FULL_COVERAGE_GRASS_DISTANCES = [260];
+const RIBBON_GRASS_LOD_DENSITIES = [2.5];
+const RIBBON_GRASS_LOD_DISTANCES = [30, 90, 220];
 
-export { FULL_COVERAGE_GRASS_DENSITIES as LOD_DENSITIES };
-export { FULL_COVERAGE_GRASS_DISTANCES as LOD_DISTANCES };
+export { RIBBON_GRASS_LOD_DENSITIES as LOD_DENSITIES };
+export { RIBBON_GRASS_LOD_DISTANCES as LOD_DISTANCES };
 export { ZONE_SIZE };
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
@@ -122,9 +120,11 @@ async function loadRibbonGrassTextures() {
 
 async function loadRibbonGrassModels() {
   const entries = await Promise.all(RIBBON_GRASS_VARIANTS.map(async (variantName) => {
-    const lod0 = await fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD0.fbx`);
+    const lods = await Promise.all([0, 1, 2].map((lodLevel) => (
+      fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD${lodLevel}.fbx`)
+    )));
 
-    return [variantName, [lod0]];
+    return [variantName, lods];
   }));
 
   return new Map(entries);
@@ -139,9 +139,25 @@ function createRibbonGrassMaterials(textures) {
     tintColor: GRASS_NEAR_TINT,
     translucencyStrength: 0.18,
   });
+  const mid = createRibbonGrassMaterial(textures, {
+    useSway: true,
+    useHeightDetail: false,
+    grade: GRASS_COLOR_GRADE,
+    alphaTest: GRASS_ALPHA_TEST,
+    tintColor: GRASS_NEAR_TINT,
+    translucencyStrength: 0.1,
+  });
+  const far = createRibbonGrassMaterial(textures, {
+    useSway: false,
+    useHeightDetail: false,
+    grade: GRASS_FAR_COLOR_GRADE,
+    alphaTest: GRASS_ALPHA_TEST,
+    tintColor: GRASS_FAR_TINT,
+    translucencyStrength: 0.04,
+  });
 
   return {
-    lod: [near],
+    lod: [near, mid, far],
   };
 }
 
@@ -188,7 +204,9 @@ function createRibbonGrassMaterial(textures, options) {
 }
 
 function createRibbonGrassVariant(lodRoots, materials) {
-  const lods = [buildRibbonGrassLeaves(lodRoots[0], materials.lod[0], 'LOD0')];
+  const lods = lodRoots.map((root, index) => (
+    buildRibbonGrassLeaves(root, materials.lod[Math.min(index, materials.lod.length - 1)], `LOD${index}`)
+  ));
 
   return {
     lods,
