@@ -69,7 +69,15 @@ export class GrassManager {
 
     for (const key of neededKeys) {
       if (!this.zones.has(key)) {
-        mutations.push({ type: 'new', key, priority: 0 });
+        const [minXStr, minZStr] = key.split(',').map(Number);
+        const centerX = minXStr + ZONE_SIZE / 2;
+        const centerZ = minZStr + ZONE_SIZE / 2;
+
+        mutations.push({
+          type: 'new',
+          key,
+          priority: Math.hypot(centerX - camX, centerZ - camZ),
+        });
       }
     }
 
@@ -113,7 +121,7 @@ export class GrassManager {
       mutationsDone += 1;
     }
 
-    this.processGenerations();
+    this.processGenerations(camX, camZ);
 
     const needsRebuild = !this.lastRebuildPos
       || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD
@@ -125,13 +133,18 @@ export class GrassManager {
     }
   }
 
-  processGenerations() {
+  processGenerations(camX, camZ) {
     const generatingZones = [];
 
     for (const zone of this.zones.values()) {
       if (!zone.isGenerating) continue;
       generatingZones.push(zone);
     }
+
+    generatingZones.sort((a, b) => (
+      Math.hypot(a.centerX - camX, a.centerZ - camZ)
+      - Math.hypot(b.centerX - camX, b.centerZ - camZ)
+    ));
 
     let budgetRemaining = TOTAL_GENERATION_BUDGET;
 
