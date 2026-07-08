@@ -35,22 +35,22 @@ const GRASS_WIND_SWAY_RADIUS = 20;
 const GRASS_WIND_REGION_SIZE = 12;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
-const GRASS_ALPHA_TEST = 0;
-const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
-const GRASS_SHADOW_LIFT_INTENSITY = 0.12;
+const GRASS_ALPHA_TEST = 0.12;
+const GRASS_SHADOW_LIFT_COLOR = 0x31482a;
+const GRASS_SHADOW_LIFT_INTENSITY = 0.16;
 const GRASS_EMISSIVE_INTENSITY = 0.015;
 const GRASS_COLOR_GRADE = {
-  brightness: 0.72,
-  saturation: 0.62,
-  highlightCompression: 0.5,
+  brightness: 0.95,
+  saturation: 0.82,
+  highlightCompression: 0.28,
 };
 const GRASS_FAR_COLOR_GRADE = {
-  brightness: 0.32,
-  saturation: 0.92,
-  highlightCompression: 0.86,
+  brightness: 0.72,
+  saturation: 0.9,
+  highlightCompression: 0.42,
 };
-const GRASS_NEAR_TINT = 0x7f8f48;
-const GRASS_FAR_TINT = 0x526a32;
+const GRASS_NEAR_TINT = 0xb2c879;
+const GRASS_FAR_TINT = 0x8aaa5a;
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
@@ -167,7 +167,7 @@ function createRibbonGrassMaterial(textures, options) {
     normalMap: textures.normal,
     roughnessMap: textures.roughness,
     aoMap: textures.ao,
-    alphaMap: null,
+    alphaMap: textures.opacity,
     bumpMap: options.useHeightDetail ? textures.bump : null,
     displacementMap: options.useHeightDetail ? textures.displacement : null,
     roughness: 0.86,
@@ -372,8 +372,8 @@ float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
 vec3 grassTranslucency = texture2D(uGrassTranslucencyMap, vMapUv).rgb;
 float grassCavity = texture2D(uGrassCavityMap, vMapUv).r;
 float grassGloss = texture2D(uGrassGlossMap, vMapUv).r;
-gl_FragColor.rgb *= mix(1.0, 0.42, grassRootMask);
-gl_FragColor.rgb *= mix(0.78, 1.0, grassCavity);
+gl_FragColor.rgb *= mix(1.0, 0.72, grassRootMask);
+gl_FragColor.rgb *= mix(0.92, 1.0, grassCavity);
 gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
 gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
 gl_FragColor.rgb += vec3(0.05, 0.06, 0.035) * grassGloss * grassTipMask * 0.06;
