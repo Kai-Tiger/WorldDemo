@@ -44,7 +44,8 @@ export class GrassZone {
     this.lod0Group = new THREE.Group();
     this.lod1Group = new THREE.Group();
     this.lod2Group = new THREE.Group();
-    this.group.add(this.lod0Group, this.lod1Group, this.lod2Group);
+    this.billboardGroup = new THREE.Group();
+    this.group.add(this.lod0Group, this.lod1Group, this.lod2Group, this.billboardGroup);
 
     this.allPlacements = null;
     this._generator = null;
@@ -98,6 +99,7 @@ export class GrassZone {
     const lod0 = [];
     const lod1 = [];
     const lod2 = [];
+    const billboard = [];
 
     for (let i = 0; i < this.allPlacements.length; i += 1) {
       const p = this.allPlacements[i];
@@ -117,11 +119,16 @@ export class GrassZone {
       if (dist <= lodDistances[2] && shouldKeepForLOD(el[12], el[14], 2)) {
         lod2.push(p);
       }
+
+      if (dist > lodDistances[2] && dist <= lodDistances[3] && shouldKeepForLOD(el[12], el[14], 3)) {
+        billboard.push(p);
+      }
     }
 
     this.clearGroup(this.lod0Group);
     this.clearGroup(this.lod1Group);
     this.clearGroup(this.lod2Group);
+    this.clearGroup(this.billboardGroup);
 
     if (lod0.length > 0) {
       buildInstancedMeshes(lod0, this.variants, this.lod0Group, 0);
@@ -133,6 +140,10 @@ export class GrassZone {
 
     if (lod2.length > 0) {
       buildInstancedMeshes(lod2, this.variants, this.lod2Group, 2);
+    }
+
+    if (billboard.length > 0) {
+      buildInstancedMeshes(billboard, this.variants, this.billboardGroup, 3);
     }
 
     this.group.visible = true;
@@ -149,6 +160,7 @@ export class GrassZone {
     this.clearGroup(this.lod0Group);
     this.clearGroup(this.lod1Group);
     this.clearGroup(this.lod2Group);
+    this.clearGroup(this.billboardGroup);
     this.allPlacements = null;
     this.group.visible = false;
     this.builtForPosition = null;
@@ -168,7 +180,7 @@ function shouldKeepForLOD(x, z, lodLevel) {
   const quantize = 10;
   const gx = Math.floor(x * quantize);
   const gz = Math.floor(z * quantize);
-  const divisor = lodLevel === 1 ? 3 : 24;
+  const divisor = lodLevel === 1 ? 3 : lodLevel === 2 ? 24 : 12;
 
   return hash2(gx + lodLevel * 997, gz + lodLevel * 2003) < (1 / divisor);
 }

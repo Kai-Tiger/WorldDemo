@@ -29,7 +29,7 @@ export async function createScene() {
   scene.add(terrain.group);
   const water = createRiverWaterMesh(terrain);
   const waterSystem = createWaterSystem(terrain);
-  const grassVariants = createGrassVariants(grassAsset.scene);
+  const grassVariants = createGrassVariants(grassAsset);
   const grassManager = new GrassManager(terrain, grassVariants);
   const treeManager = new TreeManager(terrain, treeModels, leafTextures);
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
@@ -7,7 +7,7 @@ import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
   ZONE_SIZE,
-  GRASS_MODEL_PATH,
+  GRASS_ASSET_BASE_PATH,
   GRASS_LOD_DENSITIES,
   GRASS_LOD_DISTANCES,
   GRASS_RIVER_BUFFER,
@@ -42,186 +42,302 @@ const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
 const GRASS_SHADOW_LIFT_INTENSITY = 0.12;
 const GRASS_EMISSIVE_INTENSITY = 0.015;
 const GRASS_COLOR_GRADE = {
-  brightness: 0.68,
-  saturation: 0.58,
-  highlightCompression: 0.56,
+  brightness: 0.72,
+  saturation: 0.62,
+  highlightCompression: 0.5,
 };
 const GRASS_FAR_COLOR_GRADE = {
-  brightness: 0.42,
-  saturation: 0.3,
-  highlightCompression: 0.68,
+  brightness: 0.5,
+  saturation: 0.38,
+  highlightCompression: 0.66,
 };
+const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
+const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
+const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
+const RIBBON_GRASS_SCALE = 1.35;
+const RIBBON_GRASS_BILLBOARD_WIDTH = 0.85;
+const RIBBON_GRASS_BILLBOARD_HEIGHT = 1.15;
+const RIBBON_GRASS_BILLBOARD_Y = RIBBON_GRASS_BILLBOARD_HEIGHT * 0.5;
 
 export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
 export { ZONE_SIZE };
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
-const loader = new GLTFLoader();
+const fbxLoader = new FBXLoader();
+const textureLoader = new THREE.TextureLoader();
 const grassPatches = createGrassPatches();
 const patchCellCache = new Map();
 
 export async function loadGrassModel() {
-  return loader.loadAsync(GRASS_MODEL_PATH);
+  const [textures, models] = await Promise.all([
+    loadRibbonGrassTextures(),
+    loadRibbonGrassModels(),
+  ]);
+
+  return { textures, models };
 }
 
-export function createGrassVariants(scene) {
-  scene.updateMatrixWorld(true);
+export function createGrassVariants(asset) {
+  const materials = createRibbonGrassMaterials(asset.textures);
 
-  const variants = new Map(['GrassClump_A', 'GrassClump_B'].map((name) => {
-    const root = scene.getObjectByName(name);
-    const rootInverse = root.matrixWorld.clone().invert();
-    const leaves = [];
-
-    root.traverse((child) => {
-      if (!child.isMesh) return;
-
-      const geometry = child.geometry.clone();
-      const leafMatrix = rootInverse.clone().multiply(child.matrixWorld);
-
-      geometry.applyMatrix4(leafMatrix);
-      geometry.computeBoundingBox();
-
-      leaves.push({
-        name: child.name,
-        geometry,
-        material: createGrassSwayMaterial(child.material, geometry),
-        simpleMaterial: createSimpleMaterial(child.material, geometry),
-      });
-    });
-
-    return [name, { leaves }];
-  }));
-
-  for (const [name, variant] of createProceduralGrassVariants()) {
-    variants.set(name, variant);
-  }
-
-  return variants;
+  return new Map(RIBBON_GRASS_VARIANTS.map((variantName) => [
+    `RibbonGrass_${variantName}`,
+    createRibbonGrassVariant(asset.models.get(variantName), materials),
+  ]));
 }
 
-function createProceduralGrassVariants() {
-  const definitions = [
-    ['GrassGroundCover', { bladeCount: 28, radius: 0.28, minHeight: 0.18, maxHeight: 0.38, minWidth: 0.035, maxWidth: 0.075, dryMix: 0.18, lean: 0.16 }],
-    ['GrassBroadLeaf', { bladeCount: 22, radius: 0.34, minHeight: 0.36, maxHeight: 0.72, minWidth: 0.055, maxWidth: 0.12, dryMix: 0.12, lean: 0.24 }],
-    ['GrassDryMixed', { bladeCount: 24, radius: 0.36, minHeight: 0.28, maxHeight: 0.62, minWidth: 0.032, maxWidth: 0.09, dryMix: 0.55, lean: 0.28 }],
-    ['GrassTallAccent', { bladeCount: 16, radius: 0.22, minHeight: 0.62, maxHeight: 1.02, minWidth: 0.035, maxWidth: 0.075, dryMix: 0.25, lean: 0.36 }],
+async function loadRibbonGrassTextures() {
+  const textureSpecs = [
+    ['baseColor', `${RIBBON_GRASS_TEXTURE_PREFIX}_BaseColor.jpg`, THREE.SRGBColorSpace],
+    ['normal', `${RIBBON_GRASS_TEXTURE_PREFIX}_Normal.jpg`, THREE.NoColorSpace],
+    ['roughness', `${RIBBON_GRASS_TEXTURE_PREFIX}_Roughness.jpg`, THREE.NoColorSpace],
+    ['ao', `${RIBBON_GRASS_TEXTURE_PREFIX}_AO.jpg`, THREE.NoColorSpace],
+    ['opacity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Opacity.jpg`, THREE.NoColorSpace],
+    ['translucency', `${RIBBON_GRASS_TEXTURE_PREFIX}_Translucency.jpg`, THREE.SRGBColorSpace],
+    ['cavity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Cavity.jpg`, THREE.NoColorSpace],
+    ['bump', `${RIBBON_GRASS_TEXTURE_PREFIX}_Bump.jpg`, THREE.NoColorSpace],
+    ['displacement', `${RIBBON_GRASS_TEXTURE_PREFIX}_Displacement.jpg`, THREE.NoColorSpace],
+    ['gloss', `${RIBBON_GRASS_TEXTURE_PREFIX}_Gloss.jpg`, THREE.NoColorSpace],
+    ['specular', `${RIBBON_GRASS_TEXTURE_PREFIX}_Specular.jpg`, THREE.NoColorSpace],
+    ['billboardBaseColor', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_BaseColor.jpg`, THREE.SRGBColorSpace],
+    ['billboardNormal', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Normal.jpg`, THREE.NoColorSpace],
+    ['billboardOpacity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Opacity.jpg`, THREE.NoColorSpace],
+    ['billboardTranslucency', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Translucency.jpg`, THREE.SRGBColorSpace],
   ];
+  const entries = await Promise.all(textureSpecs.map(async ([key, fileName, colorSpace]) => {
+    const texture = await textureLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${fileName}`);
 
-  return new Map(definitions.map(([name, options]) => {
-    const geometry = createBladeClumpGeometry(name, options);
-    const material = createProceduralGrassMaterial();
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.colorSpace = colorSpace;
+    texture.anisotropy = 8;
 
-    return [name, {
-      leaves: [{
-        name: 'BladeCluster',
-        geometry,
-        material: createGrassSwayMaterial(material, geometry),
-        simpleMaterial: createSimpleMaterial(material, geometry),
-      }],
-    }];
+    return [key, texture];
   }));
+
+  return Object.fromEntries(entries);
 }
 
-function createProceduralGrassMaterial() {
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x8aa873,
-    roughness: 0.92,
-    metalness: 0,
-    side: THREE.DoubleSide,
-    vertexColors: true,
+async function loadRibbonGrassModels() {
+  const entries = await Promise.all(RIBBON_GRASS_VARIANTS.map(async (variantName) => {
+    const lods = await Promise.all([0, 1, 2].map((lodLevel) => (
+      fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD${lodLevel}.fbx`)
+    )));
+
+    return [variantName, lods];
+  }));
+
+  return new Map(entries);
+}
+
+function createRibbonGrassMaterials(textures) {
+  const near = createRibbonGrassMaterial(textures, {
+    useSway: true,
+    useHeightDetail: true,
+    grade: GRASS_COLOR_GRADE,
+    alphaTest: GRASS_ALPHA_TEST,
+    translucencyStrength: 0.18,
+  });
+  const mid = createRibbonGrassMaterial(textures, {
+    useSway: true,
+    useHeightDetail: false,
+    grade: GRASS_COLOR_GRADE,
+    alphaTest: GRASS_ALPHA_TEST,
+    translucencyStrength: 0.14,
+  });
+  const far = createRibbonGrassMaterial(textures, {
+    useSway: false,
+    useHeightDetail: false,
+    grade: GRASS_FAR_COLOR_GRADE,
+    alphaTest: 0.46,
+    translucencyStrength: 0.08,
+  });
+  const billboard = createRibbonGrassMaterial({
+    baseColor: textures.billboardBaseColor,
+    normal: textures.billboardNormal,
+    roughness: textures.roughness,
+    ao: textures.ao,
+    opacity: textures.billboardOpacity,
+    translucency: textures.billboardTranslucency,
+    cavity: textures.cavity,
+    gloss: textures.gloss,
+    specular: textures.specular,
+  }, {
+    useSway: false,
+    useHeightDetail: false,
+    grade: GRASS_FAR_COLOR_GRADE,
+    alphaTest: 0.48,
+    translucencyStrength: 0.1,
   });
 
-  material.name = 'ProceduralGrassMaterial';
+  return {
+    lod: [near, mid, far],
+    billboard,
+  };
+}
+
+function createRibbonGrassMaterial(textures, options) {
+  const material = new THREE.MeshStandardMaterial({
+    map: textures.baseColor,
+    normalMap: textures.normal,
+    roughnessMap: textures.roughness,
+    aoMap: textures.ao,
+    alphaMap: textures.opacity,
+    bumpMap: options.useHeightDetail ? textures.bump : null,
+    displacementMap: options.useHeightDetail ? textures.displacement : null,
+    roughness: 0.86,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    alphaTest: options.alphaTest,
+    transparent: false,
+    depthWrite: true,
+    depthTest: true,
+    alphaToCoverage: true,
+    bumpScale: options.useHeightDetail ? 0.025 : 0,
+    displacementScale: options.useHeightDetail ? 0.012 : 0,
+    displacementBias: 0,
+  });
+
+  material.name = options.useSway ? 'RibbonGrassMaterial' : 'RibbonGrassFarMaterial';
+  material.userData.ribbonGrassMaps = {
+    translucency: textures.translucency,
+    cavity: textures.cavity,
+    gloss: textures.gloss,
+  };
+  configureGrassMaterial(material);
+
+  if (options.useSway) {
+    return createGrassSwayMaterial(material, null, options);
+  }
+
+  material.userData.grassUniforms = null;
+  material.onBeforeCompile = (shader) => applyGrassColorGrade(shader, options.grade, false, material.userData.ribbonGrassMaps, options.translucencyStrength);
+  material.customProgramCacheKey = () => `ribbon-grass-static-${options.alphaTest}-${options.translucencyStrength}`;
 
   return material;
 }
 
-function createBladeClumpGeometry(name, options) {
-  const positions = [];
-  const uvs = [];
-  const colors = [];
-  const indices = [];
-  const rootColor = new THREE.Color(0x314426);
-  const greenColor = new THREE.Color(0x7f9f68);
-  const paleColor = new THREE.Color(0x9daf7f);
-  const dryColor = new THREE.Color(0x8c7a4a);
+function createRibbonGrassVariant(lodRoots, materials) {
+  const lods = lodRoots.map((root, lodLevel) => buildRibbonGrassLeaves(root, materials.lod[lodLevel], `LOD${lodLevel}`));
+  const billboard = [{
+    name: 'Billboard',
+    geometry: createRibbonGrassBillboardGeometry(),
+    material: materials.billboard,
+  }];
 
-  for (let i = 0; i < options.bladeCount; i += 1) {
-    const seed = hash2(i * 13.7 + name.length, i * -5.9);
-    const angle = seed * Math.PI * 2;
-    const spread = Math.sqrt(hash2(i + 1.7, name.length + 3.2)) * options.radius;
-    const baseX = Math.cos(angle) * spread;
-    const baseZ = Math.sin(angle) * spread;
-    const height = THREE.MathUtils.lerp(options.minHeight, options.maxHeight, hash2(i + 4.1, name.length - 1.6));
-    const width = THREE.MathUtils.lerp(options.minWidth, options.maxWidth, hash2(i - 7.4, name.length + 8.2));
-    const yaw = hash2(i + 19.3, name.length * 2.1) * Math.PI * 2;
-    const sideX = Math.cos(yaw) * width;
-    const sideZ = Math.sin(yaw) * width;
-    const leanAngle = yaw + THREE.MathUtils.lerp(-0.8, 0.8, hash2(i - 2.8, name.length + 11.4));
-    const lean = THREE.MathUtils.lerp(options.lean * 0.45, options.lean, hash2(i + 6.8, name.length - 13.5));
-    const leanX = Math.cos(leanAngle) * lean;
-    const leanZ = Math.sin(leanAngle) * lean;
-    const midX = baseX + leanX * height * 0.34;
-    const midZ = baseZ + leanZ * height * 0.34;
-    const tipX = baseX + leanX * height;
-    const tipZ = baseZ + leanZ * height;
-    const dryAmount = hash2(i + 23.1, name.length - 31.8) < options.dryMix ? 1 : 0;
-    const bladeColor = greenColor.clone().lerp(dryColor, dryAmount);
-    const tipColor = bladeColor.clone().lerp(paleColor, dryAmount > 0 ? 0.12 : 0.26);
-    const vertexStart = positions.length / 3;
+  return {
+    lods,
+    billboard,
+    leaves: lods[0],
+  };
+}
 
-    positions.push(
-      baseX - sideX, 0, baseZ - sideZ,
-      baseX + sideX, 0, baseZ + sideZ,
-      midX - sideX * 0.62, height * 0.55, midZ - sideZ * 0.62,
-      midX + sideX * 0.62, height * 0.55, midZ + sideZ * 0.62,
-      tipX, height, tipZ,
-    );
-    uvs.push(0, 0, 1, 0, 0.18, 0.58, 0.82, 0.58, 0.5, 1);
-    pushColor(colors, rootColor);
-    pushColor(colors, rootColor.clone().lerp(bladeColor, 0.28));
-    pushColor(colors, bladeColor);
-    pushColor(colors, bladeColor.clone().lerp(tipColor, 0.35));
-    pushColor(colors, tipColor);
-    indices.push(
-      vertexStart, vertexStart + 1, vertexStart + 2,
-      vertexStart + 1, vertexStart + 3, vertexStart + 2,
-      vertexStart + 2, vertexStart + 3, vertexStart + 4,
-    );
-  }
+function buildRibbonGrassLeaves(root, material, suffix) {
+  root.updateMatrixWorld(true);
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
+  const leaves = [];
+
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+
+    const geometry = child.geometry.clone();
+    const transform = child.matrixWorld.clone();
+
+    geometry.applyMatrix4(transform);
+    normalizeRibbonGrassGeometry(geometry);
+    ensureAoUv(geometry);
+
+    leaves.push({
+      name: `${child.name || 'Mesh'}_${suffix}`,
+      geometry,
+      material,
+    });
+  });
+
+  return leaves;
+}
+
+function normalizeRibbonGrassGeometry(geometry) {
+  geometry.computeBoundingBox();
+
+  const box = geometry.boundingBox;
+  const centerX = (box.min.x + box.max.x) * 0.5;
+  const centerZ = (box.min.z + box.max.z) * 0.5;
+
+  geometry.translate(-centerX, -box.min.y, -centerZ);
+  geometry.scale(RIBBON_GRASS_SCALE, RIBBON_GRASS_SCALE, RIBBON_GRASS_SCALE);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
+}
+
+function ensureAoUv(geometry) {
+  const uv = geometry.getAttribute('uv');
+
+  if (uv && !geometry.getAttribute('uv2')) {
+    geometry.setAttribute('uv2', uv.clone());
+  }
+}
+
+function createRibbonGrassBillboardGeometry() {
+  const halfWidth = RIBBON_GRASS_BILLBOARD_WIDTH * 0.5;
+  const height = RIBBON_GRASS_BILLBOARD_HEIGHT;
+  const y = RIBBON_GRASS_BILLBOARD_Y;
+  const positions = [
+    -halfWidth, 0, 0,
+    halfWidth, 0, 0,
+    -halfWidth, height, 0,
+    halfWidth, height, 0,
+    0, 0, -halfWidth,
+    0, 0, halfWidth,
+    0, height, -halfWidth,
+    0, height, halfWidth,
+  ];
+  const uvs = [
+    0, 0,
+    1, 0,
+    0, 1,
+    1, 1,
+    0, 0,
+    1, 0,
+    0, 1,
+    1, 1,
+  ];
+  const indices = [
+    0, 1, 2,
+    1, 3, 2,
+    4, 5, 6,
+    5, 7, 6,
+  ];
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.translate(0, -y, 0);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  ensureAoUv(geometry);
 
   return geometry;
 }
 
-function pushColor(colors, color) {
-  colors.push(color.r, color.g, color.b);
-}
-
-export function createGrassSwayMaterial(sourceMaterial, geometry) {
+export function createGrassSwayMaterial(sourceMaterial, geometry, options = {}) {
   const material = sourceMaterial.clone();
-  const height = Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001);
+  const height = geometry?.boundingBox
+    ? Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001)
+    : 1;
+  const baseY = geometry?.boundingBox ? geometry.boundingBox.min.y : 0;
   const uniforms = {
     uGrassTime: { value: 0 },
-    uGrassBaseY: { value: geometry.boundingBox.min.y },
+    uGrassBaseY: { value: baseY },
     uGrassHeight: { value: height },
     uGrassWindDirection: { value: WIND_DIRECTION },
     uGrassSwayStrength: { value: SWAY_STRENGTH * GRASS_SWAY_MOTION_SCALE },
     uGrassPlayerPosition: { value: new THREE.Vector2(PLAYER_SPAWN_POSITION.x, PLAYER_SPAWN_POSITION.z) },
   };
-
-  if ('vertexColors' in material) {
-    material.vertexColors = true;
-  }
 
   configureGrassMaterial(material);
   material.userData.grassUniforms = uniforms;
@@ -266,21 +382,9 @@ transformed.xz += (
   + grassSideDirection * grassFlutter * 0.05
 ) * uGrassSwayStrength * grassTipMask * grassSwayMask;`,
       );
-    applyGrassColorGrade(shader, GRASS_COLOR_GRADE, true);
+    applyGrassColorGrade(shader, options.grade || GRASS_COLOR_GRADE, true, material.userData.ribbonGrassMaps, options.translucencyStrength || 0.14);
   };
-  material.customProgramCacheKey = () => 'grass-regional-sway-color-grade-v1';
-
-  return material;
-}
-
-function createSimpleMaterial(sourceMaterial, geometry) {
-  const material = sourceMaterial.clone();
-
-  configureGrassMaterial(material);
-  material.alphaTest = Math.max(material.alphaTest, 0.46);
-  material.userData.grassUniforms = null;
-  material.onBeforeCompile = (shader) => applyGrassColorGrade(shader, GRASS_FAR_COLOR_GRADE, false);
-  material.customProgramCacheKey = () => 'grass-far-color-grade-v1';
+  material.customProgramCacheKey = () => `ribbon-grass-sway-${options.translucencyStrength || 0.14}`;
 
   return material;
 }
@@ -298,12 +402,16 @@ function configureGrassMaterial(material) {
   material.needsUpdate = true;
 }
 
-function applyGrassColorGrade(shader, grade, useHeightShading) {
+function applyGrassColorGrade(shader, grade, useHeightShading, maps = {}, translucencyStrength = 0.1) {
   shader.uniforms.uGrassShadowLiftColor = { value: new THREE.Color(GRASS_SHADOW_LIFT_COLOR) };
   shader.uniforms.uGrassShadowLiftIntensity = { value: GRASS_SHADOW_LIFT_INTENSITY };
   shader.uniforms.uGrassBrightness = { value: grade.brightness };
   shader.uniforms.uGrassSaturation = { value: grade.saturation };
   shader.uniforms.uGrassHighlightCompression = { value: grade.highlightCompression };
+  shader.uniforms.uGrassTranslucencyMap = { value: maps.translucency || null };
+  shader.uniforms.uGrassCavityMap = { value: maps.cavity || null };
+  shader.uniforms.uGrassGlossMap = { value: maps.gloss || null };
+  shader.uniforms.uGrassTranslucencyStrength = { value: translucencyStrength };
   shader.fragmentShader = shader.fragmentShader
     .replace(
       '#include <common>',
@@ -313,6 +421,10 @@ uniform float uGrassShadowLiftIntensity;
 uniform float uGrassBrightness;
 uniform float uGrassSaturation;
 uniform float uGrassHighlightCompression;
+uniform sampler2D uGrassTranslucencyMap;
+uniform sampler2D uGrassCavityMap;
+uniform sampler2D uGrassGlossMap;
+uniform float uGrassTranslucencyStrength;
 ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
     )
     .replace(
@@ -320,8 +432,14 @@ ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
 float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
 float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
+vec3 grassTranslucency = texture2D(uGrassTranslucencyMap, vMapUv).rgb;
+float grassCavity = texture2D(uGrassCavityMap, vMapUv).r;
+float grassGloss = texture2D(uGrassGlossMap, vMapUv).r;
 gl_FragColor.rgb *= mix(1.0, 0.42, grassRootMask);
+gl_FragColor.rgb *= mix(0.78, 1.0, grassCavity);
 gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
+gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
+gl_FragColor.rgb += vec3(0.05, 0.06, 0.035) * grassGloss * grassTipMask * 0.06;
 float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
 gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
@@ -391,16 +509,18 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
 }
 
 export function buildInstancedMeshes(placements, variants, parent, lodLevel = 0) {
-  const useSimple = lodLevel >= 2;
-
   for (const [variantName, variant] of variants) {
     const variantPlacements = placements.filter((p) => p.variantName === variantName);
+    const leaves = lodLevel >= 3
+      ? variant.billboard
+      : variant.lods[Math.min(lodLevel, variant.lods.length - 1)];
 
-    for (const leaf of variant.leaves) {
-      const material = useSimple ? leaf.simpleMaterial : leaf.material;
+    if (variantPlacements.length === 0) continue;
+
+    for (const leaf of leaves) {
       const mesh = new THREE.InstancedMesh(
         leaf.geometry,
-        material,
+        leaf.material,
         variantPlacements.length,
       );
 
@@ -441,7 +561,7 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
   const normal = terrain.getNormalAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
-  const scaleValue = THREE.MathUtils.lerp(0.48, 1.18, edgeStrength) * THREE.MathUtils.lerp(0.86, 1.12, hash2(seedX + 5.7, seedZ + 33.1));
+  const scaleValue = THREE.MathUtils.lerp(0.42, 0.98, edgeStrength) * THREE.MathUtils.lerp(0.82, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
@@ -452,33 +572,14 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
 
   return {
     matrix,
-    variantName: getGrassVariantName(variantRoll, edgeStrength),
+    variantName: getGrassVariantName(variantRoll),
   };
 }
 
-function getGrassVariantName(roll, edgeStrength) {
-  if (edgeStrength < 0.36) {
-    if (roll < 0.58) return 'GrassGroundCover';
-    if (roll < 0.88) return 'GrassDryMixed';
+function getGrassVariantName(roll) {
+  const variantIndex = Math.min(Math.floor(roll * RIBBON_GRASS_VARIANTS.length), RIBBON_GRASS_VARIANTS.length - 1);
 
-    return 'GrassBroadLeaf';
-  }
-
-  if (edgeStrength < 0.62) {
-    if (roll < 0.48) return 'GrassGroundCover';
-    if (roll < 0.78) return 'GrassDryMixed';
-    if (roll < 0.96) return 'GrassBroadLeaf';
-
-    return 'GrassClump_A';
-  }
-
-  if (roll < 0.38) return 'GrassGroundCover';
-  if (roll < 0.68) return 'GrassBroadLeaf';
-  if (roll < 0.88) return 'GrassDryMixed';
-  if (roll < 0.96) return 'GrassClump_A';
-  if (roll < 0.99) return 'GrassClump_B';
-
-  return 'GrassTallAccent';
+  return `RibbonGrass_${RIBBON_GRASS_VARIANTS[variantIndex]}`;
 }
 
 function getPatchesForPoint(worldX, worldZ) {
@@ -620,7 +721,7 @@ function createGrassPatches() {
 
 export async function createGrassClumps(terrain) {
   const asset = await loadGrassModel();
-  const variants = createGrassVariants(asset.scene);
+  const variants = createGrassVariants(asset);
   const placements = createGrassPlacements(terrain);
   const group = new THREE.Group();
 
@@ -656,10 +757,11 @@ function createGrassPlacements(terrain) {
         continue;
       }
 
-      const patchInfluence = getGrassPatchInfluence(offsetX, offsetZ);
-      if (!shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ, patchInfluence)) continue;
+      const patches = grassPatches;
+      const patchInfluence = getPatchInfluenceAt(offsetX, offsetZ, patches);
+      if (!shouldPlaceInPatch(offsetX, offsetZ, gridX, gridZ, patchInfluence)) continue;
 
-      const clusteredOffset = getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ);
+      const clusteredOffset = getClusteredOffset(offsetX, offsetZ, gridX, gridZ, patches);
       const x = PLAYER_SPAWN_POSITION.x + clusteredOffset.x;
       const z = PLAYER_SPAWN_POSITION.z + clusteredOffset.z;
 
@@ -667,82 +769,10 @@ function createGrassPlacements(terrain) {
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(x, z)) continue;
 
-      const clusteredInfluence = getGrassPatchInfluence(clusteredOffset.x, clusteredOffset.z);
+      const clusteredInfluence = getPatchInfluenceAt(clusteredOffset.x, clusteredOffset.z, patches);
       placements.push(createPlacement(terrain, x, z, gridX, gridZ, clusteredInfluence));
     }
   }
 
   return placements;
-}
-
-function shouldPlaceGrassInPatch(offsetX, offsetZ, gridX, gridZ, patchInfluence) {
-  const edgeNoise = hash2(gridX * 1.73 + 19.2, gridZ * -2.11 - 7.4);
-  const fineBreakup = 0.5 + 0.5 * Math.sin(offsetX * 2.1 + Math.sin(offsetZ * 1.7) * 1.6);
-  const localAcceptance = THREE.MathUtils.lerp(
-    Math.min(PATCH_GAP_ACCEPTANCE, 0.12),
-    PATCH_FULL_ACCEPTANCE,
-    smoothstep(0.16, 0.88, patchInfluence),
-  );
-
-  return edgeNoise < localAcceptance - ((1 - patchInfluence) * 0.2) + ((fineBreakup - 0.5) * 0.14);
-}
-
-function getClusteredGrassOffset(offsetX, offsetZ, gridX, gridZ) {
-  const patch = getStrongestGrassPatch(offsetX, offsetZ);
-
-  if (!patch) return { x: offsetX, z: offsetZ };
-
-  const dx = patch.x - offsetX;
-  const dz = patch.z - offsetZ;
-  const distance = Math.sqrt(dx * dx + dz * dz);
-  const influence = 1 - smoothstep(patch.radius * 0.2, patch.radius, distance);
-  const pull = influence * THREE.MathUtils.lerp(0.12, 0.24, hash2(gridX - 14.2, gridZ + 55.8));
-
-  return {
-    x: offsetX + dx * pull,
-    z: offsetZ + dz * pull,
-  };
-}
-
-function getStrongestGrassPatch(offsetX, offsetZ) {
-  let strongestPatch = null;
-  let strongestInfluence = 0;
-
-  for (const patch of grassPatches) {
-    const dx = offsetX - patch.x;
-    const dz = offsetZ - patch.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    const influence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
-
-    if (influence <= strongestInfluence) continue;
-
-    strongestInfluence = influence;
-    strongestPatch = patch;
-  }
-
-  return strongestPatch;
-}
-
-function getGrassPatchInfluence(offsetX, offsetZ) {
-  let influence = 0;
-  let layeredInfluence = 0;
-
-  for (const patch of grassPatches) {
-    const dx = offsetX - patch.x;
-    const dz = offsetZ - patch.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    const patchInfluence = 1 - smoothstep(patch.radius * 0.42, patch.radius * 1.22, distance);
-
-    influence = Math.max(influence, patchInfluence);
-    layeredInfluence += patchInfluence * 0.42;
-  }
-
-  const broadBreakup = 0.5 + 0.5 * Math.sin(offsetX * 0.72 + offsetZ * 0.41);
-  const edgeBreakup = 0.5 + 0.5 * Math.sin(offsetX * 1.37 - offsetZ * 1.91);
-
-  return THREE.MathUtils.clamp(
-    Math.max(influence, layeredInfluence) * 0.84 + broadBreakup * 0.1 + edgeBreakup * 0.06,
-    0,
-    1,
-  );
 }

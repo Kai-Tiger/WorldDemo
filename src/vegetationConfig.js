@@ -15,16 +15,16 @@ export const KEEP_ALIVE_PADDING = ZONE_SIZE;
 // Grass  |  草
 // ============================================================
 
-/** 草地模型文件路径  |  Grass 3D model path */
-export const GRASS_MODEL_PATH = '/assets/vegetation/grass-clumps.glb';
+/** 草地资产目录  |  Grass asset folder */
+export const GRASS_ASSET_BASE_PATH = '/assets/vegetation/ribbon-grass';
 
 // --- 放置 (Placement) ---
 
 /** LOD 各级密度（丛 / 平方米）  |  Density per LOD level (clumps / m²) */
 export const GRASS_LOD_DENSITIES = [16, 4, 1];
 
-/** LOD 距离阈值（米），距玩家超过此距离则使用对应级别的密度  |  LOD distance thresholds (m) */
-export const GRASS_LOD_DISTANCES = [20, 50, 150];
+/** LOD 距离阈值（米）：LOD0、LOD1、LOD2、billboard  |  LOD distance thresholds (m): LOD0, LOD1, LOD2, billboard */
+export const GRASS_LOD_DISTANCES = [20, 50, 105, 150];
 
 /** 草在河道两侧的排除缓冲区（米）  |  River exclusion buffer for grass (m) */
 export const GRASS_RIVER_BUFFER = 2;
