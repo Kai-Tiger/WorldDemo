@@ -37,7 +37,7 @@ const GRASS_WIND_SWAY_RADIUS = 20;
 const GRASS_WIND_REGION_SIZE = 12;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
-const GRASS_ALPHA_TEST = 0.18;
+const GRASS_ALPHA_TEST = 0.08;
 const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
 const GRASS_SHADOW_LIFT_INTENSITY = 0.12;
 const GRASS_EMISSIVE_INTENSITY = 0.015;
@@ -47,17 +47,18 @@ const GRASS_COLOR_GRADE = {
   highlightCompression: 0.5,
 };
 const GRASS_FAR_COLOR_GRADE = {
-  brightness: 0.5,
-  saturation: 0.38,
-  highlightCompression: 0.66,
+  brightness: 0.32,
+  saturation: 0.92,
+  highlightCompression: 0.86,
 };
+const GRASS_NEAR_TINT = 0x7f8f48;
+const GRASS_FAR_TINT = 0x526a32;
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
 const RIBBON_GRASS_SCALE = 0.0135;
-const RIBBON_GRASS_BILLBOARD_WIDTH = 0.85;
-const RIBBON_GRASS_BILLBOARD_HEIGHT = 1.15;
-const RIBBON_GRASS_BILLBOARD_Y = RIBBON_GRASS_BILLBOARD_HEIGHT * 0.5;
+const RIBBON_GRASS_BILLBOARD_WIDTH = 0.68;
+const RIBBON_GRASS_BILLBOARD_HEIGHT = 0.92;
 
 export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
@@ -137,6 +138,7 @@ function createRibbonGrassMaterials(textures) {
     useHeightDetail: true,
     grade: GRASS_COLOR_GRADE,
     alphaTest: GRASS_ALPHA_TEST,
+    tintColor: GRASS_NEAR_TINT,
     translucencyStrength: 0.18,
   });
   const mid = createRibbonGrassMaterial(textures, {
@@ -144,14 +146,16 @@ function createRibbonGrassMaterials(textures) {
     useHeightDetail: false,
     grade: GRASS_COLOR_GRADE,
     alphaTest: GRASS_ALPHA_TEST,
+    tintColor: GRASS_NEAR_TINT,
     translucencyStrength: 0.14,
   });
   const far = createRibbonGrassMaterial(textures, {
     useSway: false,
     useHeightDetail: false,
     grade: GRASS_FAR_COLOR_GRADE,
-    alphaTest: 0.46,
-    translucencyStrength: 0.08,
+    alphaTest: GRASS_ALPHA_TEST,
+    tintColor: GRASS_FAR_TINT,
+    translucencyStrength: 0.04,
   });
   const billboard = createRibbonGrassMaterial({
     baseColor: textures.billboardBaseColor,
@@ -167,8 +171,9 @@ function createRibbonGrassMaterials(textures) {
     useSway: false,
     useHeightDetail: false,
     grade: GRASS_FAR_COLOR_GRADE,
-    alphaTest: 0.48,
-    translucencyStrength: 0.1,
+    alphaTest: 0.35,
+    tintColor: GRASS_FAR_TINT,
+    translucencyStrength: 0.06,
   });
 
   return {
@@ -194,6 +199,7 @@ function createRibbonGrassMaterial(textures, options) {
     depthWrite: true,
     depthTest: true,
     alphaToCoverage: true,
+    color: options.tintColor,
     bumpScale: options.useHeightDetail ? 0.025 : 0,
     displacementScale: options.useHeightDetail ? 0.012 : 0,
     displacementBias: 0,
@@ -283,7 +289,6 @@ function ensureAoUv(geometry) {
 function createRibbonGrassBillboardGeometry() {
   const halfWidth = RIBBON_GRASS_BILLBOARD_WIDTH * 0.5;
   const height = RIBBON_GRASS_BILLBOARD_HEIGHT;
-  const y = RIBBON_GRASS_BILLBOARD_Y;
   const positions = [
     -halfWidth, 0, 0,
     halfWidth, 0, 0,
@@ -315,7 +320,6 @@ function createRibbonGrassBillboardGeometry() {
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
-  geometry.translate(0, -y, 0);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
@@ -561,7 +565,7 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
   const normal = terrain.getNormalAt(x, z);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
-  const scaleValue = THREE.MathUtils.lerp(0.42, 0.98, edgeStrength) * THREE.MathUtils.lerp(0.82, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
+  const scaleValue = THREE.MathUtils.lerp(0.82, 1.08, edgeStrength) * THREE.MathUtils.lerp(0.94, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);

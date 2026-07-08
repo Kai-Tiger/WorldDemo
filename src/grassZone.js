@@ -110,17 +110,11 @@ export class GrassZone {
 
       if (dist <= lodDistances[0]) {
         lod0.push(p);
-      }
-
-      if (dist <= lodDistances[1] && shouldKeepForLOD(el[12], el[14], 1)) {
+      } else if (dist <= lodDistances[1] && shouldKeepForLOD(el[12], el[14], 1)) {
         lod1.push(p);
-      }
-
-      if (dist <= lodDistances[2] && shouldKeepForLOD(el[12], el[14], 2)) {
+      } else if (dist <= lodDistances[2] && shouldKeepForLOD(el[12], el[14], 2)) {
         lod2.push(p);
-      }
-
-      if (dist > lodDistances[2] && dist <= lodDistances[3] && shouldKeepForLOD(el[12], el[14], 3)) {
+      } else if (dist <= lodDistances[3] && shouldKeepForLOD(el[12], el[14], 3)) {
         billboard.push(p);
       }
     }
