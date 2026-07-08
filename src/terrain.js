@@ -23,6 +23,11 @@ const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png'
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
 const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
+const FOREST_FLOOR_BASE_COLOR_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_BaseColor.jpg';
+const FOREST_FLOOR_NORMAL_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Normal.jpg';
+const FOREST_FLOOR_ROUGHNESS_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Roughness.jpg';
+const FOREST_FLOOR_AO_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_AO.jpg';
+const FOREST_FLOOR_DISPLACEMENT_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Displacement.jpg';
 const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const CHUNK_SEGMENTS = 256;
@@ -40,6 +45,8 @@ const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const GROUND_TEXTURE_WORLD_SIZE = 8;
 const GRAVEL_TEXTURE_WORLD_SIZE = 4.5;
+const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
+const FOREST_FLOOR_CELL_WORLD_SIZE = 2;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -556,6 +563,11 @@ async function loadTerrainTextures() {
     snow,
     gravelAlbedo,
     gravelNormal,
+    forestFloorBaseColor,
+    forestFloorNormal,
+    forestFloorRoughness,
+    forestFloorAo,
+    forestFloorDisplacement,
     riverBank,
     riverBed,
   ] = await Promise.all([
@@ -566,18 +578,23 @@ async function loadTerrainTextures() {
     loader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
     loader.loadAsync(GRAVEL_ALBEDO_TEXTURE_PATH),
     loader.loadAsync(GRAVEL_NORMAL_TEXTURE_PATH),
+    loader.loadAsync(FOREST_FLOOR_BASE_COLOR_TEXTURE_PATH),
+    loader.loadAsync(FOREST_FLOOR_NORMAL_TEXTURE_PATH),
+    loader.loadAsync(FOREST_FLOOR_ROUGHNESS_TEXTURE_PATH),
+    loader.loadAsync(FOREST_FLOOR_AO_TEXTURE_PATH),
+    loader.loadAsync(FOREST_FLOOR_DISPLACEMENT_TEXTURE_PATH),
     loader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     loader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [frozenDirt, scree, rock, snow, gravelAlbedo, riverBank, riverBed]) {
+  for (const texture of [frozenDirt, scree, rock, snow, gravelAlbedo, forestFloorBaseColor, riverBank, riverBed]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 8;
   }
 
-  for (const texture of [rockNormal, gravelNormal]) {
+  for (const texture of [rockNormal, gravelNormal, forestFloorNormal, forestFloorRoughness, forestFloorAo, forestFloorDisplacement]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.NoColorSpace;
@@ -592,6 +609,11 @@ async function loadTerrainTextures() {
     snow,
     gravelAlbedo,
     gravelNormal,
+    forestFloorBaseColor,
+    forestFloorNormal,
+    forestFloorRoughness,
+    forestFloorAo,
+    forestFloorDisplacement,
     riverBank,
     riverBed,
   };
@@ -610,10 +632,17 @@ function createTerrainMaterial(textures) {
         uSnowTexture: { value: textures.snow },
         uGravelAlbedoTexture: { value: textures.gravelAlbedo },
         uGravelNormalTexture: { value: textures.gravelNormal },
+        uForestFloorBaseColorTexture: { value: textures.forestFloorBaseColor },
+        uForestFloorNormalTexture: { value: textures.forestFloorNormal },
+        uForestFloorRoughnessTexture: { value: textures.forestFloorRoughness },
+        uForestFloorAoTexture: { value: textures.forestFloorAo },
+        uForestFloorDisplacementTexture: { value: textures.forestFloorDisplacement },
         uRiverBankTexture: { value: textures.riverBank },
         uRiverBedTexture: { value: textures.riverBed },
         uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
         uGravelTextureWorldSize: { value: GRAVEL_TEXTURE_WORLD_SIZE },
+        uForestFloorTextureWorldSize: { value: FOREST_FLOOR_TEXTURE_WORLD_SIZE },
+        uForestFloorCellWorldSize: { value: FOREST_FLOOR_CELL_WORLD_SIZE },
         uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
         uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
         uSunDirection: { value: SUN_LIGHT_DIRECTION.clone() },
@@ -685,10 +714,17 @@ function createTerrainMaterial(textures) {
       uniform sampler2D uSnowTexture;
       uniform sampler2D uGravelAlbedoTexture;
       uniform sampler2D uGravelNormalTexture;
+      uniform sampler2D uForestFloorBaseColorTexture;
+      uniform sampler2D uForestFloorNormalTexture;
+      uniform sampler2D uForestFloorRoughnessTexture;
+      uniform sampler2D uForestFloorAoTexture;
+      uniform sampler2D uForestFloorDisplacementTexture;
       uniform sampler2D uRiverBankTexture;
       uniform sampler2D uRiverBedTexture;
       uniform float uTextureWorldSize;
       uniform float uGravelTextureWorldSize;
+      uniform float uForestFloorTextureWorldSize;
+      uniform float uForestFloorCellWorldSize;
       uniform float uRiverBedTextureWorldSize;
       uniform vec3 uSunDirection;
       uniform vec3 uSkyLightColor;
@@ -784,6 +820,78 @@ function createTerrainMaterial(textures) {
         return normalize(xWorld * blend.x + yWorld * blend.y + zWorld * blend.z);
       }
 
+      vec2 rotateQuarter(vec2 value, float turn) {
+        if (turn < 0.5) return value;
+        if (turn < 1.5) return vec2(-value.y, value.x);
+        if (turn < 2.5) return -value;
+        return vec2(value.y, -value.x);
+      }
+
+      float forestFloorCellTurn(vec2 cell) {
+        return floor(hash(cell + vec2(31.3, 11.7)) * 4.0);
+      }
+
+      vec2 forestFloorCellOffset(vec2 cell) {
+        return vec2(
+          hash(cell + vec2(5.2, 1.7)),
+          hash(cell + vec2(8.3, 2.8))
+        ) * 19.0;
+      }
+
+      vec4 sampleForestFloorCell(sampler2D terrainTexture, vec2 worldPosition, vec2 cell) {
+        float turn = forestFloorCellTurn(cell);
+        vec2 uv = rotateQuarter(worldPosition / uForestFloorTextureWorldSize, turn)
+          + forestFloorCellOffset(cell);
+
+        return texture2D(terrainTexture, uv);
+      }
+
+      vec4 sampleForestFloorTexture(sampler2D terrainTexture, vec2 worldPosition) {
+        vec2 cellPosition = worldPosition / uForestFloorCellWorldSize;
+        vec2 cell = floor(cellPosition);
+        vec2 blend = smoothstep(vec2(0.18), vec2(0.82), fract(cellPosition));
+        vec4 a = sampleForestFloorCell(terrainTexture, worldPosition, cell);
+        vec4 b = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(1.0, 0.0));
+        vec4 c = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(0.0, 1.0));
+        vec4 d = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(1.0, 1.0));
+
+        return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+      }
+
+      vec3 sampleForestFloorNormalCell(vec2 worldPosition, vec2 cell) {
+        float turn = forestFloorCellTurn(cell);
+        vec2 uv = rotateQuarter(worldPosition / uForestFloorTextureWorldSize, turn)
+          + forestFloorCellOffset(cell);
+        vec3 tangentNormal = texture2D(uForestFloorNormalTexture, uv).rgb * 2.0 - 1.0;
+
+        tangentNormal.xy = rotateQuarter(tangentNormal.xy, turn);
+
+        return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
+      }
+
+      vec3 sampleForestFloorNormal(vec2 worldPosition) {
+        vec2 cellPosition = worldPosition / uForestFloorCellWorldSize;
+        vec2 cell = floor(cellPosition);
+        vec2 blend = smoothstep(vec2(0.18), vec2(0.82), fract(cellPosition));
+        vec3 a = sampleForestFloorNormalCell(worldPosition, cell);
+        vec3 b = sampleForestFloorNormalCell(worldPosition, cell + vec2(1.0, 0.0));
+        vec3 c = sampleForestFloorNormalCell(worldPosition, cell + vec2(0.0, 1.0));
+        vec3 d = sampleForestFloorNormalCell(worldPosition, cell + vec2(1.0, 1.0));
+
+        return normalize(mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y));
+      }
+
+      vec3 applyForestFloorHeightNormal(vec3 baseNormal, vec2 worldPosition, float strength) {
+        float sampleOffset = 0.32;
+        float hL = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition - vec2(sampleOffset, 0.0)).r;
+        float hR = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition + vec2(sampleOffset, 0.0)).r;
+        float hD = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition - vec2(0.0, sampleOffset)).r;
+        float hU = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition + vec2(0.0, sampleOffset)).r;
+        vec2 gradient = vec2(hR - hL, hU - hD);
+
+        return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
+      }
+
       void main() {
         vec3 normal = normalize(vWorldNormal);
         vec2 blendUv = vWorldUv * uTextureWorldSize;
@@ -811,14 +919,14 @@ function createTerrainMaterial(textures) {
         vec3 riverBedB = texture2D(uRiverBedTexture, riverBedUv * vec2(0.61, 1.27) + vec2(12.7, -4.4)).rgb;
         vec3 riverBed = mix(riverBedA, riverBedB, 0.28);
 
-        float dryPatch = smoothstep(0.52, 0.82, fbm(blendUv * 0.09 + vec2(-11.0, 3.5)));
         float gravelPatch = smoothstep(0.46, 0.78, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
-        float soilNoise = fbm(blendUv * 0.055 + vec2(3.0, -9.0));
-        float fineNoise = fbm(vWorldPosition.xz * 1.75 + vec2(19.0, -6.0));
-        vec3 groundColor = mix(vec3(0.28, 0.20, 0.12), vec3(0.42, 0.32, 0.19), soilNoise);
-        groundColor = mix(groundColor, vec3(0.50, 0.42, 0.25), dryPatch * 0.28);
-        groundColor = mix(groundColor, vec3(0.31, 0.29, 0.24), gravelPatch * 0.18);
-        groundColor *= mix(0.92, 1.08, fineNoise);
+        vec2 forestFloorPosition = vWorldPosition.xz;
+        vec3 forestFloorBase = sampleForestFloorTexture(uForestFloorBaseColorTexture, forestFloorPosition).rgb;
+        float forestFloorAo = sampleForestFloorTexture(uForestFloorAoTexture, forestFloorPosition).r;
+        float forestFloorRoughness = sampleForestFloorTexture(uForestFloorRoughnessTexture, forestFloorPosition).r;
+        float forestMacro = fbm(blendUv * 0.035 + vec2(3.0, -9.0));
+        vec3 groundColor = forestFloorBase * mix(0.86, 1.12, forestMacro);
+        groundColor *= mix(0.66, 1.0, forestFloorAo);
 
         float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
         float noisyHeight = vWorldHeight + heightNoise;
@@ -869,8 +977,13 @@ function createTerrainMaterial(textures) {
 
         float rockInfluence = clamp(max(screeMask, rockMask), 0.0, 1.0);
         float wetInfluence = clamp(max(wetShoreMask, snowmeltWetMask), 0.0, 1.0);
+        float terrainWaterFade = 1.0 - clamp(max(max(riverMask, riverBedMask), max(lakeBedMask, wetShoreMask)), 0.0, 1.0);
         vec3 surfaceNormal = applyDetailNormal(normal, vWorldPosition.xz, groundMask, rockInfluence, wetInfluence);
-        float gravelWaterFade = 1.0 - clamp(max(max(riverMask, riverBedMask), max(lakeBedMask, wetShoreMask)), 0.0, 1.0);
+        float forestNormalMask = groundMask * terrainWaterFade * (1.0 - clamp(gravelLayerMask * 0.82, 0.0, 1.0));
+        vec3 forestMappedNormal = sampleForestFloorNormal(forestFloorPosition);
+        surfaceNormal = normalize(mix(surfaceNormal, forestMappedNormal, forestNormalMask * 0.5));
+        surfaceNormal = applyForestFloorHeightNormal(surfaceNormal, forestFloorPosition, forestNormalMask * 0.34);
+        float gravelWaterFade = terrainWaterFade;
         float gravelNormalMask = gravelLayerMask * gravelWaterFade;
         vec3 gravelNormalSample = texture2D(uGravelNormalTexture, gravelUv).rgb * 2.0 - 1.0;
         vec3 gravelMappedNormal = normalize(vec3(gravelNormalSample.x, gravelNormalSample.z, gravelNormalSample.y));
@@ -888,8 +1001,12 @@ function createTerrainMaterial(textures) {
         vec3 viewDir = normalize(cameraPosition - vWorldPosition);
         vec3 halfDir = normalize(normalize(uSunDirection) + viewDir);
         float wetSpec = pow(max(dot(surfaceNormal, halfDir), 0.0), 72.0);
+        float forestSpecPower = mix(18.0, 92.0, forestFloorRoughness);
+        float forestSpecMask = forestNormalMask * pow(1.0 - forestFloorRoughness, 2.0);
+        float forestSpec = pow(max(dot(surfaceNormal, halfDir), 0.0), forestSpecPower) * forestSpecMask;
         float glancing = pow(1.0 - max(dot(viewDir, surfaceNormal), 0.0), 3.0);
         float wetReflect = max(wetShoreMask * 0.4, snowmeltWetMask) * max(wetSpec * 0.9, glancing * 0.16) * shadowMask;
+        litColor += uSunLightColor * forestSpec * shadowMask * 0.1;
         litColor += vec3(0.78, 0.95, 1.0) * wetReflect;
 
         gl_FragColor = vec4(litColor, 1.0);
