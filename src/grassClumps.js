@@ -37,7 +37,7 @@ const GRASS_WIND_SWAY_RADIUS = 20;
 const GRASS_WIND_REGION_SIZE = 12;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
-const GRASS_ALPHA_TEST = 0.08;
+const GRASS_ALPHA_TEST = 0;
 const GRASS_SHADOW_LIFT_COLOR = 0x2b3d22;
 const GRASS_SHADOW_LIFT_INTENSITY = 0.12;
 const GRASS_EMISSIVE_INTENSITY = 0.015;
@@ -57,11 +57,11 @@ const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
 const RIBBON_GRASS_SCALE = 0.0135;
-const RIBBON_GRASS_BILLBOARD_WIDTH = 0.68;
-const RIBBON_GRASS_BILLBOARD_HEIGHT = 0.92;
+const FULL_COVERAGE_GRASS_DENSITIES = [2.5];
+const FULL_COVERAGE_GRASS_DISTANCES = [260];
 
-export { GRASS_LOD_DENSITIES as LOD_DENSITIES };
-export { GRASS_LOD_DISTANCES as LOD_DISTANCES };
+export { FULL_COVERAGE_GRASS_DENSITIES as LOD_DENSITIES };
+export { FULL_COVERAGE_GRASS_DISTANCES as LOD_DISTANCES };
 export { ZONE_SIZE };
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
@@ -122,11 +122,9 @@ async function loadRibbonGrassTextures() {
 
 async function loadRibbonGrassModels() {
   const entries = await Promise.all(RIBBON_GRASS_VARIANTS.map(async (variantName) => {
-    const lods = await Promise.all([0, 1, 2].map((lodLevel) => (
-      fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD${lodLevel}.fbx`)
-    )));
+    const lod0 = await fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD0.fbx`);
 
-    return [variantName, lods];
+    return [variantName, [lod0]];
   }));
 
   return new Map(entries);
@@ -141,44 +139,9 @@ function createRibbonGrassMaterials(textures) {
     tintColor: GRASS_NEAR_TINT,
     translucencyStrength: 0.18,
   });
-  const mid = createRibbonGrassMaterial(textures, {
-    useSway: true,
-    useHeightDetail: false,
-    grade: GRASS_COLOR_GRADE,
-    alphaTest: GRASS_ALPHA_TEST,
-    tintColor: GRASS_NEAR_TINT,
-    translucencyStrength: 0.14,
-  });
-  const far = createRibbonGrassMaterial(textures, {
-    useSway: false,
-    useHeightDetail: false,
-    grade: GRASS_FAR_COLOR_GRADE,
-    alphaTest: GRASS_ALPHA_TEST,
-    tintColor: GRASS_FAR_TINT,
-    translucencyStrength: 0.04,
-  });
-  const billboard = createRibbonGrassMaterial({
-    baseColor: textures.billboardBaseColor,
-    normal: textures.billboardNormal,
-    roughness: textures.roughness,
-    ao: textures.ao,
-    opacity: textures.billboardOpacity,
-    translucency: textures.billboardTranslucency,
-    cavity: textures.cavity,
-    gloss: textures.gloss,
-    specular: textures.specular,
-  }, {
-    useSway: false,
-    useHeightDetail: false,
-    grade: GRASS_FAR_COLOR_GRADE,
-    alphaTest: 0.35,
-    tintColor: GRASS_FAR_TINT,
-    translucencyStrength: 0.06,
-  });
 
   return {
-    lod: [near, mid, far],
-    billboard,
+    lod: [near],
   };
 }
 
@@ -188,7 +151,7 @@ function createRibbonGrassMaterial(textures, options) {
     normalMap: textures.normal,
     roughnessMap: textures.roughness,
     aoMap: textures.ao,
-    alphaMap: textures.opacity,
+    alphaMap: null,
     bumpMap: options.useHeightDetail ? textures.bump : null,
     displacementMap: options.useHeightDetail ? textures.displacement : null,
     roughness: 0.86,
@@ -198,7 +161,7 @@ function createRibbonGrassMaterial(textures, options) {
     transparent: false,
     depthWrite: true,
     depthTest: true,
-    alphaToCoverage: true,
+    alphaToCoverage: false,
     color: options.tintColor,
     bumpScale: options.useHeightDetail ? 0.025 : 0,
     displacementScale: options.useHeightDetail ? 0.012 : 0,
@@ -225,16 +188,10 @@ function createRibbonGrassMaterial(textures, options) {
 }
 
 function createRibbonGrassVariant(lodRoots, materials) {
-  const lods = lodRoots.map((root, lodLevel) => buildRibbonGrassLeaves(root, materials.lod[lodLevel], `LOD${lodLevel}`));
-  const billboard = [{
-    name: 'Billboard',
-    geometry: createRibbonGrassBillboardGeometry(),
-    material: materials.billboard,
-  }];
+  const lods = [buildRibbonGrassLeaves(lodRoots[0], materials.lod[0], 'LOD0')];
 
   return {
     lods,
-    billboard,
     leaves: lods[0],
   };
 }
@@ -284,48 +241,6 @@ function ensureAoUv(geometry) {
   if (uv && !geometry.getAttribute('uv2')) {
     geometry.setAttribute('uv2', uv.clone());
   }
-}
-
-function createRibbonGrassBillboardGeometry() {
-  const halfWidth = RIBBON_GRASS_BILLBOARD_WIDTH * 0.5;
-  const height = RIBBON_GRASS_BILLBOARD_HEIGHT;
-  const positions = [
-    -halfWidth, 0, 0,
-    halfWidth, 0, 0,
-    -halfWidth, height, 0,
-    halfWidth, height, 0,
-    0, 0, -halfWidth,
-    0, 0, halfWidth,
-    0, height, -halfWidth,
-    0, height, halfWidth,
-  ];
-  const uvs = [
-    0, 0,
-    1, 0,
-    0, 1,
-    1, 1,
-    0, 0,
-    1, 0,
-    0, 1,
-    1, 1,
-  ];
-  const indices = [
-    0, 1, 2,
-    1, 3, 2,
-    4, 5, 6,
-    5, 7, 6,
-  ];
-  const geometry = new THREE.BufferGeometry();
-
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  ensureAoUv(geometry);
-
-  return geometry;
 }
 
 export function createGrassSwayMaterial(sourceMaterial, geometry, options = {}) {
@@ -395,10 +310,10 @@ transformed.xz += (
 
 function configureGrassMaterial(material) {
   material.transparent = false;
-  material.alphaTest = Math.max(material.alphaTest || 0, GRASS_ALPHA_TEST);
+  material.alphaTest = GRASS_ALPHA_TEST;
   material.depthWrite = true;
   material.depthTest = true;
-  material.alphaToCoverage = true;
+  material.alphaToCoverage = false;
   if ('emissive' in material) {
     material.emissive = new THREE.Color(GRASS_SHADOW_LIFT_COLOR);
     material.emissiveIntensity = Math.min(material.emissiveIntensity || GRASS_EMISSIVE_INTENSITY, GRASS_EMISSIVE_INTENSITY);

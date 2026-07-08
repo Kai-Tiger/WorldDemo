@@ -2,31 +2,8 @@ import * as THREE from 'three';
 import {
   buildInstancedMeshes,
   hash2,
-  smoothstep,
-  isGrassArea,
   createPlacement,
-  ZONE_SIZE,
 } from './grassClumps.js';
-import { isInRiverGrassExclusion } from './riverChannel.js';
-import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
-import { isInSmallLakeExclusion } from './smallLakes.js';
-import {
-  MAP_SIZE,
-  GRASS_RIVER_BUFFER,
-  GRASS_PATCH_RADIUS_MIN,
-  GRASS_PATCH_RADIUS_MAX,
-  GRASS_PATCH_GAP_ACCEPTANCE,
-} from './vegetationConfig.js';
-
-const RIVER_BUFFER = GRASS_RIVER_BUFFER;
-const WATER_SYSTEM_BUFFER = Math.max(RIVER_BUFFER, 6);
-const PATCH_GAP_ACCEPTANCE = GRASS_PATCH_GAP_ACCEPTANCE;
-const PATCH_FULL_ACCEPTANCE = 1;
-const PATCH_MIN_RADIUS = GRASS_PATCH_RADIUS_MIN;
-const PATCH_MAX_RADIUS = GRASS_PATCH_RADIUS_MAX;
-const HALF_MAP_SIZE = MAP_SIZE / 2;
-
-const patchCellCache = new Map();
 
 export class GrassZone {
   constructor(terrain, variants, minX, minZ, maxX, maxZ) {
@@ -41,11 +18,8 @@ export class GrassZone {
     this.group.name = `GrassZone_${minX}_${minZ}`;
     this.group.visible = false;
 
-    this.lod0Group = new THREE.Group();
-    this.lod1Group = new THREE.Group();
-    this.lod2Group = new THREE.Group();
-    this.billboardGroup = new THREE.Group();
-    this.group.add(this.lod0Group, this.lod1Group, this.lod2Group, this.billboardGroup);
+    this.grassGroup = new THREE.Group();
+    this.group.add(this.grassGroup);
 
     this.allPlacements = null;
     this._generator = null;
@@ -96,10 +70,8 @@ export class GrassZone {
   rebuildLOD(playerX, playerZ, lodDistances) {
     if (!this.hasPlacements) return;
 
-    const lod0 = [];
-    const lod1 = [];
-    const lod2 = [];
-    const billboard = [];
+    const visibleGrass = [];
+    const maxDistance = lodDistances[lodDistances.length - 1];
 
     for (let i = 0; i < this.allPlacements.length; i += 1) {
       const p = this.allPlacements[i];
@@ -108,36 +80,15 @@ export class GrassZone {
       const dz = el[14] - playerZ;
       const dist = Math.sqrt(dx * dx + dz * dz);
 
-      if (dist <= lodDistances[0]) {
-        lod0.push(p);
-      } else if (dist <= lodDistances[1] && shouldKeepForLOD(el[12], el[14], 1)) {
-        lod1.push(p);
-      } else if (dist <= lodDistances[2] && shouldKeepForLOD(el[12], el[14], 2)) {
-        lod2.push(p);
-      } else if (dist <= lodDistances[3] && shouldKeepForLOD(el[12], el[14], 3)) {
-        billboard.push(p);
+      if (dist <= maxDistance) {
+        visibleGrass.push(p);
       }
     }
 
-    this.clearGroup(this.lod0Group);
-    this.clearGroup(this.lod1Group);
-    this.clearGroup(this.lod2Group);
-    this.clearGroup(this.billboardGroup);
+    this.clearGroup(this.grassGroup);
 
-    if (lod0.length > 0) {
-      buildInstancedMeshes(lod0, this.variants, this.lod0Group, 0);
-    }
-
-    if (lod1.length > 0) {
-      buildInstancedMeshes(lod1, this.variants, this.lod1Group, 1);
-    }
-
-    if (lod2.length > 0) {
-      buildInstancedMeshes(lod2, this.variants, this.lod2Group, 2);
-    }
-
-    if (billboard.length > 0) {
-      buildInstancedMeshes(billboard, this.variants, this.billboardGroup, 3);
+    if (visibleGrass.length > 0) {
+      buildInstancedMeshes(visibleGrass, this.variants, this.grassGroup, 0);
     }
 
     this.group.visible = true;
@@ -151,10 +102,7 @@ export class GrassZone {
   }
 
   clearAll() {
-    this.clearGroup(this.lod0Group);
-    this.clearGroup(this.lod1Group);
-    this.clearGroup(this.lod2Group);
-    this.clearGroup(this.billboardGroup);
+    this.clearGroup(this.grassGroup);
     this.allPlacements = null;
     this.group.visible = false;
     this.builtForPosition = null;
@@ -168,15 +116,6 @@ export class GrassZone {
       this.group.parent.remove(this.group);
     }
   }
-}
-
-function shouldKeepForLOD(x, z, lodLevel) {
-  const quantize = 10;
-  const gx = Math.floor(x * quantize);
-  const gz = Math.floor(z * quantize);
-  const divisor = lodLevel === 1 ? 3 : lodLevel === 2 ? 24 : 12;
-
-  return hash2(gx + lodLevel * 997, gz + lodLevel * 2003) < (1 / divisor);
 }
 
 function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
@@ -208,21 +147,7 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
           const z = worldZ + jitterZ;
 
           if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-            const patches = getPatchesForPoint(x, z);
-            const patchInfluence = getPatchInfluenceAt(x, z, patches);
-
-            if (shouldPlaceInPatch(x, z, gridX, gridZ, patchInfluence)) {
-              if (isGrassArea(terrain, x, z)) {
-                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
-                  const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
-
-                  if (!isInRiverGrassExclusion(clustered.x, clustered.z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(clustered.x, clustered.z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(clustered.x, clustered.z)) {
-                    const clusteredInfluence = getPatchInfluenceAt(clustered.x, clustered.z, patches);
-                    placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ, clusteredInfluence));
-                  }
-                }
-              }
-            }
+            placements.push(createPlacement(terrain, x, z, gridX, gridZ, 1));
           }
 
           worldX += cellSize;
@@ -238,126 +163,4 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
       return worldZ > endZ;
     },
   };
-}
-
-function getPatchesForPoint(worldX, worldZ) {
-  const gridX = Math.floor((worldX + HALF_MAP_SIZE) / ZONE_SIZE);
-  const gridZ = Math.floor((worldZ + HALF_MAP_SIZE) / ZONE_SIZE);
-  const patches = [];
-
-  for (let dz = -1; dz <= 1; dz += 1) {
-    for (let dx = -1; dx <= 1; dx += 1) {
-      const key = `${gridX + dx},${gridZ + dz}`;
-
-      if (!patchCellCache.has(key)) {
-        const cMinX = (gridX + dx) * ZONE_SIZE - HALF_MAP_SIZE;
-        const cMinZ = (gridZ + dz) * ZONE_SIZE - HALF_MAP_SIZE;
-        patchCellCache.set(key, createPatchCell(cMinX, cMinZ, ZONE_SIZE));
-      }
-
-      patches.push(...patchCellCache.get(key));
-    }
-  }
-
-  return patches;
-}
-
-function createPatchCell(minX, minZ, size) {
-  const patches = [];
-  const maxX = minX + size;
-  const maxZ = minZ + size;
-
-  patches.push({
-    x: (minX + maxX) / 2,
-    z: (minZ + maxZ) / 2,
-    radius: size * 0.35,
-  });
-
-  const patchCount = 8;
-
-  for (let i = 1; i < patchCount; i += 1) {
-    const angle = hash2(minX + i * 9.4, minZ + i * -2.8) * Math.PI * 2;
-    const distance = Math.sqrt(hash2(minX + i * -4.7, minZ + i * 15.2)) * (size * 0.4);
-    const radius = THREE.MathUtils.lerp(PATCH_MIN_RADIUS, PATCH_MAX_RADIUS, hash2(minX + i * 31.6, minZ + i * -18.9));
-
-    patches.push({
-      x: (minX + maxX) / 2 + Math.cos(angle) * distance,
-      z: (minZ + maxZ) / 2 + Math.sin(angle) * distance,
-      radius,
-    });
-  }
-
-  return patches;
-}
-
-function shouldPlaceInPatch(worldX, worldZ, gridX, gridZ, patchInfluence) {
-  const edgeNoise = hash2(gridX * 1.73 + 19.2, gridZ * -2.11 - 7.4);
-  const fineBreakup = 0.5 + 0.5 * Math.sin(worldX * 2.1 + Math.sin(worldZ * 1.7) * 1.6);
-  const localAcceptance = THREE.MathUtils.lerp(
-    Math.min(PATCH_GAP_ACCEPTANCE, 0.12),
-    PATCH_FULL_ACCEPTANCE,
-    smoothstep(0.16, 0.88, patchInfluence),
-  );
-
-  return edgeNoise < localAcceptance - ((1 - patchInfluence) * 0.2) + ((fineBreakup - 0.5) * 0.14);
-}
-
-function getClusteredOffset(worldX, worldZ, gridX, gridZ, patches) {
-  const patch = getStrongestPatch(worldX, worldZ, patches);
-
-  if (!patch) return { x: worldX, z: worldZ };
-
-  const dx = patch.x - worldX;
-  const dz = patch.z - worldZ;
-  const distance = Math.sqrt(dx * dx + dz * dz);
-  const influence = 1 - smoothstep(patch.radius * 0.2, patch.radius, distance);
-  const pull = influence * THREE.MathUtils.lerp(0.12, 0.24, hash2(gridX - 14.2, gridZ + 55.8));
-
-  return {
-    x: worldX + dx * pull,
-    z: worldZ + dz * pull,
-  };
-}
-
-function getStrongestPatch(worldX, worldZ, patches) {
-  let strongest = null;
-  let strongestInfluence = 0;
-
-  for (const patch of patches) {
-    const dx = worldX - patch.x;
-    const dz = worldZ - patch.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    const influence = 1 - smoothstep(patch.radius * 0.28, patch.radius, distance);
-
-    if (influence <= strongestInfluence) continue;
-
-    strongestInfluence = influence;
-    strongest = patch;
-  }
-
-  return strongest;
-}
-
-function getPatchInfluenceAt(worldX, worldZ, patches) {
-  let influence = 0;
-  let layeredInfluence = 0;
-
-  for (const patch of patches) {
-    const dx = worldX - patch.x;
-    const dz = worldZ - patch.z;
-    const distance = Math.sqrt(dx * dx + dz * dz);
-    const patchInfluence = 1 - smoothstep(patch.radius * 0.42, patch.radius * 1.22, distance);
-
-    influence = Math.max(influence, patchInfluence);
-    layeredInfluence += patchInfluence * 0.42;
-  }
-
-  const broadBreakup = 0.5 + 0.5 * Math.sin(worldX * 0.72 + worldZ * 0.41);
-  const edgeBreakup = 0.5 + 0.5 * Math.sin(worldX * 1.37 - worldZ * 1.91);
-
-  return THREE.MathUtils.clamp(
-    Math.max(influence, layeredInfluence) * 0.84 + broadBreakup * 0.1 + edgeBreakup * 0.06,
-    0,
-    1,
-  );
 }
