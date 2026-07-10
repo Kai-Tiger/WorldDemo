@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gravel Terrain Materials"
+  short_description: "Build layered PBR gravel terrain workflows"
+  default_prompt: "Use $gravel-terrain-materials to plan a layered PBR gravel terrain material workflow."

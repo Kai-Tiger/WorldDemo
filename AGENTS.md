@@ -5,6 +5,7 @@
 Don't assume. Don't hide confusion. Surface tradeoffs.
 
 Before implementing:
+
 - State assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -38,8 +39,6 @@ Turn tasks into verifiable goals.
 - Feature work should include a clear acceptance check.
 - Refactors should preserve behavior and be verified.
 - Keep working until the requested change is implemented and checked.
-- When visual verification requires a screenshot, describe the exact view or issue to check and ask the user to take and provide the screenshot.
-- Do not start browsers, headless Chrome, Playwright, DevTools, or other screenshot tools yourself for screenshot capture.
 
 ## 5. Git Discipline
 

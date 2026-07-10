@@ -107,7 +107,7 @@ export const SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER = 0.45;
 export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
 
 /** 树木暗部补光强度；逆光过黑时提高，发亮发平时降低  |  Tree shadow lift intensity; raise for dark backlight, lower if trees look flat */
-export const TREE_SHADOW_LIFT_INTENSITY = 0.68;
+export const TREE_SHADOW_LIFT_INTENSITY = 0.6;
 
 // --- 放置 (Placement) ---
 
