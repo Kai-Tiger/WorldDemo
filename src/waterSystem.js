@@ -804,7 +804,7 @@ function getSnowmeltWaterFade(x, z, t) {
   return Math.min(shoreFade, startFade, endpointFade);
 }
 
-function createLakeSurfaceMaterial() {
+export function createLakeSurfaceMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     transparent: true,

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import {
   WATER_BANK_REFLECTION_COLOR,
   WATER_DEEP_COLOR,
@@ -9,14 +10,29 @@ import {
   WATER_SUN_REFLECTION_COLOR,
 } from './waterPalette.js';
 
+export const RIVER_TERMINAL_LAKE = Object.freeze({
+  cx: 690,
+  cz: -340,
+  radius: 20,
+  shoreWidth: 6,
+  waterLevel: -1.28,
+  maxDepth: 3,
+  edgeDepth: 0.15,
+  surfaceOffset: 0.045,
+});
+
 const CHANNEL_POINTS = [
   new THREE.Vector3(420, 0, -423),
-  new THREE.Vector3(430, 0, -417),
-  new THREE.Vector3(455, 0, -398),
-  new THREE.Vector3(500, 0, -375),
-  new THREE.Vector3(560, 0, -335),
-  new THREE.Vector3(590, 0, -302),
-  new THREE.Vector3(605, 0, -284),
+  new THREE.Vector3(435, 0, -413),
+  new THREE.Vector3(460, 0, -398),
+  new THREE.Vector3(489, 0, -388),
+  new THREE.Vector3(518, 0, -374),
+  new THREE.Vector3(545, 0, -350),
+  new THREE.Vector3(575, 0, -336),
+  new THREE.Vector3(604, 0, -337),
+  new THREE.Vector3(633, 0, -349),
+  new THREE.Vector3(662, 0, -351),
+  new THREE.Vector3(690, 0, -340),
 ];
 
 const CHANNEL_WIDTH = 8;
@@ -32,7 +48,9 @@ const WATER_LATERAL_SEGMENTS = 24;
 const WATER_PROFILE_SMOOTH_RADIUS = 10;
 const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
-const END_TAPER_LENGTH = 10;
+const START_TAPER_LENGTH = 10;
+const TERMINAL_LAKE_LEVEL_BLEND_LENGTH = 18;
+const TERMINAL_LAKE_VISUAL_FADE_LENGTH = 4;
 export const RIVER_BED_TEXTURE_PATH = '/assets/terrain/river-bed.webp';
 export const RIVER_BED_TEXTURE_WORLD_SIZE = 12;
 export const RIVER_BANK_TEXTURE_PATH = '/assets/terrain/river-bank-rock-wet-light-alt.webp';
@@ -51,6 +69,7 @@ const RIVER_BANK_OUTER_LATERAL = HALF_CHANNEL_WIDTH;
 const channelCurve = new THREE.CatmullRomCurve3(CHANNEL_POINTS, false, 'centripetal');
 const channelSamples = createChannelSamples();
 const channelLength = channelSamples[channelSamples.length - 1].distance;
+const terminalLakeEntryDistance = findTerminalLakeEntryDistance();
 const channelBounds = createChannelBounds();
 
 export async function loadRiverTextures() {
@@ -76,10 +95,18 @@ export function applyRiverChannel(baseHeight, x, z) {
   const lateralDistance = Math.abs(frame.lateral);
   const bedShape = 1 - smoothstep(0, HALF_CHANNEL_WIDTH, lateralDistance);
   const bankShape = 1 - smoothstep(HALF_CHANNEL_WIDTH, INFLUENCE_RADIUS, lateralDistance);
-  const endMask = getEndMask(frame.distance);
-  const carveDepth = CHANNEL_DEPTH * Math.max(bedShape, bankShape * 0.22) * heightMask * endMask;
+  const carveStrength = Math.max(bedShape, bankShape * 0.22)
+    * heightMask
+    * getStartMask(frame.distance);
 
-  return baseHeight - carveDepth;
+  if (isInsideTerminalLake(x, z)) {
+    const lakeBedTarget = RIVER_TERMINAL_LAKE.waterLevel - RIVER_TERMINAL_LAKE.maxDepth;
+    const riverBedTarget = THREE.MathUtils.lerp(baseHeight, lakeBedTarget, carveStrength);
+
+    return Math.min(baseHeight, riverBedTarget);
+  }
+
+  return baseHeight - CHANNEL_DEPTH * carveStrength;
 }
 
 export function getRiverMaterialMask(baseHeight, x, z) {
@@ -107,8 +134,7 @@ export function getRiverMaterialFrame(baseHeight, x, z) {
   );
   const bedMask = 1 - smoothstep(RIVER_BED_CORE_HALF_WIDTH, RIVER_BED_BLEND_HALF_WIDTH, lateralDistance);
   const underwaterMask = 1 - smoothstep(HALF_WATER_WIDTH - 0.2, HALF_WATER_WIDTH + 0.2, lateralDistance);
-  const endMask = getEndMask(frame.distance);
-  const mask = heightMask * endMask;
+  const mask = heightMask * getStartMask(frame.distance);
 
   return {
     riverMask: THREE.MathUtils.clamp(channelMask * mask, 0, 1),
@@ -362,8 +388,19 @@ function getWaterProfileHeight(profile, distance) {
   const lowerIndex = Math.floor(index);
   const upperIndex = Math.min(profile.heights.length - 1, lowerIndex + 1);
   const t = THREE.MathUtils.smoothstep(index - lowerIndex, 0, 1);
+  const profileHeight = THREE.MathUtils.lerp(
+    profile.heights[lowerIndex],
+    profile.heights[upperIndex],
+    t,
+  );
+  const lakeBlend = smoothstep(
+    terminalLakeEntryDistance - TERMINAL_LAKE_LEVEL_BLEND_LENGTH,
+    terminalLakeEntryDistance,
+    distance,
+  );
+  const lakeSurfaceHeight = RIVER_TERMINAL_LAKE.waterLevel + RIVER_TERMINAL_LAKE.surfaceOffset;
 
-  return THREE.MathUtils.lerp(profile.heights[lowerIndex], profile.heights[upperIndex], t);
+  return THREE.MathUtils.lerp(profileHeight, lakeSurfaceHeight, lakeBlend);
 }
 
 function createRiverWaterMaterial() {
@@ -381,8 +418,11 @@ function createRiverWaterMaterial() {
       uHorizonReflectionColor: { value: new THREE.Color(WATER_HORIZON_REFLECTION_COLOR) },
       uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
       uSunReflectionColor: { value: new THREE.Color(WATER_SUN_REFLECTION_COLOR) },
-      uSunDirection: { value: new THREE.Vector3(0.35, 0.9, 0.25).normalize() },
+      uSunDirection: { value: SUN_LIGHT_DIRECTION.clone() },
       uCameraPosition: { value: new THREE.Vector3() },
+      uTerminalLakeEntryDistance: { value: terminalLakeEntryDistance },
+      uTerminalLakeLevelBlendLength: { value: TERMINAL_LAKE_LEVEL_BLEND_LENGTH },
+      uTerminalLakeVisualFadeLength: { value: TERMINAL_LAKE_VISUAL_FADE_LENGTH },
     },
     vertexShader: `
       uniform float uTime;
@@ -415,6 +455,9 @@ function createRiverWaterMaterial() {
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
       uniform vec3 uCameraPosition;
+      uniform float uTerminalLakeEntryDistance;
+      uniform float uTerminalLakeLevelBlendLength;
+      uniform float uTerminalLakeVisualFadeLength;
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
@@ -476,10 +519,23 @@ function createRiverWaterMaterial() {
       }
 
       void main() {
+        float riverDistance = vUv.x * 8.0;
+        float terminalFade = 1.0 - smoothstep(
+          uTerminalLakeEntryDistance,
+          uTerminalLakeEntryDistance + uTerminalLakeVisualFadeLength,
+          riverDistance
+        );
+        float terminalApproach = smoothstep(
+          uTerminalLakeEntryDistance - uTerminalLakeLevelBlendLength,
+          uTerminalLakeEntryDistance,
+          riverDistance
+        );
         float edge = min(vUv.y, 1.0 - vUv.y);
         float centerMask = smoothstep(0.04, 0.46, edge);
         float depthMask = smoothstep(0.12, 1.45, vWaterDepth);
-        float deepMask = max(centerMask * depthMask, depthMask * 0.18);
+        float riverDeepMask = max(centerMask * depthMask, depthMask * 0.18);
+        float lakeDeepMask = smoothstep(2.2, 12.0, vWaterDepth);
+        float deepMask = mix(riverDeepMask, lakeDeepMask, terminalApproach);
         float edgeBreakup = fbm(vWorldPosition.xz * 0.52 + vec2(uTime * 0.025, -uTime * 0.01));
         float edgeAlpha = smoothstep(0.018, 0.18, edge + (edgeBreakup - 0.5) * 0.035);
         float depthAlpha = mix(0.58, 1.0, depthMask);
@@ -491,7 +547,7 @@ function createRiverWaterMaterial() {
         float bottomVisibility = mix(0.92, 0.5, depthMask);
         vec2 bedUv = vWorldPosition.xz;
 
-        float flowSpeed = mix(0.18, 0.42, deepMask);
+        float flowSpeed = mix(0.18, 0.42, deepMask) * terminalFade;
         vec2 waveUv = vec2(vUv.x * 0.52, vUv.y * 2.4);
         waveUv.x -= uTime * flowSpeed;
         vec3 normal = getWaterNormal(waveUv, vWorldPosition.xz * 0.2, mix(0.68, 1.12, deepMask));
@@ -519,6 +575,7 @@ function createRiverWaterMaterial() {
         float broadSpec = pow(max(dot(normal, halfDir), 0.0), 32.0);
         float sparkle = smoothstep(0.5, 0.9, fbm(vWorldPosition.xz * 0.95 + vec2(-uTime * 0.46, uTime * 0.08)));
         waterColor += uSunReflectionColor * (spec * sparkle * 0.8 + broadSpec * glancingReflection * 0.12);
+        waterColor = mix(waterColor, uDeepColor * 0.9, terminalApproach * 0.55);
 
         float foamBase = 1.0 - smoothstep(0.006, 0.055, edge);
         foamBase *= 1.0 - smoothstep(0.65, 1.45, vWaterDepth);
@@ -526,7 +583,7 @@ function createRiverWaterMaterial() {
         vec2 smallFoamUv = vec2(vUv.x * 18.0 - uTime * 0.34, vUv.y * 92.0);
         float bigFoam = smoothstep(0.62, 0.88, fbm(bigFoamUv));
         float smallFoam = smoothstep(0.72, 0.93, fbm(smallFoamUv));
-        float foam = foamBase * max(bigFoam * 0.45, smallFoam * 0.28) * 0.2;
+        float foam = foamBase * max(bigFoam * 0.45, smallFoam * 0.28) * 0.2 * terminalFade;
         float startFoam = (1.0 - smoothstep(0.08, 1.55, vUv.x))
           * smoothstep(0.08, 0.62, centerMask)
           * smoothstep(0.22, 0.86, fbm(vec2(vUv.x * 8.0 - uTime * 0.18, vUv.y * 18.0)));
@@ -534,7 +591,7 @@ function createRiverWaterMaterial() {
         waterColor = mix(waterColor, uFoamColor, max(foam * 0.22, startFoam * 0.28));
         alpha = max(alpha, foam * 0.16);
         alpha = max(alpha, startFoam * 0.12);
-        alpha *= startFade;
+        alpha *= startFade * terminalFade * mix(1.0, 0.55, terminalApproach);
 
         gl_FragColor = vec4(waterColor, alpha);
         #include <tonemapping_fragment>
@@ -674,6 +731,52 @@ function createChannelSamples() {
   return samples;
 }
 
+function findTerminalLakeEntryDistance() {
+  const radiusSq = RIVER_TERMINAL_LAKE.radius * RIVER_TERMINAL_LAKE.radius;
+
+  for (let i = 0; i < channelSamples.length - 1; i += 1) {
+    const start = channelSamples[i];
+    const end = channelSamples[i + 1];
+    const startDx = start.x - RIVER_TERMINAL_LAKE.cx;
+    const startDz = start.z - RIVER_TERMINAL_LAKE.cz;
+    const endDx = end.x - RIVER_TERMINAL_LAKE.cx;
+    const endDz = end.z - RIVER_TERMINAL_LAKE.cz;
+    const startInside = startDx * startDx + startDz * startDz <= radiusSq;
+    const endInside = endDx * endDx + endDz * endDz <= radiusSq;
+
+    if (startInside) return start.distance;
+    if (!endInside) continue;
+
+    let outsideT = 0;
+    let insideT = 1;
+
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      const t = (outsideT + insideT) * 0.5;
+      const x = THREE.MathUtils.lerp(start.x, end.x, t);
+      const z = THREE.MathUtils.lerp(start.z, end.z, t);
+      const dx = x - RIVER_TERMINAL_LAKE.cx;
+      const dz = z - RIVER_TERMINAL_LAKE.cz;
+
+      if (dx * dx + dz * dz <= radiusSq) {
+        insideT = t;
+      } else {
+        outsideT = t;
+      }
+    }
+
+    return THREE.MathUtils.lerp(start.distance, end.distance, insideT);
+  }
+
+  return channelLength;
+}
+
+function isInsideTerminalLake(x, z) {
+  const dx = x - RIVER_TERMINAL_LAKE.cx;
+  const dz = z - RIVER_TERMINAL_LAKE.cz;
+
+  return dx * dx + dz * dz <= RIVER_TERMINAL_LAKE.radius * RIVER_TERMINAL_LAKE.radius;
+}
+
 function createChannelBounds() {
   const bounds = {
     minX: Infinity,
@@ -692,9 +795,8 @@ function createChannelBounds() {
   return bounds;
 }
 
-function getEndMask(distance) {
-  return smoothstep(0, END_TAPER_LENGTH, distance)
-    * (1 - smoothstep(channelLength - END_TAPER_LENGTH, channelLength, distance));
+function getStartMask(distance) {
+  return smoothstep(0, START_TAPER_LENGTH, distance);
 }
 
 function smoothstep(edge0, edge1, value) {
