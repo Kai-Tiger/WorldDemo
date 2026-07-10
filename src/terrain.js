@@ -7,35 +7,62 @@ import {
   RIVER_BANK_TEXTURE_PATH,
   RIVER_BANK_TEXTURE_WORLD_SIZE,
 } from './riverChannel.js';
-import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import {
   applyWaterSystemTerrain,
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
+import {
+  createTerrainMaterials,
+  getTerrainMaterialForSegments,
+} from './terrainMaterial.js';
 import { MAP_SIZE } from './vegetationConfig.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
-const FROZEN_DIRT_TEXTURE_PATH = '/assets/terrain/dirt-frozen.webp';
-const ALPINE_SCREE_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
-const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
+const GROUND_DIRT_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
+const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
+const MOSS_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/moss_albedo.png';
+const MOSS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/moss_normal.png';
+const DRY_GRASS_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_albedo.png';
+const DRY_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_normal.png';
 const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
 const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
-const FOREST_FLOOR_BASE_COLOR_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_BaseColor.jpg';
-const FOREST_FLOOR_NORMAL_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Normal.jpg';
-const FOREST_FLOOR_ROUGHNESS_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Roughness.jpg';
-const FOREST_FLOOR_AO_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_AO.jpg';
-const FOREST_FLOOR_DISPLACEMENT_TEXTURE_PATH = '/assets/terrain/forest-floor/Forest_Floor_sfjmafua_4K_Displacement.jpg';
+const BLEND_SPLAT_TEXTURE_PATH = '/assets/terrain/materials/blend_mask_splat.png';
+const OPTIMIZED_TERRAIN_TEXTURE_PATH = '/assets/terrain/materials/optimized';
 const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
-const CHUNK_SEGMENTS = 256;
+const SHADOW_PROXY_SEGMENTS = 64;
+export const TERRAIN_SHADOW_PROXY_LAYER = 2;
+const DEFAULT_LOD_SEGMENTS = [256, 128, 64];
 const INITIAL_CHUNK_RADIUS = 1;
 const LOAD_CHUNK_RADIUS = 2;
 const UNLOAD_CHUNK_RADIUS = 3;
-const CHUNK_LOADS_PER_FRAME = 2;
 const CHUNK_UNLOADS_PER_FRAME = 2;
+const DEFAULT_CHUNK_BUILD_BUDGET_MS = 3;
+const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
+const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
+const CHUNK_BUILD_SKIRT_BATCH_SIZE = 64;
+const CHUNK_SKIRT_BOTTOM_MARGIN = 2;
+const HEIGHT_BRUSH_DIRTY_PADDING = 7;
+const PRIORITY_MISSING_CENTER = 0;
+const PRIORITY_CENTER_UPGRADE = 10;
+const PRIORITY_NEW_VISIBLE = 20;
+const PRIORITY_NEAR_UPGRADE = 40;
+const PRIORITY_EDITOR_REBUILD = 5;
+const PRIORITY_DOWNGRADE = 100;
+const WATER_FEATURE_MIN_SEGMENTS = 128;
+const NARROW_WATER_FEATURE_BOUNDS = [
+  { minX: 140, maxX: 320, minZ: -640, maxZ: -418 },
+  { minX: 330, maxX: 420, minZ: -432, maxZ: -400 },
+  { minX: 410, maxX: 705, minZ: -440, maxZ: -320 },
+];
+const WIDE_WATER_FEATURE_BOUNDS = [
+  { minX: 235, maxX: 365, minZ: -465, maxZ: -335 },
+  { minX: 625, maxX: 710, minZ: -650, maxZ: -560 },
+  { minX: 655, maxX: 725, minZ: -375, maxZ: -305 },
+];
 const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
@@ -43,10 +70,11 @@ const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const HEIGHTMAP_SAVE_QUALITY = 0.98;
-const GROUND_TEXTURE_WORLD_SIZE = 8;
-const GRAVEL_TEXTURE_WORLD_SIZE = 4.5;
-const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
-const FOREST_FLOOR_CELL_WORLD_SIZE = 2;
+const ALPINE_TEXTURE_WORLD_SIZE = 20;
+const GROUND_DIRT_TEXTURE_WORLD_SIZE = 16;
+const MOSS_TEXTURE_WORLD_SIZE = 18;
+const DRY_GRASS_TEXTURE_WORLD_SIZE = 20;
+const GRAVEL_TEXTURE_WORLD_SIZE = 12;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -57,46 +85,163 @@ const HEIGHT_SMOOTHING_KERNEL = [
   [4, 16, 24, 16, 4],
   [1, 4, 6, 4, 1],
 ];
+const HEIGHT_SMOOTHING_KERNEL_RADIUS = Math.floor(HEIGHT_SMOOTHING_KERNEL.length / 2);
+const HEIGHT_SMOOTHING_KERNEL_WEIGHT = HEIGHT_SMOOTHING_KERNEL
+  .flat()
+  .reduce((total, weight) => total + weight, 0);
 
 export class Terrain {
-  constructor(heightData, width, height, textures) {
+  constructor(heightData, width, height, textures, options = {}) {
     this.heightData = heightData;
     this.width = width;
     this.height = height;
+    this.sampledHeightCache = HEIGHT_SMOOTHING_ENABLED
+      ? new Float32Array(width * height)
+      : null;
+    this.sampledHeightCache?.fill(Number.NaN);
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
-    this.material = createTerrainMaterial(textures);
+    this.materials = createTerrainMaterials(textures, {
+      mapWorldSize: MAP_SIZE,
+      alpineTextureWorldSize: ALPINE_TEXTURE_WORLD_SIZE,
+      groundDirtTextureWorldSize: GROUND_DIRT_TEXTURE_WORLD_SIZE,
+      mossTextureWorldSize: MOSS_TEXTURE_WORLD_SIZE,
+      dryGrassTextureWorldSize: DRY_GRASS_TEXTURE_WORLD_SIZE,
+      gravelTextureWorldSize: GRAVEL_TEXTURE_WORLD_SIZE,
+      riverBankTextureWorldSize: RIVER_BANK_TEXTURE_WORLD_SIZE,
+      riverBedTextureWorldSize: RIVER_BED_TEXTURE_WORLD_SIZE,
+    });
+    this.skirtMaterial = createTerrainSkirtMaterial();
+    this.shadowProxy = createTerrainShadowProxy(this);
+    this.shadowProxyLayer = TERRAIN_SHADOW_PROXY_LAYER;
+    this.group.add(this.shadowProxy);
     this.loadedChunks = new Map();
+    this.pendingChunks = new Map();
+    this.chunkRevisions = new Map();
     this.loadChunkRadius = LOAD_CHUNK_RADIUS;
     this.unloadChunkRadius = UNLOAD_CHUNK_RADIUS;
+    this.lodSegments = [...DEFAULT_LOD_SEGMENTS];
+    this.buildBudgetMs = options.buildBudgetMs ?? DEFAULT_CHUNK_BUILD_BUDGET_MS;
+    this.minimumSegmentsForChunk = options.minimumSegmentsForChunk
+      ?? getConservativeMinimumChunkSegments;
+    this.now = options.now ?? getCurrentTime;
+    this.nextBuildSequence = 0;
+    this.surfaceSampleScratch = {};
+    this.editorMode = false;
+    this.editStrokeActive = false;
+    this.dirtyEditedChunks = new Set();
+    this.centerChunkX = null;
+    this.centerChunkZ = null;
   }
 
-  static async create() {
+  static async create(options = {}) {
     const [
       { data, width, height },
       textures,
     ] = await Promise.all([
       loadHeightMap(HEIGHT_MAP_PATH),
-      loadTerrainTextures(),
+      loadTerrainTextures(
+        options.compressedTextureLoader,
+        options.textureTier,
+        options.textureAnisotropy,
+      ),
     ]);
 
-    return new Terrain(data, width, height, textures);
+    return new Terrain(data, width, height, textures, options);
+  }
+
+  async prepareInitialChunk(centerPosition) {
+    const centerChunkX = this.getChunkCoord(centerPosition.x);
+    const centerChunkZ = this.getChunkCoord(centerPosition.z);
+    const key = this.getChunkKey(centerChunkX, centerChunkZ);
+
+    this.centerChunkX = centerChunkX;
+    this.centerChunkZ = centerChunkZ;
+    this.requestChunkBuild(
+      centerChunkX,
+      centerChunkZ,
+      this.getDesiredChunkSegments(centerChunkX, centerChunkZ),
+      PRIORITY_MISSING_CENTER,
+    );
+
+    await new Promise((resolve) => {
+      const advance = () => {
+        this.processChunkBuilds();
+
+        if (this.loadedChunks.has(key)) {
+          resolve();
+          return;
+        }
+
+        requestAnimationFrame(advance);
+      };
+
+      requestAnimationFrame(advance);
+    });
   }
 
   update(centerPosition) {
     const centerChunkX = this.getChunkCoord(centerPosition.x);
     const centerChunkZ = this.getChunkCoord(centerPosition.z);
+    this.centerChunkX = centerChunkX;
+    this.centerChunkZ = centerChunkZ;
     const loadRadius = this.loadedChunks.size === 0 ? INITIAL_CHUNK_RADIUS : this.loadChunkRadius;
     const loadKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, loadRadius);
     const keepKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, this.unloadChunkRadius);
 
-    this.loadMissingChunks(loadKeys, centerChunkX, centerChunkZ);
+    this.scheduleChunks(loadKeys, centerChunkX, centerChunkZ);
+    this.scheduleLoadedChunkLods();
+    this.reconcilePendingChunkLods(keepKeys);
     this.unloadDistantChunks(keepKeys);
+    this.processChunkBuilds();
   }
 
   setQualityPreset(preset) {
-    this.loadChunkRadius = preset.loadRadius;
-    this.unloadChunkRadius = preset.unloadRadius;
+    this.loadChunkRadius = preset.loadRadius ?? this.loadChunkRadius;
+    this.unloadChunkRadius = preset.unloadRadius ?? this.unloadChunkRadius;
+    this.lodSegments = normalizeLodSegments(preset.lodSegments);
+    this.buildBudgetMs = preset.buildBudgetMs ?? this.buildBudgetMs;
+    this.shadowProxy.castShadow = preset.useShadowProxy ?? true;
+  }
+
+  setEditorMode(enabled) {
+    if (enabled) {
+      this.editorMode = true;
+      this.scheduleLoadedChunkLods();
+      return;
+    }
+
+    this.editorMode = false;
+    this.endTerrainEditStroke();
+    this.scheduleLoadedChunkLods();
+  }
+
+  beginTerrainEditStroke() {
+    this.editStrokeActive = true;
+  }
+
+  endTerrainEditStroke() {
+    this.editStrokeActive = false;
+    this.queueDirtyEditorRebuilds();
+  }
+
+  queueDirtyEditorRebuilds() {
+    const dirtyKeys = [...this.dirtyEditedChunks];
+    this.dirtyEditedChunks.clear();
+
+    for (const key of dirtyKeys) {
+      const record = this.loadedChunks.get(key);
+
+      if (!record) continue;
+      const segments = this.getDesiredChunkSegments(record.chunkX, record.chunkZ);
+      this.requestChunkBuild(
+        record.chunkX,
+        record.chunkZ,
+        segments,
+        PRIORITY_EDITOR_REBUILD,
+        true,
+      );
+    }
   }
 
   getChunkCoord(value) {
@@ -120,34 +265,360 @@ export class Terrain {
     return keys;
   }
 
-  loadMissingChunks(loadKeys, centerChunkX, centerChunkZ) {
-    const missing = loadKeys
-      .filter((key) => !this.loadedChunks.has(key))
-      .map((key) => {
-        const { x, z } = this.parseChunkKey(key);
-        return {
-          key,
-          x,
-          z,
-          distance: Math.max(Math.abs(x - centerChunkX), Math.abs(z - centerChunkZ)),
-        };
-      })
-      .sort((a, b) => a.distance - b.distance);
+  scheduleChunks(loadKeys, centerChunkX, centerChunkZ) {
+    for (const key of loadKeys) {
+      const { x, z } = this.parseChunkKey(key);
+      const segments = this.getDesiredChunkSegments(x, z);
+      const priority = this.getChunkBuildPriority(x, z, segments);
 
-    const loadCount = this.loadedChunks.size === 0 ? missing.length : CHUNK_LOADS_PER_FRAME;
-
-    for (let i = 0; i < Math.min(missing.length, loadCount); i += 1) {
-      const chunk = missing[i];
-      const mesh = this.createChunk(chunk.x, chunk.z);
-
-      this.loadedChunks.set(chunk.key, mesh);
-      this.group.add(mesh);
+      this.requestChunkBuild(x, z, segments, priority);
     }
+  }
+
+  scheduleLoadedChunkLods() {
+    for (const record of this.loadedChunks.values()) {
+      const segments = this.getDesiredChunkSegments(record.chunkX, record.chunkZ);
+
+      if (record.segments === segments && record.revision === this.getChunkRevision(record.key)) {
+        continue;
+      }
+
+      this.requestChunkBuild(
+        record.chunkX,
+        record.chunkZ,
+        segments,
+        this.getChunkBuildPriority(record.chunkX, record.chunkZ, segments),
+      );
+    }
+  }
+
+  reconcilePendingChunkLods(keepKeys) {
+    const keepKeySet = new Set(keepKeys);
+
+    for (const task of [...this.pendingChunks.values()]) {
+      if (!keepKeySet.has(task.key)) continue;
+
+      const segments = this.getDesiredChunkSegments(task.chunkX, task.chunkZ);
+
+      if (segments === task.segments) continue;
+
+      this.requestChunkBuild(
+        task.chunkX,
+        task.chunkZ,
+        segments,
+        this.getChunkBuildPriority(task.chunkX, task.chunkZ, segments),
+      );
+    }
+  }
+
+  getChunkBuildPriority(chunkX, chunkZ, segments) {
+    const distance = this.getChunkDistance(chunkX, chunkZ);
+    const loaded = this.loadedChunks.get(this.getChunkKey(chunkX, chunkZ));
+
+    if (!loaded) {
+      return distance === 0
+        ? PRIORITY_MISSING_CENTER
+        : PRIORITY_NEW_VISIBLE + distance;
+    }
+    if (segments > loaded.segments) {
+      return distance === 0
+        ? PRIORITY_CENTER_UPGRADE
+        : PRIORITY_NEAR_UPGRADE + distance;
+    }
+    if (segments < loaded.segments) {
+      return PRIORITY_DOWNGRADE + distance;
+    }
+
+    return distance === 0
+      ? PRIORITY_CENTER_UPGRADE
+      : PRIORITY_NEAR_UPGRADE + distance;
+  }
+
+  requestChunkBuild(chunkX, chunkZ, segments, priority = 0, force = false) {
+    const key = this.getChunkKey(chunkX, chunkZ);
+
+    if (this.editStrokeActive && this.dirtyEditedChunks.has(key)) return;
+
+    const revision = this.getChunkRevision(key);
+    const normalizedSegments = this.applyMinimumChunkSegments(chunkX, chunkZ, segments);
+    const loaded = this.loadedChunks.get(key);
+
+    if (
+      !force
+      && loaded
+      && loaded.segments === normalizedSegments
+      && loaded.revision === revision
+    ) {
+      this.cancelPendingChunk(key);
+      return;
+    }
+
+    const pending = this.pendingChunks.get(key);
+
+    if (
+      pending
+      && pending.segments === normalizedSegments
+      && pending.revision === revision
+    ) {
+      pending.priority = Math.min(pending.priority, priority);
+      return;
+    }
+
+    this.cancelPendingChunk(key);
+    this.pendingChunks.set(key, this.createChunkBuildTask(
+      chunkX,
+      chunkZ,
+      normalizedSegments,
+      revision,
+      priority,
+    ));
+  }
+
+  createChunkBuildTask(chunkX, chunkZ, segments, revision, priority) {
+    return {
+      key: this.getChunkKey(chunkX, chunkZ),
+      chunkX,
+      chunkZ,
+      segments,
+      revision,
+      priority,
+      sequence: this.nextBuildSequence++,
+      phase: 'allocate',
+      vertexIndex: 0,
+      cellIndex: 0,
+      skirtSampleIndex: 0,
+      edgeMinimums: null,
+      arrays: null,
+      result: null,
+      minX: -HALF_MAP_SIZE + chunkX * CHUNK_SIZE,
+      minZ: -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE,
+      vertexStep: CHUNK_SIZE / segments,
+      verticesPerSide: segments + 1,
+    };
+  }
+
+  processChunkBuilds() {
+    const deadline = this.now() + this.buildBudgetMs;
+    let didWork = false;
+
+    while (this.pendingChunks.size > 0 && (!didWork || this.now() < deadline)) {
+      const task = this.getNextChunkBuildTask();
+
+      if (!task) break;
+      if (!this.isChunkBuildTaskCurrent(task)) {
+        this.cancelPendingChunk(task.key);
+        continue;
+      }
+
+      this.advanceChunkBuildTask(task, deadline);
+      didWork = true;
+
+      if (task.phase === 'complete') {
+        this.commitChunkBuildTask(task);
+      }
+    }
+  }
+
+  getNextChunkBuildTask() {
+    let next = null;
+
+    for (const task of this.pendingChunks.values()) {
+      if (
+        !next
+        || task.priority < next.priority
+        || (task.priority === next.priority && task.sequence < next.sequence)
+      ) {
+        next = task;
+      }
+    }
+
+    return next;
+  }
+
+  advanceChunkBuildTask(task, deadline) {
+    if (task.phase === 'allocate') {
+      task.arrays = createChunkArrays(task.segments);
+      task.surfaceHeightCache = createSurfaceHeightCache(task.minX, task.minZ);
+      task.edgeMinimums = new Float32Array(4);
+      task.edgeMinimums.fill(Number.POSITIVE_INFINITY);
+      task.phase = 'vertices';
+      return;
+    }
+
+    if (task.phase === 'vertices') {
+      const vertexCount = task.verticesPerSide * task.verticesPerSide;
+      let processed = 0;
+
+      while (
+        task.vertexIndex < vertexCount
+        && processed < CHUNK_BUILD_VERTEX_BATCH_SIZE
+        && (processed === 0 || this.now() < deadline)
+      ) {
+        const xIndex = task.vertexIndex % task.verticesPerSide;
+        const zIndex = Math.floor(task.vertexIndex / task.verticesPerSide);
+        const worldX = task.minX + xIndex * task.vertexStep;
+        const worldZ = task.minZ + zIndex * task.vertexStep;
+
+        this.writeSurfaceVertex(
+          task.arrays,
+          task.vertexIndex,
+          worldX,
+          worldZ,
+          task.surfaceHeightCache,
+        );
+        task.vertexIndex += 1;
+        processed += 1;
+      }
+
+      if (task.vertexIndex >= vertexCount) {
+        task.phase = 'indices';
+      }
+      return;
+    }
+
+    if (task.phase === 'indices') {
+      const cellCount = task.segments * task.segments;
+      let processed = 0;
+
+      while (
+        task.cellIndex < cellCount
+        && processed < CHUNK_BUILD_INDEX_BATCH_SIZE
+        && (processed === 0 || this.now() < deadline)
+      ) {
+        writeSurfaceCellIndices(
+          task.arrays.indices,
+          task.cellIndex,
+          task.segments,
+          task.verticesPerSide,
+        );
+        task.cellIndex += 1;
+        processed += 1;
+      }
+
+      if (task.cellIndex >= cellCount) {
+        task.phase = 'skirt';
+      }
+      return;
+    }
+
+    if (task.phase === 'skirt') {
+      const samplesPerEdge = CHUNK_SIZE + 1;
+      const sampleCount = samplesPerEdge * 4;
+      let processed = 0;
+
+      while (
+        task.skirtSampleIndex < sampleCount
+        && processed < CHUNK_BUILD_SKIRT_BATCH_SIZE
+        && (processed === 0 || this.now() < deadline)
+      ) {
+        const edge = Math.floor(task.skirtSampleIndex / samplesPerEdge);
+        const edgeOffset = task.skirtSampleIndex % samplesPerEdge;
+        const worldX = edge < 2
+          ? task.minX + edgeOffset
+          : task.minX + (edge === 3 ? CHUNK_SIZE : 0);
+        const worldZ = edge < 2
+          ? task.minZ + (edge === 1 ? CHUNK_SIZE : 0)
+          : task.minZ + edgeOffset;
+        const height = this.getCachedSurfaceHeight(worldX, worldZ, task.surfaceHeightCache);
+
+        task.edgeMinimums[edge] = Math.min(task.edgeMinimums[edge], height);
+        task.skirtSampleIndex += 1;
+        processed += 1;
+      }
+
+      if (task.skirtSampleIndex >= sampleCount) {
+        task.phase = 'finalize';
+      }
+      return;
+    }
+
+    if (task.phase === 'finalize') {
+      task.result = this.createChunkRecord(task);
+      task.phase = 'complete';
+    }
+  }
+
+  createChunkRecord(task) {
+    const geometry = createSurfaceGeometry(task.arrays, task.minX, task.minZ);
+    const material = getTerrainMaterialForSegments(this.materials, task.segments);
+    const surface = new THREE.Mesh(geometry, material);
+    const skirt = new THREE.Mesh(
+      createSkirtGeometry(
+        task.arrays.positions,
+        task.segments,
+        task.minX,
+        task.minZ,
+        task.edgeMinimums,
+      ),
+      this.skirtMaterial,
+    );
+
+    surface.name = `TerrainChunk_${task.chunkX}_${task.chunkZ}`;
+    surface.receiveShadow = material.userData.terrainReceivesShadow;
+    surface.userData.isTerrainSurface = true;
+    surface.userData.terrainSegments = task.segments;
+    surface.userData.terrainMaterialLod = material.userData.terrainMaterialLod;
+    skirt.name = `TerrainSkirt_${task.chunkX}_${task.chunkZ}`;
+    skirt.userData.isTerrainSkirt = true;
+    skirt.userData.terrainSegments = task.segments;
+    skirt.raycast = disableRaycast;
+
+    return {
+      key: task.key,
+      chunkX: task.chunkX,
+      chunkZ: task.chunkZ,
+      minX: task.minX,
+      minZ: task.minZ,
+      segments: task.segments,
+      revision: task.revision,
+      arrays: task.arrays,
+      edgeMinimums: task.edgeMinimums,
+      surface,
+      skirt,
+    };
+  }
+
+  commitChunkBuildTask(task) {
+    if (!this.isChunkBuildTaskCurrent(task)) {
+      disposeChunkRecord(task.result);
+      this.pendingChunks.delete(task.key);
+      return;
+    }
+
+    const previous = this.loadedChunks.get(task.key);
+    const next = task.result;
+
+    this.group.add(next.surface, next.skirt);
+    if (previous) {
+      this.group.remove(previous.surface, previous.skirt);
+      disposeChunkRecord(previous);
+    }
+    this.loadedChunks.set(task.key, next);
+    this.pendingChunks.delete(task.key);
+  }
+
+  isChunkBuildTaskCurrent(task) {
+    return this.pendingChunks.get(task.key) === task
+      && this.getChunkRevision(task.key) === task.revision;
+  }
+
+  cancelPendingChunk(key) {
+    const task = this.pendingChunks.get(key);
+
+    if (!task) return;
+    if (task.result) disposeChunkRecord(task.result);
+    this.pendingChunks.delete(key);
   }
 
   unloadDistantChunks(keepKeys) {
     const keepKeySet = new Set(keepKeys);
     const staleKeys = [];
+
+    for (const key of this.pendingChunks.keys()) {
+      if (!keepKeySet.has(key)) {
+        this.cancelPendingChunk(key);
+      }
+    }
 
     for (const key of this.loadedChunks.keys()) {
       if (!keepKeySet.has(key)) {
@@ -157,12 +628,57 @@ export class Terrain {
 
     for (let i = 0; i < Math.min(staleKeys.length, CHUNK_UNLOADS_PER_FRAME); i += 1) {
       const key = staleKeys[i];
-      const mesh = this.loadedChunks.get(key);
+      const record = this.loadedChunks.get(key);
 
-      this.group.remove(mesh);
-      mesh.geometry.dispose();
+      this.group.remove(record.surface, record.skirt);
+      disposeChunkRecord(record);
       this.loadedChunks.delete(key);
     }
+  }
+
+  getChunkDistance(chunkX, chunkZ) {
+    if (this.centerChunkX === null || this.centerChunkZ === null) return 0;
+
+    return Math.max(
+      Math.abs(chunkX - this.centerChunkX),
+      Math.abs(chunkZ - this.centerChunkZ),
+    );
+  }
+
+  getDesiredChunkSegments(chunkX, chunkZ) {
+    const distance = this.getChunkDistance(chunkX, chunkZ);
+    const segments = this.editorMode && distance <= 1
+      ? CHUNK_SIZE
+      : this.lodSegments[Math.min(distance, this.lodSegments.length - 1)];
+
+    return this.applyMinimumChunkSegments(chunkX, chunkZ, segments);
+  }
+
+  applyMinimumChunkSegments(chunkX, chunkZ, segments) {
+    const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
+    const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
+    const minimum = this.minimumSegmentsForChunk({
+      chunkX,
+      chunkZ,
+      minX,
+      minZ,
+      maxX: minX + CHUNK_SIZE,
+      maxZ: minZ + CHUNK_SIZE,
+    });
+
+    return normalizeChunkSegments(Math.max(segments, minimum || 0));
+  }
+
+  getChunkRevision(key) {
+    return this.chunkRevisions.get(key) ?? 0;
+  }
+
+  bumpChunkRevision(key) {
+    const revision = this.getChunkRevision(key) + 1;
+
+    this.chunkRevisions.set(key, revision);
+    this.cancelPendingChunk(key);
+    return revision;
   }
 
   getChunkKey(chunkX, chunkZ) {
@@ -178,23 +694,41 @@ export class Terrain {
   getLoadedChunkBounds() {
     const chunks = [];
 
-    for (const key of this.loadedChunks.keys()) {
-      const { x, z } = this.parseChunkKey(key);
-      const minX = -HALF_MAP_SIZE + x * CHUNK_SIZE;
-      const minZ = -HALF_MAP_SIZE + z * CHUNK_SIZE;
-
+    for (const record of this.loadedChunks.values()) {
       chunks.push({
-        key,
-        chunkX: x,
-        chunkZ: z,
-        minX,
-        minZ,
-        maxX: minX + CHUNK_SIZE,
-        maxZ: minZ + CHUNK_SIZE,
+        key: record.key,
+        chunkX: record.chunkX,
+        chunkZ: record.chunkZ,
+        minX: record.minX,
+        minZ: record.minZ,
+        maxX: record.minX + CHUNK_SIZE,
+        maxZ: record.minZ + CHUNK_SIZE,
       });
     }
 
     return chunks;
+  }
+
+  getRaycastMeshes() {
+    return [...this.loadedChunks.values()].map((record) => record.surface);
+  }
+
+  dispose() {
+    for (const record of this.loadedChunks.values()) {
+      this.group.remove(record.surface, record.skirt);
+      disposeChunkRecord(record);
+    }
+    for (const task of this.pendingChunks.values()) {
+      disposeChunkRecord(task.result);
+    }
+    this.loadedChunks.clear();
+    this.pendingChunks.clear();
+    for (const material of Object.values(this.materials)) {
+      material.dispose();
+    }
+    this.skirtMaterial.dispose();
+    this.shadowProxy.geometry.dispose();
+    this.shadowProxy.material.dispose();
   }
 
   getHeightMapData() {
@@ -244,13 +778,14 @@ export class Terrain {
       }
     }
 
+    this.invalidateSampledHeightCache(minX, minY, maxX, maxY);
     const topLeft = this.heightMapPixelToWorld(minX, minY);
     const bottomRight = this.heightMapPixelToWorld(maxX, maxY);
     const bounds = {
-      minX: Math.min(topLeft.x, bottomRight.x) - 2,
-      maxX: Math.max(topLeft.x, bottomRight.x) + 2,
-      minZ: Math.min(topLeft.z, bottomRight.z) - 2,
-      maxZ: Math.max(topLeft.z, bottomRight.z) + 2,
+      minX: Math.min(topLeft.x, bottomRight.x) - HEIGHT_BRUSH_DIRTY_PADDING,
+      maxX: Math.max(topLeft.x, bottomRight.x) + HEIGHT_BRUSH_DIRTY_PADDING,
+      minZ: Math.min(topLeft.z, bottomRight.z) - HEIGHT_BRUSH_DIRTY_PADDING,
+      maxZ: Math.max(topLeft.z, bottomRight.z) + HEIGHT_BRUSH_DIRTY_PADDING,
     };
 
     this.refreshChunksInBounds(bounds);
@@ -263,7 +798,22 @@ export class Terrain {
     };
   }
 
+  invalidateSampledHeightCache(minX, minY, maxX, maxY) {
+    if (!this.sampledHeightCache) return;
+
+    const startX = Math.max(minX - HEIGHT_SMOOTHING_KERNEL_RADIUS, 0);
+    const endX = Math.min(maxX + HEIGHT_SMOOTHING_KERNEL_RADIUS, this.width - 1);
+    const startY = Math.max(minY - HEIGHT_SMOOTHING_KERNEL_RADIUS, 0);
+    const endY = Math.min(maxY + HEIGHT_SMOOTHING_KERNEL_RADIUS, this.height - 1);
+
+    for (let y = startY; y <= endY; y += 1) {
+      const rowStart = y * this.width + startX;
+      this.sampledHeightCache.fill(Number.NaN, rowStart, rowStart + endX - startX + 1);
+    }
+  }
+
   refreshChunksInBounds(bounds) {
+    this.updateShadowProxyInBounds(bounds);
     const minChunkX = this.getChunkCoord(bounds.minX);
     const maxChunkX = this.getChunkCoord(bounds.maxX);
     const minChunkZ = this.getChunkCoord(bounds.minZ);
@@ -272,139 +822,244 @@ export class Terrain {
     for (let chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ += 1) {
       for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX += 1) {
         const key = this.getChunkKey(chunkX, chunkZ);
+        const revision = this.bumpChunkRevision(key);
+        const record = this.loadedChunks.get(key);
 
-        if (!this.loadedChunks.has(key)) continue;
+        if (!record) continue;
 
-        const previous = this.loadedChunks.get(key);
-        const next = this.createChunk(chunkX, chunkZ);
-
-        this.group.remove(previous);
-        previous.geometry.dispose();
-        this.loadedChunks.set(key, next);
-        this.group.add(next);
+        this.updateLoadedChunkSurface(record, bounds);
+        record.revision = revision;
+        record.surface.userData.terrainRevision = revision;
+        record.skirt.userData.terrainRevision = revision;
+        this.dirtyEditedChunks.add(key);
       }
+    }
+
+    if (!this.editStrokeActive) this.queueDirtyEditorRebuilds();
+  }
+
+  updateShadowProxyInBounds(bounds) {
+    const positions = this.shadowProxy.geometry.getAttribute('position');
+    const vertexStep = MAP_SIZE / SHADOW_PROXY_SEGMENTS;
+    const verticesPerSide = SHADOW_PROXY_SEGMENTS + 1;
+    const startX = THREE.MathUtils.clamp(
+      Math.floor((bounds.minX + HALF_MAP_SIZE) / vertexStep),
+      0,
+      SHADOW_PROXY_SEGMENTS,
+    );
+    const endX = THREE.MathUtils.clamp(
+      Math.ceil((bounds.maxX + HALF_MAP_SIZE) / vertexStep),
+      0,
+      SHADOW_PROXY_SEGMENTS,
+    );
+    const startZ = THREE.MathUtils.clamp(
+      Math.floor((bounds.minZ + HALF_MAP_SIZE) / vertexStep),
+      0,
+      SHADOW_PROXY_SEGMENTS,
+    );
+    const endZ = THREE.MathUtils.clamp(
+      Math.ceil((bounds.maxZ + HALF_MAP_SIZE) / vertexStep),
+      0,
+      SHADOW_PROXY_SEGMENTS,
+    );
+
+    if (startX > endX || startZ > endZ) return;
+
+    for (let z = startZ; z <= endZ; z += 1) {
+      for (let x = startX; x <= endX; x += 1) {
+        const vertexIndex = z * verticesPerSide + x;
+        const worldX = -HALF_MAP_SIZE + x * vertexStep;
+        const worldZ = -HALF_MAP_SIZE + z * vertexStep;
+
+        positions.setY(vertexIndex, this.getHeightAt(worldX, worldZ));
+      }
+    }
+
+    positions.needsUpdate = true;
+  }
+
+  updateLoadedChunkSurface(record, bounds) {
+    const vertexStep = CHUNK_SIZE / record.segments;
+    const startX = THREE.MathUtils.clamp(
+      Math.ceil((bounds.minX - record.minX) / vertexStep),
+      0,
+      record.segments,
+    );
+    const endX = THREE.MathUtils.clamp(
+      Math.floor((bounds.maxX - record.minX) / vertexStep),
+      0,
+      record.segments,
+    );
+    const startZ = THREE.MathUtils.clamp(
+      Math.ceil((bounds.minZ - record.minZ) / vertexStep),
+      0,
+      record.segments,
+    );
+    const endZ = THREE.MathUtils.clamp(
+      Math.floor((bounds.maxZ - record.minZ) / vertexStep),
+      0,
+      record.segments,
+    );
+
+    if (startX > endX || startZ > endZ) return;
+
+    const verticesPerSide = record.segments + 1;
+
+    for (let z = startZ; z <= endZ; z += 1) {
+      for (let x = startX; x <= endX; x += 1) {
+        const vertexIndex = z * verticesPerSide + x;
+        const worldX = record.minX + x * vertexStep;
+        const worldZ = record.minZ + z * vertexStep;
+
+        this.writeSurfaceVertex(record.arrays, vertexIndex, worldX, worldZ);
+      }
+    }
+
+    for (const attribute of Object.values(record.surface.geometry.attributes)) {
+      attribute.needsUpdate = true;
+    }
+
+    const dirtyEdges = [];
+    if (startZ === 0) dirtyEdges.push(0);
+    if (endZ === record.segments) dirtyEdges.push(1);
+    if (startX === 0) dirtyEdges.push(2);
+    if (endX === record.segments) dirtyEdges.push(3);
+
+    if (dirtyEdges.length > 0) {
+      this.updateChunkEdgeMinimums(record, dirtyEdges);
+      const previousGeometry = record.skirt.geometry;
+      record.skirt.geometry = createSkirtGeometry(
+        record.arrays.positions,
+        record.segments,
+        record.minX,
+        record.minZ,
+        record.edgeMinimums,
+      );
+      previousGeometry.dispose();
     }
   }
 
-  createChunk(chunkX, chunkZ) {
-    const verticesPerSide = CHUNK_SEGMENTS + 1;
-    const vertexCount = verticesPerSide * verticesPerSide;
-    const positions = new Float32Array(vertexCount * 3);
-    const uvs = new Float32Array(vertexCount * 2);
-    const groundMasks = new Float32Array(vertexCount);
-    const riverMasks = new Float32Array(vertexCount);
-    const riverBedMasks = new Float32Array(vertexCount);
-    const riverUnderwaterMasks = new Float32Array(vertexCount);
-    const riverBedCoords = new Float32Array(vertexCount * 2);
-    const waterSystemMasks = new Float32Array(vertexCount * 4);
-    const smallLakeMasks = new Float32Array(vertexCount);
-    const indices = new Uint32Array(CHUNK_SEGMENTS * CHUNK_SEGMENTS * 6);
-    const minX = -HALF_MAP_SIZE + chunkX * CHUNK_SIZE;
-    const minZ = -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE;
+  updateChunkEdgeMinimums(record, edges) {
+    const heightCache = createSurfaceHeightCache(record.minX, record.minZ);
 
-    let positionOffset = 0;
-    let uvOffset = 0;
-    let groundMaskOffset = 0;
-    let riverMaskOffset = 0;
-    let riverBedMaskOffset = 0;
-    let riverUnderwaterMaskOffset = 0;
-    let riverBedCoordOffset = 0;
-    let waterSystemMaskOffset = 0;
-    let smallLakeMaskOffset = 0;
+    for (const edge of edges) {
+      let minimum = Number.POSITIVE_INFINITY;
 
-    for (let z = 0; z < verticesPerSide; z += 1) {
-      for (let x = 0; x < verticesPerSide; x += 1) {
-        const worldX = minX + x;
-        const worldZ = minZ + z;
-        const baseHeight = this.getBaseHeightAt(worldX, worldZ);
-        const waterSystemHeight = applyWaterSystemTerrain(baseHeight, worldX, worldZ);
-        const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, worldX, worldZ);
-        const height = applyRiverChannel(smallLakesHeight, worldX, worldZ);
-        const groundMask = this.getTerrainGroundMask(worldX, worldZ);
-        const riverFrame = getRiverMaterialFrame(baseHeight, worldX, worldZ);
-        const waterSystemFrame = getWaterSystemMaterialFrame(baseHeight, worldX, worldZ);
-        const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
-
-        positions[positionOffset] = worldX;
-        positions[positionOffset + 1] = height;
-        positions[positionOffset + 2] = worldZ;
-        positionOffset += 3;
-
-        groundMasks[groundMaskOffset] = groundMask;
-        groundMaskOffset += 1;
-
-        riverMasks[riverMaskOffset] = riverFrame.riverMask;
-        riverMaskOffset += 1;
-
-        riverBedMasks[riverBedMaskOffset] = Math.max(riverFrame.riverBedMask, smallLakesMask);
-        riverBedMaskOffset += 1;
-
-        riverUnderwaterMasks[riverUnderwaterMaskOffset] = riverFrame.riverUnderwaterMask;
-        riverUnderwaterMaskOffset += 1;
-
-        riverBedCoords[riverBedCoordOffset] = riverFrame.riverDistance;
-        riverBedCoords[riverBedCoordOffset + 1] = riverFrame.riverLateral;
-        riverBedCoordOffset += 2;
-
-        waterSystemMasks[waterSystemMaskOffset] = waterSystemFrame.lakeBedMask;
-        waterSystemMasks[waterSystemMaskOffset + 1] = waterSystemFrame.wetShoreMask;
-        waterSystemMasks[waterSystemMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
-        waterSystemMasks[waterSystemMaskOffset + 3] = waterSystemFrame.plungeMask;
-        waterSystemMaskOffset += 4;
-
-        smallLakeMasks[smallLakeMaskOffset] = smallLakesMask;
-        smallLakeMaskOffset += 1;
-
-        uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
-        uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
-        uvOffset += 2;
+      for (let offset = 0; offset <= CHUNK_SIZE; offset += 1) {
+        const worldX = edge < 2
+          ? record.minX + offset
+          : record.minX + (edge === 3 ? CHUNK_SIZE : 0);
+        const worldZ = edge < 2
+          ? record.minZ + (edge === 1 ? CHUNK_SIZE : 0)
+          : record.minZ + offset;
+        minimum = Math.min(
+          minimum,
+          this.getCachedSurfaceHeight(worldX, worldZ, heightCache),
+        );
       }
+
+      record.edgeMinimums[edge] = minimum;
     }
-
-    let indexOffset = 0;
-
-    for (let z = 0; z < CHUNK_SEGMENTS; z += 1) {
-      for (let x = 0; x < CHUNK_SEGMENTS; x += 1) {
-        const topLeft = z * verticesPerSide + x;
-        const topRight = topLeft + 1;
-        const bottomLeft = topLeft + verticesPerSide;
-        const bottomRight = bottomLeft + 1;
-
-        indices[indexOffset] = topLeft;
-        indices[indexOffset + 1] = bottomLeft;
-        indices[indexOffset + 2] = topRight;
-        indices[indexOffset + 3] = topRight;
-        indices[indexOffset + 4] = bottomLeft;
-        indices[indexOffset + 5] = bottomRight;
-        indexOffset += 6;
-      }
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    geometry.setAttribute('groundMask', new THREE.BufferAttribute(groundMasks, 1));
-    geometry.setAttribute('riverMask', new THREE.BufferAttribute(riverMasks, 1));
-    geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(riverBedMasks, 1));
-    geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(riverUnderwaterMasks, 1));
-    geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(riverBedCoords, 2));
-    geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(waterSystemMasks, 4));
-    geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(smallLakeMasks, 1));
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
-
-    const mesh = new THREE.Mesh(geometry, this.material);
-    mesh.name = `TerrainChunk_${chunkX}_${chunkZ}`;
-    mesh.receiveShadow = true;
-    return mesh;
   }
 
-  getHeightAt(x, z) {
-    const waterSystemHeight = applyWaterSystemTerrain(this.getBaseHeightAt(x, z), x, z);
+  writeSurfaceVertex(arrays, vertexIndex, worldX, worldZ, surfaceHeightCache = null) {
+    const sample = this.sampleSurfaceAt(
+      worldX,
+      worldZ,
+      this.surfaceSampleScratch,
+      surfaceHeightCache,
+    );
+    const riverFrame = getRiverMaterialFrame(sample.baseHeight, worldX, worldZ);
+    const waterSystemFrame = getWaterSystemMaterialFrame(sample.baseHeight, worldX, worldZ);
+    const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
+    const positionOffset = vertexIndex * 3;
+    const uvOffset = vertexIndex * 2;
+    const waterMaskOffset = vertexIndex * 4;
+
+    arrays.positions[positionOffset] = worldX;
+    arrays.positions[positionOffset + 1] = sample.height;
+    arrays.positions[positionOffset + 2] = worldZ;
+    arrays.normals[positionOffset] = sample.normalX;
+    arrays.normals[positionOffset + 1] = sample.normalY;
+    arrays.normals[positionOffset + 2] = sample.normalZ;
+    arrays.uvs[uvOffset] = (worldX + HALF_MAP_SIZE) / MAP_SIZE;
+    arrays.uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
+    arrays.groundMasks[vertexIndex] = sample.groundMask;
+    arrays.riverMasks[vertexIndex] = riverFrame.riverMask;
+    arrays.riverBedMasks[vertexIndex] = Math.max(riverFrame.riverBedMask, smallLakesMask);
+    arrays.riverUnderwaterMasks[vertexIndex] = riverFrame.riverUnderwaterMask;
+    arrays.riverBedCoords[uvOffset] = riverFrame.riverDistance;
+    arrays.riverBedCoords[uvOffset + 1] = riverFrame.riverLateral;
+    arrays.waterSystemMasks[waterMaskOffset] = waterSystemFrame.lakeBedMask;
+    arrays.waterSystemMasks[waterMaskOffset + 1] = waterSystemFrame.wetShoreMask;
+    arrays.waterSystemMasks[waterMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
+    arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
+    arrays.smallLakeMasks[vertexIndex] = smallLakesMask;
+  }
+
+  sampleSurfaceAt(x, z, target = {}, surfaceHeightCache = null) {
+    const baseHeight = this.getBaseHeightAt(x, z);
+    const height = this.getSurfaceHeightFromBase(baseHeight, x, z);
+    this.setCachedSurfaceHeight(surfaceHeightCache, x, z, height);
+    const normalLeft = this.getCachedSurfaceHeight(x - NORMAL_SAMPLE_DISTANCE, z, surfaceHeightCache);
+    const normalRight = this.getCachedSurfaceHeight(x + NORMAL_SAMPLE_DISTANCE, z, surfaceHeightCache);
+    const normalDown = this.getCachedSurfaceHeight(x, z - NORMAL_SAMPLE_DISTANCE, surfaceHeightCache);
+    const normalUp = this.getCachedSurfaceHeight(x, z + NORMAL_SAMPLE_DISTANCE, surfaceHeightCache);
+    const normalX = normalLeft - normalRight;
+    const normalY = NORMAL_SAMPLE_DISTANCE * 2;
+    const normalZ = normalDown - normalUp;
+    const normalLength = Math.hypot(normalX, normalY, normalZ) || 1;
+    const groundLeft = this.getCachedSurfaceHeight(x - GROUND_MASK_SAMPLE_DISTANCE, z, surfaceHeightCache);
+    const groundRight = this.getCachedSurfaceHeight(x + GROUND_MASK_SAMPLE_DISTANCE, z, surfaceHeightCache);
+    const groundDown = this.getCachedSurfaceHeight(x, z - GROUND_MASK_SAMPLE_DISTANCE, surfaceHeightCache);
+    const groundUp = this.getCachedSurfaceHeight(x, z + GROUND_MASK_SAMPLE_DISTANCE, surfaceHeightCache);
+    const groundNormalX = groundLeft - groundRight;
+    const groundNormalY = GROUND_MASK_SAMPLE_DISTANCE * 2;
+    const groundNormalZ = groundDown - groundUp;
+    const groundNormalLength = Math.hypot(groundNormalX, groundNormalY, groundNormalZ) || 1;
+    const minHeight = Math.min(height, groundLeft, groundRight, groundDown, groundUp);
+    const maxHeight = Math.max(height, groundLeft, groundRight, groundDown, groundUp);
+    const slopeMask = smoothstepRange(0.76, 0.94, groundNormalY / groundNormalLength);
+    const reliefRatio = (maxHeight - minHeight) / (GROUND_MASK_SAMPLE_DISTANCE * 2);
+    const smoothMask = 1 - smoothstepRange(0.22, 0.62, reliefRatio);
+
+    target.baseHeight = baseHeight;
+    target.height = height;
+    target.normalX = normalX / normalLength;
+    target.normalY = normalY / normalLength;
+    target.normalZ = normalZ / normalLength;
+    target.groundMask = THREE.MathUtils.clamp(slopeMask * smoothMask, 0, 1);
+    return target;
+  }
+
+  getCachedSurfaceHeight(x, z, cache) {
+    const cacheIndex = getSurfaceHeightCacheIndex(cache, x, z);
+
+    if (cacheIndex === -1) return this.getHeightAt(x, z);
+
+    const cachedHeight = cache.values[cacheIndex];
+    if (!Number.isNaN(cachedHeight)) return cachedHeight;
+
+    const height = this.getHeightAt(x, z);
+    cache.values[cacheIndex] = height;
+    return height;
+  }
+
+  setCachedSurfaceHeight(cache, x, z, height) {
+    const cacheIndex = getSurfaceHeightCacheIndex(cache, x, z);
+
+    if (cacheIndex !== -1) cache.values[cacheIndex] = height;
+  }
+
+  getSurfaceHeightFromBase(baseHeight, x, z) {
+    const waterSystemHeight = applyWaterSystemTerrain(baseHeight, x, z);
     const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
     return applyRiverChannel(smallLakesHeight, x, z);
+  }
+
+  getHeightAt(x, z) {
+    return this.getSurfaceHeightFromBase(this.getBaseHeightAt(x, z), x, z);
   }
 
   getBaseHeightAt(x, z) {
@@ -435,23 +1090,29 @@ export class Terrain {
       return this.getPixelHeight(x, y);
     }
 
+    const cacheIndex = y * this.width + x;
+    const cachedHeight = this.sampledHeightCache[cacheIndex];
+
+    if (!Number.isNaN(cachedHeight)) {
+      return cachedHeight;
+    }
+
     let weightedHeight = 0;
-    let totalWeight = 0;
 
-    const kernelRadius = Math.floor(HEIGHT_SMOOTHING_KERNEL.length / 2);
-
-    for (let offsetY = -kernelRadius; offsetY <= kernelRadius; offsetY += 1) {
-      for (let offsetX = -kernelRadius; offsetX <= kernelRadius; offsetX += 1) {
+    for (let offsetY = -HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetY <= HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetY += 1) {
+      for (let offsetX = -HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetX <= HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetX += 1) {
         const sampleX = THREE.MathUtils.clamp(x + offsetX, 0, this.width - 1);
         const sampleY = THREE.MathUtils.clamp(y + offsetY, 0, this.height - 1);
-        const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + kernelRadius][offsetX + kernelRadius];
+        const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + HEIGHT_SMOOTHING_KERNEL_RADIUS]
+          [offsetX + HEIGHT_SMOOTHING_KERNEL_RADIUS];
 
         weightedHeight += this.getPixelHeight(sampleX, sampleY) * weight;
-        totalWeight += weight;
       }
     }
 
-    return weightedHeight / totalWeight;
+    const height = weightedHeight / HEIGHT_SMOOTHING_KERNEL_WEIGHT;
+    this.sampledHeightCache[cacheIndex] = height;
+    return height;
   }
 
   getNormalAt(x, z) {
@@ -473,14 +1134,13 @@ export class Terrain {
     const right = this.getHeightAt(x + GROUND_MASK_SAMPLE_DISTANCE, z);
     const down = this.getHeightAt(x, z - GROUND_MASK_SAMPLE_DISTANCE);
     const up = this.getHeightAt(x, z + GROUND_MASK_SAMPLE_DISTANCE);
-    const normal = new THREE.Vector3(
-      left - right,
-      GROUND_MASK_SAMPLE_DISTANCE * 2,
-      down - up,
-    ).normalize();
+    const normalX = left - right;
+    const normalY = GROUND_MASK_SAMPLE_DISTANCE * 2;
+    const normalZ = down - up;
+    const normalLength = Math.hypot(normalX, normalY, normalZ) || 1;
     const minHeight = Math.min(center, left, right, down, up);
     const maxHeight = Math.max(center, left, right, down, up);
-    const slopeMask = smoothstepRange(0.76, 0.94, normal.y);
+    const slopeMask = smoothstepRange(0.76, 0.94, normalY / normalLength);
     const reliefRatio = (maxHeight - minHeight) / (GROUND_MASK_SAMPLE_DISTANCE * 2);
     const smoothMask = 1 - smoothstepRange(0.22, 0.62, reliefRatio);
 
@@ -528,7 +1188,7 @@ export class Terrain {
 
 async function loadHeightMap(path) {
   const image = new Image();
-  image.src = createCacheBustedUrl(path);
+  image.src = path;
   await image.decode();
 
   const canvas = document.createElement('canvas');
@@ -547,474 +1207,371 @@ async function loadHeightMap(path) {
   };
 }
 
-function createCacheBustedUrl(path) {
-  const separator = path.includes('?') ? '&' : '?';
-
-  return `${path}${separator}v=${Date.now()}`;
-}
-
-async function loadTerrainTextures() {
-  const loader = new THREE.TextureLoader();
+async function loadTerrainTextures(compressedTextureLoader, textureTier, textureAnisotropy) {
+  const standardTextureLoader = new THREE.TextureLoader();
+  const materialTextureLoader = compressedTextureLoader ?? standardTextureLoader;
+  const tier = textureTier === '1k' ? '1k' : '2k';
+  const anisotropy = textureAnisotropy ?? 4;
+  const optimizedPath = (name, fallback) => compressedTextureLoader
+    ? `${OPTIMIZED_TERRAIN_TEXTURE_PATH}/${name}_${tier}.ktx2`
+    : fallback;
   const [
-    frozenDirt,
-    scree,
     rock,
     rockNormal,
-    snow,
+    groundDirtAlbedo,
+    groundDirtNormal,
+    mossAlbedo,
+    mossNormal,
+    dryGrassAlbedo,
+    dryGrassNormal,
     gravelAlbedo,
     gravelNormal,
-    forestFloorBaseColor,
-    forestFloorNormal,
-    forestFloorRoughness,
-    forestFloorAo,
-    forestFloorDisplacement,
+    blendSplat,
     riverBank,
     riverBed,
   ] = await Promise.all([
-    loader.loadAsync(FROZEN_DIRT_TEXTURE_PATH),
-    loader.loadAsync(ALPINE_SCREE_TEXTURE_PATH),
-    loader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
-    loader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
-    loader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
-    loader.loadAsync(GRAVEL_ALBEDO_TEXTURE_PATH),
-    loader.loadAsync(GRAVEL_NORMAL_TEXTURE_PATH),
-    loader.loadAsync(FOREST_FLOOR_BASE_COLOR_TEXTURE_PATH),
-    loader.loadAsync(FOREST_FLOOR_NORMAL_TEXTURE_PATH),
-    loader.loadAsync(FOREST_FLOOR_ROUGHNESS_TEXTURE_PATH),
-    loader.loadAsync(FOREST_FLOOR_AO_TEXTURE_PATH),
-    loader.loadAsync(FOREST_FLOOR_DISPLACEMENT_TEXTURE_PATH),
-    loader.loadAsync(RIVER_BANK_TEXTURE_PATH),
-    loader.loadAsync(RIVER_BED_TEXTURE_PATH),
+    standardTextureLoader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
+    standardTextureLoader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
+    materialTextureLoader.loadAsync(optimizedPath('ground_dirt_albedo', GROUND_DIRT_ALBEDO_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('ground_dirt_normal', GROUND_DIRT_NORMAL_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('moss_albedo', MOSS_ALBEDO_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('moss_normal', MOSS_NORMAL_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('dry_grass_albedo', DRY_GRASS_ALBEDO_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('dry_grass_normal', DRY_GRASS_NORMAL_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('gravel_albedo', GRAVEL_ALBEDO_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('gravel_normal', GRAVEL_NORMAL_TEXTURE_PATH)),
+    materialTextureLoader.loadAsync(optimizedPath('blend_mask_splat', BLEND_SPLAT_TEXTURE_PATH)),
+    standardTextureLoader.loadAsync(RIVER_BANK_TEXTURE_PATH),
+    standardTextureLoader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
 
-  for (const texture of [frozenDirt, scree, rock, snow, gravelAlbedo, forestFloorBaseColor, riverBank, riverBed]) {
+  for (const texture of [
+    rock,
+    groundDirtAlbedo,
+    mossAlbedo,
+    dryGrassAlbedo,
+    gravelAlbedo,
+    riverBank,
+    riverBed,
+  ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
+    texture.anisotropy = anisotropy;
   }
 
-  for (const texture of [rockNormal, gravelNormal, forestFloorNormal, forestFloorRoughness, forestFloorAo, forestFloorDisplacement]) {
+  for (const texture of [
+    rockNormal,
+    groundDirtNormal,
+    mossNormal,
+    dryGrassNormal,
+    gravelNormal,
+    blendSplat,
+  ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.NoColorSpace;
-    texture.anisotropy = 8;
+    texture.anisotropy = anisotropy;
   }
 
+  blendSplat.wrapS = THREE.ClampToEdgeWrapping;
+  blendSplat.wrapT = THREE.ClampToEdgeWrapping;
+
   return {
-    frozenDirt,
-    scree,
     rock,
     rockNormal,
-    snow,
+    groundDirtAlbedo,
+    groundDirtNormal,
+    mossAlbedo,
+    mossNormal,
+    dryGrassAlbedo,
+    dryGrassNormal,
     gravelAlbedo,
     gravelNormal,
-    forestFloorBaseColor,
-    forestFloorNormal,
-    forestFloorRoughness,
-    forestFloorAo,
-    forestFloorDisplacement,
+    blendSplat,
     riverBank,
     riverBed,
   };
 }
 
-function createTerrainMaterial(textures) {
-  return new THREE.ShaderMaterial({
-    lights: true,
-    uniforms: THREE.UniformsUtils.merge([
-      THREE.UniformsLib.lights,
-      {
-        uFrozenDirtTexture: { value: textures.frozenDirt },
-        uScreeTexture: { value: textures.scree },
-        uRockTexture: { value: textures.rock },
-        uRockNormalTexture: { value: textures.rockNormal },
-        uSnowTexture: { value: textures.snow },
-        uGravelAlbedoTexture: { value: textures.gravelAlbedo },
-        uGravelNormalTexture: { value: textures.gravelNormal },
-        uForestFloorBaseColorTexture: { value: textures.forestFloorBaseColor },
-        uForestFloorNormalTexture: { value: textures.forestFloorNormal },
-        uForestFloorRoughnessTexture: { value: textures.forestFloorRoughness },
-        uForestFloorAoTexture: { value: textures.forestFloorAo },
-        uForestFloorDisplacementTexture: { value: textures.forestFloorDisplacement },
-        uRiverBankTexture: { value: textures.riverBank },
-        uRiverBedTexture: { value: textures.riverBed },
-        uTextureWorldSize: { value: GROUND_TEXTURE_WORLD_SIZE },
-        uGravelTextureWorldSize: { value: GRAVEL_TEXTURE_WORLD_SIZE },
-        uForestFloorTextureWorldSize: { value: FOREST_FLOOR_TEXTURE_WORLD_SIZE },
-        uForestFloorCellWorldSize: { value: FOREST_FLOOR_CELL_WORLD_SIZE },
-        uRiverBankTextureWorldSize: { value: RIVER_BANK_TEXTURE_WORLD_SIZE },
-        uRiverBedTextureWorldSize: { value: RIVER_BED_TEXTURE_WORLD_SIZE },
-        uSunDirection: { value: SUN_LIGHT_DIRECTION.clone() },
-        uSkyLightColor: { value: new THREE.Color(0xe4f4ff) },
-        uGroundLightColor: { value: new THREE.Color(0x8ca46d) },
-        uSunLightColor: { value: new THREE.Color(0xfff4d6) },
-      },
-    ]),
-    vertexShader: `
-      #include <common>
-      #include <shadowmap_pars_vertex>
+function normalizeLodSegments(lodSegments) {
+  const values = Array.isArray(lodSegments)
+    ? lodSegments
+    : lodSegments === undefined
+      ? DEFAULT_LOD_SEGMENTS
+      : [lodSegments];
+  const normalized = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0 && CHUNK_SIZE % value === 0)
+    .map((value) => Math.min(value, CHUNK_SIZE))
+    .filter((value, index, list) => list.indexOf(value) === index)
+    .sort((a, b) => b - a);
 
-      uniform float uTextureWorldSize;
-      uniform float uRiverBankTextureWorldSize;
+  if (normalized.length === 0) return [...DEFAULT_LOD_SEGMENTS];
+  if (normalized[0] !== CHUNK_SIZE) normalized.unshift(CHUNK_SIZE);
+  return normalized;
+}
 
-      attribute float groundMask;
-      attribute float riverMask;
-      attribute float riverBedMask;
-      attribute float riverUnderwaterMask;
-      attribute vec4 waterSystemMask;
-      attribute vec2 riverBedCoord;
-      attribute float smallLakesMask;
+function normalizeChunkSegments(value) {
+  const segments = Number(value);
 
-      varying vec2 vWorldUv;
-      varying vec2 vRiverBankUv;
-      varying vec2 vRiverBedCoord;
-      varying vec3 vWorldPosition;
-      varying vec3 vWorldNormal;
-      varying float vWorldHeight;
-      varying float vGroundMask;
-      varying float vRiverMask;
-      varying float vRiverBedMask;
-      varying float vRiverUnderwaterMask;
-      varying vec4 vWaterSystemMask;
-      varying float vSmallLakesMask;
+  if (Number.isInteger(segments) && segments > 0 && CHUNK_SIZE % segments === 0) {
+    return Math.min(segments, CHUNK_SIZE);
+  }
 
-      void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vec3 transformedNormal = normalize(normalMatrix * normal);
+  return DEFAULT_LOD_SEGMENTS[DEFAULT_LOD_SEGMENTS.length - 1];
+}
 
-        vWorldUv = worldPosition.xz / uTextureWorldSize;
-        vRiverBankUv = worldPosition.xz / uRiverBankTextureWorldSize;
-        vRiverBedCoord = riverBedCoord;
-        vWorldPosition = worldPosition.xyz;
-        vWorldNormal = normalize(mat3(modelMatrix) * normal);
-        vWorldHeight = worldPosition.y;
-        vGroundMask = groundMask;
-        vRiverMask = riverMask;
-        vRiverBedMask = riverBedMask;
-        vRiverUnderwaterMask = riverUnderwaterMask;
-        vWaterSystemMask = waterSystemMask;
-        vSmallLakesMask = smallLakesMask;
+function createChunkArrays(segments) {
+  const vertexCount = (segments + 1) ** 2;
 
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
-        #include <shadowmap_vertex>
-      }
-    `,
-    fragmentShader: `
-      #include <common>
-      #include <packing>
-      #include <lights_pars_begin>
-      #include <shadowmap_pars_fragment>
-      #include <shadowmask_pars_fragment>
+  return {
+    positions: new Float32Array(vertexCount * 3),
+    normals: new Float32Array(vertexCount * 3),
+    uvs: new Float32Array(vertexCount * 2),
+    groundMasks: new Float32Array(vertexCount),
+    riverMasks: new Float32Array(vertexCount),
+    riverBedMasks: new Float32Array(vertexCount),
+    riverUnderwaterMasks: new Float32Array(vertexCount),
+    riverBedCoords: new Float32Array(vertexCount * 2),
+    waterSystemMasks: new Float32Array(vertexCount * 4),
+    smallLakeMasks: new Float32Array(vertexCount),
+    indices: new Uint32Array(segments * segments * 6),
+  };
+}
 
-      uniform sampler2D uFrozenDirtTexture;
-      uniform sampler2D uScreeTexture;
-      uniform sampler2D uRockTexture;
-      uniform sampler2D uRockNormalTexture;
-      uniform sampler2D uSnowTexture;
-      uniform sampler2D uGravelAlbedoTexture;
-      uniform sampler2D uGravelNormalTexture;
-      uniform sampler2D uForestFloorBaseColorTexture;
-      uniform sampler2D uForestFloorNormalTexture;
-      uniform sampler2D uForestFloorRoughnessTexture;
-      uniform sampler2D uForestFloorAoTexture;
-      uniform sampler2D uForestFloorDisplacementTexture;
-      uniform sampler2D uRiverBankTexture;
-      uniform sampler2D uRiverBedTexture;
-      uniform float uTextureWorldSize;
-      uniform float uGravelTextureWorldSize;
-      uniform float uForestFloorTextureWorldSize;
-      uniform float uForestFloorCellWorldSize;
-      uniform float uRiverBedTextureWorldSize;
-      uniform vec3 uSunDirection;
-      uniform vec3 uSkyLightColor;
-      uniform vec3 uGroundLightColor;
-      uniform vec3 uSunLightColor;
+function createSurfaceHeightCache(minX, minZ) {
+  const padding = GROUND_MASK_SAMPLE_DISTANCE;
+  const size = CHUNK_SIZE + padding * 2 + 1;
+  const values = new Float32Array(size * size);
 
-      varying vec2 vWorldUv;
-      varying vec2 vRiverBankUv;
-      varying vec2 vRiverBedCoord;
-      varying vec3 vWorldPosition;
-      varying vec3 vWorldNormal;
-      varying float vWorldHeight;
-      varying float vGroundMask;
-      varying float vRiverMask;
-      varying float vRiverBedMask;
-      varying float vRiverUnderwaterMask;
-      varying vec4 vWaterSystemMask;
-      varying float vSmallLakesMask;
+  values.fill(Number.NaN);
+  return {
+    minX: minX - padding,
+    minZ: minZ - padding,
+    size,
+    values,
+  };
+}
 
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
+function getSurfaceHeightCacheIndex(cache, x, z) {
+  if (!cache) return -1;
 
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        vec2 u = f * f * (3.0 - 2.0 * f);
+  const xIndex = Math.round(x - cache.minX);
+  const zIndex = Math.round(z - cache.minZ);
 
-        return mix(a, b, u.x)
-          + (c - a) * u.y * (1.0 - u.x)
-          + (d - b) * u.x * u.y;
-      }
+  if (
+    xIndex < 0
+    || xIndex >= cache.size
+    || zIndex < 0
+    || zIndex >= cache.size
+    || Math.abs(cache.minX + xIndex - x) > 0.0001
+    || Math.abs(cache.minZ + zIndex - z) > 0.0001
+  ) {
+    return -1;
+  }
 
-      float fbm(vec2 p) {
-        float value = 0.0;
-        float amplitude = 0.5;
+  return zIndex * cache.size + xIndex;
+}
 
-        for (int i = 0; i < 4; i += 1) {
-          value += noise(p) * amplitude;
-          p = p * 2.02 + vec2(7.3, 13.1);
-          amplitude *= 0.5;
-        }
+function writeSurfaceCellIndices(indices, cellIndex, segments, verticesPerSide) {
+  const x = cellIndex % segments;
+  const z = Math.floor(cellIndex / segments);
+  const topLeft = z * verticesPerSide + x;
+  const topRight = topLeft + 1;
+  const bottomLeft = topLeft + verticesPerSide;
+  const bottomRight = bottomLeft + 1;
+  const offset = cellIndex * 6;
 
-        return value;
-      }
+  indices[offset] = topLeft;
+  indices[offset + 1] = bottomLeft;
+  indices[offset + 2] = topRight;
+  indices[offset + 3] = topRight;
+  indices[offset + 4] = bottomLeft;
+  indices[offset + 5] = bottomRight;
+}
 
-      vec3 applyDetailNormal(vec3 baseNormal, vec2 worldPosition, float groundInfluence, float rockInfluence, float wetInfluence) {
-        float detailScale = mix(1.8, 4.2, clamp(rockInfluence, 0.0, 1.0));
-        vec2 p = worldPosition * detailScale;
-        float sampleOffset = 0.23;
-        float hL = fbm((p - vec2(sampleOffset, 0.0)) * 0.92);
-        float hR = fbm((p + vec2(sampleOffset, 0.0)) * 0.92);
-        float hD = fbm((p - vec2(0.0, sampleOffset)) * 0.92);
-        float hU = fbm((p + vec2(0.0, sampleOffset)) * 0.92);
-        vec2 gradient = vec2(hR - hL, hU - hD);
-        float strength = groundInfluence * 0.13 + rockInfluence * 0.24 + wetInfluence * 0.08;
+function createSurfaceGeometry(arrays, minX, minZ) {
+  const geometry = new THREE.BufferGeometry();
 
-        return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
-      }
+  geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(arrays.normals, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(arrays.uvs, 2));
+  geometry.setAttribute('groundMask', new THREE.BufferAttribute(arrays.groundMasks, 1));
+  geometry.setAttribute('riverMask', new THREE.BufferAttribute(arrays.riverMasks, 1));
+  geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(arrays.riverBedMasks, 1));
+  geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(arrays.riverUnderwaterMasks, 1));
+  geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
+  geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
+  geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
+  geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
+  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
+  return geometry;
+}
 
-      vec3 sampleTriplanarTexture(sampler2D terrainTexture, vec3 worldPosition, vec3 worldNormal, float textureScale, vec2 offset) {
-        vec3 blend = pow(abs(worldNormal), vec3(4.0));
-        blend /= max(blend.x + blend.y + blend.z, 0.0001);
+function createSkirtGeometry(surfacePositions, segments, minX, minZ, edgeMinimums) {
+  const verticesPerSide = segments + 1;
+  const positions = new Float32Array(4 * verticesPerSide * 2 * 3);
+  const indices = new Uint32Array(4 * segments * 6);
+  let vertexOffset = 0;
+  let indexOffset = 0;
 
-        vec3 xSample = texture2D(terrainTexture, worldPosition.zy / uTextureWorldSize * textureScale + offset).rgb;
-        vec3 ySample = texture2D(terrainTexture, worldPosition.xz / uTextureWorldSize * textureScale + offset).rgb;
-        vec3 zSample = texture2D(terrainTexture, worldPosition.xy / uTextureWorldSize * textureScale + offset).rgb;
+  for (let edge = 0; edge < 4; edge += 1) {
+    const edgeVertexOffset = vertexOffset;
 
-        return xSample * blend.x + ySample * blend.y + zSample * blend.z;
-      }
+    for (let i = 0; i < verticesPerSide; i += 1) {
+      const sourceIndex = getEdgeSurfaceVertexIndex(edge, i, segments, verticesPerSide);
+      const sourceOffset = sourceIndex * 3;
+      const topOffset = vertexOffset * 3;
+      const bottomOffset = topOffset + 3;
 
-      vec3 sampleTriplanarNormal(sampler2D normalTexture, vec3 worldPosition, vec3 worldNormal, float textureScale, vec2 offset) {
-        vec3 blend = pow(abs(worldNormal), vec3(4.0));
-        blend /= max(blend.x + blend.y + blend.z, 0.0001);
-        vec3 axisSign = vec3(
-          worldNormal.x < 0.0 ? -1.0 : 1.0,
-          worldNormal.y < 0.0 ? -1.0 : 1.0,
-          worldNormal.z < 0.0 ? -1.0 : 1.0
-        );
+      positions[topOffset] = surfacePositions[sourceOffset];
+      positions[topOffset + 1] = surfacePositions[sourceOffset + 1];
+      positions[topOffset + 2] = surfacePositions[sourceOffset + 2];
+      positions[bottomOffset] = surfacePositions[sourceOffset];
+      positions[bottomOffset + 1] = surfacePositions[sourceOffset + 1]
+        - CHUNK_SKIRT_BOTTOM_MARGIN;
+      positions[bottomOffset + 2] = surfacePositions[sourceOffset + 2];
+      vertexOffset += 2;
+    }
 
-        vec3 xNormal = texture2D(normalTexture, worldPosition.zy / uTextureWorldSize * textureScale + offset).rgb * 2.0 - 1.0;
-        vec3 yNormal = texture2D(normalTexture, worldPosition.xz / uTextureWorldSize * textureScale + offset).rgb * 2.0 - 1.0;
-        vec3 zNormal = texture2D(normalTexture, worldPosition.xy / uTextureWorldSize * textureScale + offset).rgb * 2.0 - 1.0;
+    for (let i = 0; i < segments; i += 1) {
+      const topFirst = edgeVertexOffset + i * 2;
+      const bottomFirst = topFirst + 1;
+      const topSecond = topFirst + 2;
+      const bottomSecond = topFirst + 3;
 
-        vec3 xWorld = normalize(vec3(xNormal.z * axisSign.x, xNormal.y, xNormal.x));
-        vec3 yWorld = normalize(vec3(yNormal.x, yNormal.z * axisSign.y, yNormal.y));
-        vec3 zWorld = normalize(vec3(zNormal.x, zNormal.y, zNormal.z * axisSign.z));
+      indices[indexOffset] = topFirst;
+      indices[indexOffset + 1] = bottomFirst;
+      indices[indexOffset + 2] = topSecond;
+      indices[indexOffset + 3] = topSecond;
+      indices[indexOffset + 4] = bottomFirst;
+      indices[indexOffset + 5] = bottomSecond;
+      indexOffset += 6;
+    }
+  }
 
-        return normalize(xWorld * blend.x + yWorld * blend.y + zWorld * blend.z);
-      }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, true);
+  return geometry;
+}
 
-      vec2 rotateQuarter(vec2 value, float turn) {
-        if (turn < 0.5) return value;
-        if (turn < 1.5) return vec2(-value.y, value.x);
-        if (turn < 2.5) return -value;
-        return vec2(value.y, -value.x);
-      }
+function getEdgeSurfaceVertexIndex(edge, index, segments, verticesPerSide) {
+  if (edge === 0) return index;
+  if (edge === 1) return segments * verticesPerSide + index;
+  if (edge === 2) return index * verticesPerSide;
+  return index * verticesPerSide + segments;
+}
 
-      float forestFloorCellTurn(vec2 cell) {
-        return floor(hash(cell + vec2(31.3, 11.7)) * 4.0);
-      }
+function createChunkBoundingSphere(minX, minZ, includeSkirt) {
+  const verticalRadius = MAX_HEIGHT / 2 + (includeSkirt ? 32 : 24);
 
-      vec2 forestFloorCellOffset(vec2 cell) {
-        return vec2(
-          hash(cell + vec2(5.2, 1.7)),
-          hash(cell + vec2(8.3, 2.8))
-        ) * 19.0;
-      }
+  return new THREE.Sphere(
+    new THREE.Vector3(minX + CHUNK_SIZE / 2, MAX_HEIGHT / 2, minZ + CHUNK_SIZE / 2),
+    Math.hypot(CHUNK_SIZE / 2, CHUNK_SIZE / 2, verticalRadius),
+  );
+}
 
-      vec4 sampleForestFloorCell(sampler2D terrainTexture, vec2 worldPosition, vec2 cell) {
-        float turn = forestFloorCellTurn(cell);
-        vec2 uv = rotateQuarter(worldPosition / uForestFloorTextureWorldSize, turn)
-          + forestFloorCellOffset(cell);
-
-        return texture2D(terrainTexture, uv);
-      }
-
-      vec4 sampleForestFloorTexture(sampler2D terrainTexture, vec2 worldPosition) {
-        vec2 cellPosition = worldPosition / uForestFloorCellWorldSize;
-        vec2 cell = floor(cellPosition);
-        vec2 blend = smoothstep(vec2(0.18), vec2(0.82), fract(cellPosition));
-        vec4 a = sampleForestFloorCell(terrainTexture, worldPosition, cell);
-        vec4 b = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(1.0, 0.0));
-        vec4 c = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(0.0, 1.0));
-        vec4 d = sampleForestFloorCell(terrainTexture, worldPosition, cell + vec2(1.0, 1.0));
-
-        return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
-      }
-
-      vec3 sampleForestFloorNormalCell(vec2 worldPosition, vec2 cell) {
-        float turn = forestFloorCellTurn(cell);
-        vec2 uv = rotateQuarter(worldPosition / uForestFloorTextureWorldSize, turn)
-          + forestFloorCellOffset(cell);
-        vec3 tangentNormal = texture2D(uForestFloorNormalTexture, uv).rgb * 2.0 - 1.0;
-
-        tangentNormal.xy = rotateQuarter(tangentNormal.xy, turn);
-
-        return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
-      }
-
-      vec3 sampleForestFloorNormal(vec2 worldPosition) {
-        vec2 cellPosition = worldPosition / uForestFloorCellWorldSize;
-        vec2 cell = floor(cellPosition);
-        vec2 blend = smoothstep(vec2(0.18), vec2(0.82), fract(cellPosition));
-        vec3 a = sampleForestFloorNormalCell(worldPosition, cell);
-        vec3 b = sampleForestFloorNormalCell(worldPosition, cell + vec2(1.0, 0.0));
-        vec3 c = sampleForestFloorNormalCell(worldPosition, cell + vec2(0.0, 1.0));
-        vec3 d = sampleForestFloorNormalCell(worldPosition, cell + vec2(1.0, 1.0));
-
-        return normalize(mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y));
-      }
-
-      vec3 applyForestFloorHeightNormal(vec3 baseNormal, vec2 worldPosition, float strength) {
-        float sampleOffset = 0.32;
-        float hL = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition - vec2(sampleOffset, 0.0)).r;
-        float hR = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition + vec2(sampleOffset, 0.0)).r;
-        float hD = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition - vec2(0.0, sampleOffset)).r;
-        float hU = sampleForestFloorTexture(uForestFloorDisplacementTexture, worldPosition + vec2(0.0, sampleOffset)).r;
-        vec2 gradient = vec2(hR - hL, hU - hD);
-
-        return normalize(baseNormal + vec3(-gradient.x, 0.0, -gradient.y) * strength);
-      }
-
-      void main() {
-        vec3 normal = normalize(vWorldNormal);
-        vec2 blendUv = vWorldUv * uTextureWorldSize;
-
-        vec3 frozenDirt = texture2D(uFrozenDirtTexture, vWorldUv * 0.88 + vec2(4.7, -8.2)).rgb;
-        vec3 scree = texture2D(uScreeTexture, vWorldUv * 0.78 + vec2(-13.0, 9.4)).rgb;
-        vec3 rock = sampleTriplanarTexture(uRockTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
-        vec3 snow = texture2D(uSnowTexture, vWorldUv * 0.82 + vec2(-5.5, -17.0)).rgb;
-        vec2 gravelUv = vWorldPosition.xz / uGravelTextureWorldSize;
-        float gravelWarp = (fbm(vWorldPosition.xz * 0.038 + vec2(6.0, -11.0)) - 0.5) * 0.08;
-        vec3 gravelA = texture2D(uGravelAlbedoTexture, gravelUv + gravelWarp).rgb;
-        vec3 gravelB = texture2D(uGravelAlbedoTexture, gravelUv * 0.57 + vec2(17.0, -9.0)).rgb;
-        vec3 gravel = mix(gravelA, gravelB, 0.22);
-        vec3 riverBank = texture2D(uRiverBankTexture, vRiverBankUv).rgb;
-        vec2 lakeBedUv = vWorldUv * uTextureWorldSize / uRiverBedTextureWorldSize;
-        float lakeMaskFactor = smoothstep(0.05, 0.95, vSmallLakesMask);
-        vec2 riverBedUv = mix(
-          vec2(vRiverBedCoord.x / uRiverBedTextureWorldSize, vRiverBedCoord.y / 3.6),
-          lakeBedUv,
-          lakeMaskFactor
-        );
-        float riverBedWarp = (fbm(vec2(vRiverBedCoord.x * 0.055, vRiverBedCoord.y * 0.35)) - 0.5) * 0.18;
-        riverBedUv += vec2(riverBedWarp, riverBedWarp * 0.45);
-        vec3 riverBedA = texture2D(uRiverBedTexture, riverBedUv).rgb;
-        vec3 riverBedB = texture2D(uRiverBedTexture, riverBedUv * vec2(0.61, 1.27) + vec2(12.7, -4.4)).rgb;
-        vec3 riverBed = mix(riverBedA, riverBedB, 0.28);
-
-        float gravelPatch = smoothstep(0.46, 0.78, fbm(blendUv * 0.13 + vec2(5.4, 18.0)));
-        vec2 forestFloorPosition = vWorldPosition.xz;
-        vec3 forestFloorBase = sampleForestFloorTexture(uForestFloorBaseColorTexture, forestFloorPosition).rgb;
-        float forestFloorAo = sampleForestFloorTexture(uForestFloorAoTexture, forestFloorPosition).r;
-        float forestFloorRoughness = sampleForestFloorTexture(uForestFloorRoughnessTexture, forestFloorPosition).r;
-        float forestMacro = fbm(blendUv * 0.035 + vec2(3.0, -9.0));
-        vec3 groundColor = forestFloorBase * mix(0.86, 1.12, forestMacro);
-        groundColor *= mix(0.66, 1.0, forestFloorAo);
-
-        float heightNoise = (fbm(blendUv * 0.025 + vec2(8.0, -14.0)) - 0.5) * 34.0;
-        float noisyHeight = vWorldHeight + heightNoise;
-        float lowGroundFade = 1.0 - smoothstep(130.0, 185.0, noisyHeight);
-        float groundMask = smoothstep(0.08, 0.82, vGroundMask) * lowGroundFade;
-        float midSlopeMask = smoothstep(0.50, 0.68, normal.y) * (1.0 - smoothstep(0.78, 0.92, normal.y));
-        float screeMask = smoothstep(75.0, 120.0, noisyHeight) * (1.0 - smoothstep(235.0, 275.0, noisyHeight));
-        screeMask *= smoothstep(0.16, 0.76, max(midSlopeMask, 1.0 - vGroundMask));
-        float rockMask = max(
-          1.0 - smoothstep(0.48, 0.72, normal.y),
-          smoothstep(190.0, 260.0, noisyHeight) * (1.0 - smoothstep(0.74, 0.92, normal.y))
-        );
-        float snowHeightMask = smoothstep(130.0, 200.0, noisyHeight);
-        float snowSlopeMask = smoothstep(0.52, 0.82, normal.y);
-        float snowNoiseMask = smoothstep(0.22, 0.88, fbm(blendUv * 0.055 + vec2(-3.0, 12.0)));
-        float snowMask = snowHeightMask * snowSlopeMask * mix(0.72, 1.15, snowNoiseMask);
-
-        vec3 alpineColor = mix(frozenDirt, scree, clamp(screeMask, 0.0, 1.0));
-        alpineColor = mix(alpineColor, rock, clamp(rockMask, 0.0, 1.0));
-        alpineColor = mix(alpineColor, snow, clamp(snowMask, 0.0, 1.0));
-        vec3 baseColor = mix(alpineColor, groundColor, groundMask);
-        float gravelHeightMask = 1.0 - smoothstep(95.0, 155.0, noisyHeight);
-        float gravelFlatMask = smoothstep(0.66, 0.92, normal.y);
-        float gravelLayerMask = groundMask * gravelHeightMask * gravelFlatMask * mix(0.32, 1.0, gravelPatch);
-        baseColor = mix(baseColor, gravel * vec3(1.08, 1.06, 1.0), clamp(gravelLayerMask * 0.82, 0.0, 1.0));
-        float riverSlopeMask = 1.0 - smoothstep(0.90, 0.985, normal.y);
-        float riverMaterialMask = smoothstep(0.05, 0.95, vRiverMask);
-        float riverUnderwaterMask = smoothstep(0.05, 0.95, vRiverUnderwaterMask);
-        float riverMask = riverMaterialMask * max(riverSlopeMask, riverUnderwaterMask);
-        baseColor = mix(baseColor, riverBank, riverMask);
-        float riverBedMask = smoothstep(0.05, 0.95, vRiverBedMask);
-        baseColor = mix(baseColor, riverBed, riverBedMask);
-        float lakeBedMask = smoothstep(0.04, 0.92, vWaterSystemMask.x);
-        float wetShoreMask = smoothstep(0.05, 0.95, vWaterSystemMask.y);
-        float snowmeltWetMask = smoothstep(0.05, 0.92, vWaterSystemMask.z);
-        float plungeMask = smoothstep(0.05, 0.9, vWaterSystemMask.w);
-        vec3 lakeBedColor = mix(riverBed, riverBank, 0.32);
-        vec3 wetRockColor = mix(rock, riverBank, 0.35) * vec3(0.58, 0.66, 0.68);
-        vec3 plungeColor = mix(riverBed, vec3(0.74, 0.86, 0.88), 0.35);
-        baseColor = mix(baseColor, lakeBedColor, lakeBedMask);
-        baseColor = mix(baseColor, riverBank, wetShoreMask * 0.42);
-        baseColor = mix(baseColor, plungeColor, plungeMask * 0.78);
-        baseColor = mix(baseColor, wetRockColor, max(wetShoreMask * 0.65, snowmeltWetMask * 0.9));
-
-        float detailShade = fbm(blendUv * 3.1 + vec2(19.0, -6.0));
-        float materialDetail = groundMask * 0.08 + max(screeMask, rockMask) * 0.12 + wetShoreMask * 0.06;
-        baseColor *= mix(1.0 - materialDetail, 1.0 + materialDetail, detailShade);
-
-        float rockInfluence = clamp(max(screeMask, rockMask), 0.0, 1.0);
-        float wetInfluence = clamp(max(wetShoreMask, snowmeltWetMask), 0.0, 1.0);
-        float terrainWaterFade = 1.0 - clamp(max(max(riverMask, riverBedMask), max(lakeBedMask, wetShoreMask)), 0.0, 1.0);
-        vec3 surfaceNormal = applyDetailNormal(normal, vWorldPosition.xz, groundMask, rockInfluence, wetInfluence);
-        float forestNormalMask = groundMask * terrainWaterFade * (1.0 - clamp(gravelLayerMask * 0.82, 0.0, 1.0));
-        vec3 forestMappedNormal = sampleForestFloorNormal(forestFloorPosition);
-        surfaceNormal = normalize(mix(surfaceNormal, forestMappedNormal, forestNormalMask * 0.5));
-        surfaceNormal = applyForestFloorHeightNormal(surfaceNormal, forestFloorPosition, forestNormalMask * 0.34);
-        float gravelWaterFade = terrainWaterFade;
-        float gravelNormalMask = gravelLayerMask * gravelWaterFade;
-        vec3 gravelNormalSample = texture2D(uGravelNormalTexture, gravelUv).rgb * 2.0 - 1.0;
-        vec3 gravelMappedNormal = normalize(vec3(gravelNormalSample.x, gravelNormalSample.z, gravelNormalSample.y));
-        surfaceNormal = normalize(mix(surfaceNormal, gravelMappedNormal, gravelNormalMask * 0.55));
-        float rockNormalMask = smoothstep(0.42, 0.92, rockMask);
-        vec3 rockMappedNormal = sampleTriplanarNormal(uRockNormalTexture, vWorldPosition, normal, 0.62, vec2(21.0, 6.0));
-        surfaceNormal = normalize(mix(surfaceNormal, rockMappedNormal, rockNormalMask * 0.48));
-        float sunLight = max(dot(surfaceNormal, normalize(uSunDirection)), 0.0);
-        float rawShadowMask = getShadowMask();
-        float shadowMask = mix(0.18, 1.0, rawShadowMask);
-        float ambientShadow = mix(0.72, 1.0, rawShadowMask);
-        float skyLight = surfaceNormal.y * 0.5 + 0.5;
-        vec3 ambient = mix(uGroundLightColor, uSkyLightColor, skyLight) * 0.78;
-        vec3 litColor = baseColor * (ambient * ambientShadow + uSunLightColor * sunLight * shadowMask * 0.62);
-        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-        vec3 halfDir = normalize(normalize(uSunDirection) + viewDir);
-        float wetSpec = pow(max(dot(surfaceNormal, halfDir), 0.0), 72.0);
-        float forestSpecPower = mix(18.0, 92.0, forestFloorRoughness);
-        float forestSpecMask = forestNormalMask * pow(1.0 - forestFloorRoughness, 2.0);
-        float forestSpec = pow(max(dot(surfaceNormal, halfDir), 0.0), forestSpecPower) * forestSpecMask;
-        float glancing = pow(1.0 - max(dot(viewDir, surfaceNormal), 0.0), 3.0);
-        float wetReflect = max(wetShoreMask * 0.4, snowmeltWetMask) * max(wetSpec * 0.9, glancing * 0.16) * shadowMask;
-        litColor += uSunLightColor * forestSpec * shadowMask * 0.1;
-        litColor += vec3(0.78, 0.95, 1.0) * wetReflect;
-
-        gl_FragColor = vec4(litColor, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `,
+function createTerrainSkirtMaterial() {
+  return new THREE.MeshBasicMaterial({
+    color: 0x465044,
+    fog: true,
+    side: THREE.DoubleSide,
   });
+}
+
+function createTerrainShadowProxy(terrain) {
+  const verticesPerSide = SHADOW_PROXY_SEGMENTS + 1;
+  const positions = new Float32Array(verticesPerSide * verticesPerSide * 3);
+  const indices = new Uint32Array(SHADOW_PROXY_SEGMENTS * SHADOW_PROXY_SEGMENTS * 6);
+  const vertexStep = MAP_SIZE / SHADOW_PROXY_SEGMENTS;
+  let positionOffset = 0;
+  let indexOffset = 0;
+
+  for (let z = 0; z < verticesPerSide; z += 1) {
+    for (let x = 0; x < verticesPerSide; x += 1) {
+      const worldX = -HALF_MAP_SIZE + x * vertexStep;
+      const worldZ = -HALF_MAP_SIZE + z * vertexStep;
+
+      positions[positionOffset] = worldX;
+      positions[positionOffset + 1] = terrain.getHeightAt(worldX, worldZ);
+      positions[positionOffset + 2] = worldZ;
+      positionOffset += 3;
+    }
+  }
+
+  for (let z = 0; z < SHADOW_PROXY_SEGMENTS; z += 1) {
+    for (let x = 0; x < SHADOW_PROXY_SEGMENTS; x += 1) {
+      const topLeft = z * verticesPerSide + x;
+      const topRight = topLeft + 1;
+      const bottomLeft = topLeft + verticesPerSide;
+      const bottomRight = bottomLeft + 1;
+
+      indices[indexOffset] = topLeft;
+      indices[indexOffset + 1] = bottomLeft;
+      indices[indexOffset + 2] = topRight;
+      indices[indexOffset + 3] = topRight;
+      indices[indexOffset + 4] = bottomLeft;
+      indices[indexOffset + 5] = bottomRight;
+      indexOffset += 6;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.boundingSphere = new THREE.Sphere(
+    new THREE.Vector3(0, MAX_HEIGHT / 2, 0),
+    Math.hypot(HALF_MAP_SIZE, HALF_MAP_SIZE, MAX_HEIGHT / 2),
+  );
+  const material = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: false,
+  });
+  const shadowProxy = new THREE.Mesh(geometry, material);
+
+  shadowProxy.name = 'TerrainShadowProxy';
+  shadowProxy.castShadow = true;
+  shadowProxy.receiveShadow = false;
+  shadowProxy.layers.set(TERRAIN_SHADOW_PROXY_LAYER);
+  shadowProxy.raycast = disableRaycast;
+  shadowProxy.userData.isTerrainShadowProxy = true;
+  shadowProxy.userData.terrainSegments = SHADOW_PROXY_SEGMENTS;
+
+  return shadowProxy;
+}
+
+function disposeChunkRecord(record) {
+  if (!record || record.disposed) return;
+  record.disposed = true;
+  record.surface?.geometry.dispose();
+  record.skirt?.geometry.dispose();
+}
+
+function disableRaycast() {}
+
+function getConservativeMinimumChunkSegments(bounds) {
+  if (NARROW_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
+    return CHUNK_SIZE;
+  }
+  if (WIDE_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
+    return WATER_FEATURE_MIN_SEGMENTS;
+  }
+
+  return 0;
+}
+
+function boundsIntersect(a, b) {
+  return a.maxX >= b.minX
+    && a.minX <= b.maxX
+    && a.maxZ >= b.minZ
+    && a.minZ <= b.maxZ;
+}
+
+function getCurrentTime() {
+  return globalThis.performance?.now?.() ?? Date.now();
 }
 
 function getHeightDither(x, z) {

@@ -28,6 +28,8 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
     radius: DEFAULT_RADIUS,
     strength: DEFAULT_STRENGTH,
     hitPoint: new THREE.Vector3(),
+    hitNormal: new THREE.Vector3(0, 1, 0),
+    surfaceSample: {},
     hasHit: false,
   };
 
@@ -66,6 +68,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
 
   function open() {
     state.open = true;
+    terrain.setEditorMode(true);
     toolbar.hidden = false;
     toolbar.setAttribute('aria-hidden', 'false');
     canvas.style.cursor = 'crosshair';
@@ -77,6 +80,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
   function close() {
     state.open = false;
     state.painting = false;
+    terrain.setEditorMode(false);
     state.hasHit = false;
     brushCursor.visible = false;
     toolbar.hidden = true;
@@ -102,6 +106,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
     event.preventDefault();
     canvas.setPointerCapture(event.pointerId);
     state.painting = true;
+    terrain.beginTerrainEditStroke();
     updateHit(event);
     paint();
   }
@@ -124,12 +129,14 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
     }
 
     state.painting = false;
+    terrain.endTerrainEditStroke();
   }
 
   function handlePointerLeave() {
     if (!state.open) return;
 
     state.painting = false;
+    terrain.endTerrainEditStroke();
     state.hasHit = false;
     brushCursor.visible = false;
   }
@@ -141,8 +148,10 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
     pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
     raycaster.setFromCamera(pointer, camera);
 
-    const hits = raycaster.intersectObjects(terrain.group.children, false);
-    const hit = hits.find((item) => item.object?.name?.startsWith('TerrainChunk_'));
+    const terrainSurfaces = terrain.getRaycastMeshes?.()
+      ?? terrain.group.children.filter((child) => child.userData?.isTerrainSurface);
+    const hits = raycaster.intersectObjects(terrainSurfaces, false);
+    const hit = hits.find((item) => item.object?.userData?.isTerrainSurface);
 
     if (!hit) {
       state.hasHit = false;
@@ -156,10 +165,13 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
   }
 
   function updateBrushCursor(point, localNormal, object) {
-    const normal = localNormal
-      ? localNormal.clone().transformDirection(object.matrixWorld)
-      : new THREE.Vector3(0, 1, 0);
+    state.hitNormal.copy(localNormal ?? THREE.Object3D.DEFAULT_UP);
+    if (localNormal) state.hitNormal.transformDirection(object.matrixWorld);
 
+    placeBrushCursor(point, state.hitNormal);
+  }
+
+  function placeBrushCursor(point, normal) {
     brushCursor.position.copy(point).addScaledVector(normal, 0.16);
     brushCursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
     brushCursor.visible = true;
@@ -176,6 +188,14 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
       state.radius,
       state.strength * direction,
     );
+    const sample = terrain.sampleSurfaceAt(
+      state.hitPoint.x,
+      state.hitPoint.z,
+      state.surfaceSample,
+    );
+    state.hitPoint.y = sample.height;
+    state.hitNormal.set(sample.normalX, sample.normalY, sample.normalZ);
+    placeBrushCursor(state.hitPoint, state.hitNormal);
     status.textContent = 'Unsaved';
   }
 

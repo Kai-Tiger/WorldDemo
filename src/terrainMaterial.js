@@ -1,0 +1,443 @@
+import * as THREE from 'three';
+
+export const TERRAIN_MATERIAL_LOD = Object.freeze({
+  NEAR: 'near',
+  MEDIUM: 'medium',
+  FAR: 'far',
+});
+
+const TERRAIN_TEXTURE_BUDGETS = Object.freeze({
+  [TERRAIN_MATERIAL_LOD.NEAR]: Object.freeze({ typical: 8, maximum: 14 }),
+  [TERRAIN_MATERIAL_LOD.MEDIUM]: Object.freeze({ typical: 5, maximum: 8 }),
+  [TERRAIN_MATERIAL_LOD.FAR]: Object.freeze({ typical: 3, maximum: 4 }),
+});
+
+const TERRAIN_VERTEX_PARAMETERS = `
+attribute float groundMask;
+attribute float riverMask;
+attribute float riverBedMask;
+attribute float riverUnderwaterMask;
+attribute vec2 riverBedCoord;
+attribute vec4 waterSystemMask;
+attribute float smallLakesMask;
+
+varying vec2 vTerrainRiverBedCoord;
+varying vec3 vTerrainWorldPosition;
+varying vec3 vTerrainWorldNormal;
+varying float vTerrainGroundMask;
+varying float vTerrainRiverMask;
+varying float vTerrainRiverBedMask;
+varying float vTerrainRiverUnderwaterMask;
+varying vec4 vTerrainWaterSystemMask;
+varying float vTerrainSmallLakesMask;
+varying vec4 vTerrainMacro;
+
+float terrainVertexHash(vec2 value) {
+  return fract(sin(dot(value, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float terrainVertexNoise(vec2 value) {
+  vec2 cell = floor(value);
+  vec2 local = fract(value);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = terrainVertexHash(cell);
+  float b = terrainVertexHash(cell + vec2(1.0, 0.0));
+  float c = terrainVertexHash(cell + vec2(0.0, 1.0));
+  float d = terrainVertexHash(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+`;
+
+const TERRAIN_VERTEX_ASSIGNMENTS = `
+vec4 terrainWorldPosition = modelMatrix * vec4(transformed, 1.0);
+vTerrainRiverBedCoord = riverBedCoord;
+vTerrainWorldPosition = terrainWorldPosition.xyz;
+vTerrainWorldNormal = inverseTransformDirection(transformedNormal, viewMatrix);
+vTerrainGroundMask = groundMask;
+vTerrainRiverMask = riverMask;
+vTerrainRiverBedMask = riverBedMask;
+vTerrainRiverUnderwaterMask = riverUnderwaterMask;
+vTerrainWaterSystemMask = waterSystemMask;
+vTerrainSmallLakesMask = smallLakesMask;
+vTerrainMacro = vec4(
+  terrainVertexNoise(terrainWorldPosition.xz * 0.012 + vec2(2.8, -7.1)),
+  terrainVertexNoise(terrainWorldPosition.xz * 0.0065 + vec2(-8.0, 4.0)),
+  terrainVertexNoise(terrainWorldPosition.xz * 0.055 + vec2(-3.0, 12.0)),
+  terrainVertexNoise(terrainWorldPosition.xz * 0.003 + vec2(17.0, -11.0))
+);
+`;
+
+const TERRAIN_FRAGMENT_UNIFORMS = `
+uniform sampler2D uRockTexture;
+uniform sampler2D uRockNormalTexture;
+uniform sampler2D uGroundDirtAlbedoTexture;
+uniform sampler2D uGroundDirtNormalTexture;
+uniform sampler2D uMossAlbedoTexture;
+uniform sampler2D uMossNormalTexture;
+uniform sampler2D uDryGrassAlbedoTexture;
+uniform sampler2D uDryGrassNormalTexture;
+uniform sampler2D uGravelAlbedoTexture;
+uniform sampler2D uGravelNormalTexture;
+uniform sampler2D uBlendSplatTexture;
+uniform sampler2D uRiverBankTexture;
+uniform sampler2D uRiverBedTexture;
+
+uniform float uMapWorldSize;
+uniform float uAlpineTextureWorldSize;
+uniform float uGroundDirtTextureWorldSize;
+uniform float uMossTextureWorldSize;
+uniform float uDryGrassTextureWorldSize;
+uniform float uGravelTextureWorldSize;
+uniform float uRiverBankTextureWorldSize;
+uniform float uRiverBedTextureWorldSize;
+
+varying vec2 vTerrainRiverBedCoord;
+varying vec3 vTerrainWorldPosition;
+varying vec3 vTerrainWorldNormal;
+varying float vTerrainGroundMask;
+varying float vTerrainRiverMask;
+varying float vTerrainRiverBedMask;
+varying float vTerrainRiverUnderwaterMask;
+varying vec4 vTerrainWaterSystemMask;
+varying float vTerrainSmallLakesMask;
+varying vec4 vTerrainMacro;
+
+float terrainHash(vec2 value) {
+  return fract(sin(dot(value, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+mat2 terrainRotation(float angle) {
+  float sine = sin(angle);
+  float cosine = cos(angle);
+  return mat2(cosine, -sine, sine, cosine);
+}
+`;
+
+const NEAR_SAMPLING_FUNCTIONS = `
+vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
+  vec3 primary = texture2D(terrainTexture, uv).rgb;
+  float angle = (terrainHash(floor(vTerrainWorldPosition.xz / 32.0) + seed) - 0.5) * 1.8;
+  vec2 rotatedUv = terrainRotation(angle) * (uv * 0.61) + vec2(seed * 3.1, -seed * 1.7);
+  vec3 secondary = texture2D(terrainTexture, rotatedUv).rgb;
+  return mix(primary, secondary, 0.32);
+}
+
+vec3 sampleTerrainNormal(sampler2D normalTexture, vec2 uv) {
+  vec3 tangentNormal = texture2D(normalTexture, uv).rgb * 2.0 - 1.0;
+  return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
+}
+
+vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+  vec3 blend = pow(abs(worldNormal), vec3(4.0));
+  blend /= max(blend.x + blend.y + blend.z, 0.0001);
+  vec3 xSample = texture2D(uRockTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 ySample = texture2D(uRockTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 zSample = texture2D(uRockTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  return xSample * blend.x + ySample * blend.y + zSample * blend.z;
+}
+
+vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+  vec3 blend = pow(abs(worldNormal), vec3(4.0));
+  blend /= max(blend.x + blend.y + blend.z, 0.0001);
+  vec3 xNormal = texture2D(uRockNormalTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 yNormal = texture2D(uRockNormalTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 zNormal = texture2D(uRockNormalTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 axisSign = sign(worldNormal + vec3(0.0001));
+  vec3 xWorld = normalize(vec3(xNormal.z * axisSign.x, xNormal.y, xNormal.x));
+  vec3 yWorld = normalize(vec3(yNormal.x, yNormal.z * axisSign.y, yNormal.y));
+  vec3 zWorld = normalize(vec3(zNormal.x, zNormal.y, zNormal.z * axisSign.z));
+  return normalize(xWorld * blend.x + yWorld * blend.y + zWorld * blend.z);
+}
+`;
+
+const MEDIUM_SAMPLING_FUNCTIONS = `
+vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
+  return texture2D(terrainTexture, uv + vec2(seed * 0.37, -seed * 0.21)).rgb;
+}
+
+vec3 sampleTerrainNormal(sampler2D normalTexture, vec2 uv) {
+  vec3 tangentNormal = texture2D(normalTexture, uv).rgb * 2.0 - 1.0;
+  return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
+}
+
+vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+  return texture2D(uRockTexture, worldPosition.xz / textureWorldSize).rgb;
+}
+`;
+
+const FAR_SAMPLING_FUNCTIONS = `
+vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
+  return texture2D(terrainTexture, uv + vec2(seed * 0.19, -seed * 0.11)).rgb;
+}
+`;
+
+function createTerrainMapFragment(level) {
+  const isNear = level === TERRAIN_MATERIAL_LOD.NEAR;
+  const isMedium = level === TERRAIN_MATERIAL_LOD.MEDIUM;
+  const sampleNormal = isNear || isMedium;
+  const rockColor = isNear || isMedium
+    ? 'sampleTerrainRock(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62)'
+    : 'sampleTerrainLayer(uRockTexture, terrainAlpineUv * 0.62, 7.0)';
+  const rockNormal = isNear
+    ? `terrainSurfaceNormal = normalize(mix(
+    terrainSurfaceNormal,
+    sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
+    0.5
+  ));`
+    : '';
+  const normalDeclarations = sampleNormal
+    ? 'vec3 terrainSurfaceNormal = terrainBaseNormal;'
+    : 'vec3 terrainSurfaceNormal = terrainBaseNormal;';
+  const groundBranches = createGroundBranches({ sampleNormal });
+
+  return `
+#include <map_fragment>
+
+// Compute all cheap masks before entering any texture-heavy material branch.
+vec3 terrainBaseNormal = normalize(vTerrainWorldNormal);
+float terrainHeight = vTerrainWorldPosition.y;
+vec2 terrainMapUv = vTerrainWorldPosition.xz / uMapWorldSize + 0.5;
+float terrainSplat = texture2D(uBlendSplatTexture, terrainMapUv).r;
+float terrainNoisyHeight = terrainHeight + (vTerrainMacro.x - 0.5) * 30.0;
+float terrainFlatMask = smoothstep(0.56, 0.92, terrainBaseNormal.y);
+float terrainLowlandMask = 1.0 - smoothstep(142.0, 194.0, terrainNoisyHeight);
+float terrainGroundMask = smoothstep(0.08, 0.82, vTerrainGroundMask)
+  * terrainFlatMask
+  * terrainLowlandMask;
+float terrainMoisture = clamp(
+  0.12
+    + terrainSplat * 0.5
+    + (1.0 - smoothstep(65.0, 175.0, terrainNoisyHeight)) * 0.18
+    + vTerrainWaterSystemMask.y * 0.7
+    + vTerrainWaterSystemMask.z * 0.8,
+  0.0,
+  1.0
+);
+float terrainMossWeight = terrainGroundMask
+  * smoothstep(0.28, 0.78, terrainMoisture)
+  * mix(0.4, 1.0, vTerrainMacro.x);
+float terrainDryGrassWeight = terrainGroundMask
+  * (1.0 - smoothstep(0.38, 0.76, terrainMoisture))
+  * smoothstep(18.0, 82.0, terrainNoisyHeight)
+  * mix(0.45, 1.0, 1.0 - terrainSplat);
+float terrainGravelWeight = terrainGroundMask
+  * (1.0 - smoothstep(118.0, 166.0, terrainNoisyHeight))
+  * mix(0.2, 0.82, 1.0 - terrainSplat)
+  * mix(0.65, 1.0, vTerrainMacro.x);
+float terrainRockMask = max(
+  1.0 - smoothstep(0.48, 0.72, terrainBaseNormal.y),
+  smoothstep(188.0, 258.0, terrainNoisyHeight)
+    * (1.0 - smoothstep(0.74, 0.92, terrainBaseNormal.y))
+);
+float terrainSnowMask = smoothstep(198.0, 258.0, terrainNoisyHeight)
+  * smoothstep(0.62, 0.86, terrainBaseNormal.y)
+  * mix(0.72, 1.12, vTerrainMacro.z);
+float terrainRiverMaterialMask = smoothstep(0.05, 0.95, vTerrainRiverMask);
+float terrainRiverUnderwaterMask = smoothstep(0.05, 0.95, vTerrainRiverUnderwaterMask);
+float terrainRiverSlopeMask = 1.0 - smoothstep(0.9, 0.985, terrainBaseNormal.y);
+float terrainRiverMask = terrainRiverMaterialMask
+  * max(terrainRiverSlopeMask, terrainRiverUnderwaterMask);
+float terrainRiverBedMask = smoothstep(0.05, 0.95, vTerrainRiverBedMask);
+float terrainLakeBedMask = smoothstep(0.04, 0.92, vTerrainWaterSystemMask.x);
+float terrainWetShoreMask = smoothstep(0.05, 0.95, vTerrainWaterSystemMask.y);
+float terrainSnowmeltWetMask = smoothstep(0.05, 0.92, vTerrainWaterSystemMask.z);
+float terrainPlungeMask = smoothstep(0.05, 0.9, vTerrainWaterSystemMask.w);
+float terrainWaterBankMask = max(
+  terrainRiverMask,
+  max(terrainWetShoreMask, terrainSnowmeltWetMask)
+);
+float terrainWaterBedMask = max(
+  terrainRiverBedMask,
+  max(terrainLakeBedMask, terrainPlungeMask)
+);
+
+vec2 terrainDirtUv = vTerrainWorldPosition.xz / uGroundDirtTextureWorldSize;
+vec2 terrainMossUv = vTerrainWorldPosition.xz / uMossTextureWorldSize + vec2(8.1, -3.7);
+vec2 terrainDryGrassUv = vTerrainWorldPosition.xz / uDryGrassTextureWorldSize + vec2(-11.4, 6.2);
+vec2 terrainGravelUv = vTerrainWorldPosition.xz / uGravelTextureWorldSize + vec2(4.7, 12.8);
+vec2 terrainAlpineUv = vTerrainWorldPosition.xz / uAlpineTextureWorldSize;
+${normalDeclarations}
+vec3 terrainBaseColor;
+float terrainRoughness = 0.9;
+float terrainOcclusion = 1.0;
+
+${groundBranches}
+else if (terrainRockMask > 0.42) {
+  terrainBaseColor = ${rockColor} * vec3(0.66, 0.71, 0.73);
+  ${rockNormal}
+  terrainRoughness = 0.76;
+  terrainOcclusion = 0.96;
+} else if (terrainSnowMask > 0.5) {
+  terrainBaseColor = mix(vec3(0.54, 0.61, 0.65), vec3(0.76, 0.81, 0.83), vTerrainMacro.z);
+  terrainRoughness = 0.96;
+} else {
+  terrainBaseColor = sampleTerrainLayer(uGroundDirtAlbedoTexture, terrainAlpineUv * 0.88, 5.0)
+    * vec3(0.62, 0.67, 0.68);
+  terrainRoughness = 0.9;
+}
+
+// River, lake, snowmelt and plunge masks stay active in every material LOD.
+if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
+  vec3 terrainBankColor = terrainBaseColor;
+  vec3 terrainBedColor = terrainBaseColor;
+  if (terrainWaterBankMask > 0.01) {
+    terrainBankColor = sampleTerrainLayer(
+      uRiverBankTexture,
+      vTerrainWorldPosition.xz / uRiverBankTextureWorldSize,
+      8.0
+    );
+  }
+  if (terrainWaterBedMask > 0.01) {
+    float terrainSmallLakeBlend = smoothstep(0.05, 0.95, vTerrainSmallLakesMask);
+    vec2 terrainRiverBedUv = mix(
+      vec2(vTerrainRiverBedCoord.x / uRiverBedTextureWorldSize, vTerrainRiverBedCoord.y / 3.6),
+      vTerrainWorldPosition.xz / uRiverBedTextureWorldSize,
+      terrainSmallLakeBlend
+    );
+    terrainBedColor = sampleTerrainLayer(uRiverBedTexture, terrainRiverBedUv, 9.0);
+  }
+  terrainBaseColor = mix(terrainBaseColor, terrainBankColor, clamp(terrainWaterBankMask, 0.0, 1.0));
+  terrainBaseColor = mix(terrainBaseColor, terrainBedColor, clamp(terrainWaterBedMask, 0.0, 1.0));
+  terrainRoughness = mix(terrainRoughness, 0.36, max(terrainWaterBankMask, terrainWaterBedMask));
+}
+
+terrainBaseColor *= mix(0.78, 1.02, vTerrainMacro.w);
+diffuseColor.rgb *= terrainBaseColor;
+`;
+}
+
+function createGroundBranches({ sampleNormal }) {
+  const normal = (texture, uv, strength) => sampleNormal
+    ? `terrainSurfaceNormal = normalize(mix(
+    terrainBaseNormal,
+    sampleTerrainNormal(${texture}, ${uv}),
+    ${strength}
+  ));`
+    : '';
+
+  return `if (terrainGroundMask > 0.38) {
+  if (terrainMossWeight >= terrainDryGrassWeight && terrainMossWeight >= terrainGravelWeight) {
+    terrainBaseColor = sampleTerrainLayer(uMossAlbedoTexture, terrainMossUv, 1.0)
+      * vec3(0.48, 0.58, 0.42);
+    ${normal('uMossNormalTexture', 'terrainMossUv', '0.5')}
+    terrainRoughness = 0.94;
+    terrainOcclusion = 0.94;
+  } else if (terrainDryGrassWeight >= terrainGravelWeight) {
+    terrainBaseColor = sampleTerrainLayer(uDryGrassAlbedoTexture, terrainDryGrassUv, 2.0)
+      * vec3(0.7, 0.74, 0.66);
+    ${normal('uDryGrassNormalTexture', 'terrainDryGrassUv', '0.52')}
+    terrainRoughness = 0.88;
+    terrainOcclusion = 0.97;
+  } else if (terrainGravelWeight > 0.18) {
+    terrainBaseColor = sampleTerrainLayer(uGravelAlbedoTexture, terrainGravelUv, 3.0)
+      * vec3(0.64, 0.69, 0.71);
+    ${normal('uGravelNormalTexture', 'terrainGravelUv', '0.58')}
+    terrainRoughness = 0.9;
+    terrainOcclusion = 0.9;
+  } else {
+    terrainBaseColor = sampleTerrainLayer(uGroundDirtAlbedoTexture, terrainDirtUv, 4.0)
+      * vec3(0.64, 0.67, 0.64);
+    ${normal('uGroundDirtNormalTexture', 'terrainDirtUv', '0.48')}
+    terrainRoughness = 0.9;
+  }
+}`;
+}
+
+function getSamplingFunctions(level) {
+  if (level === TERRAIN_MATERIAL_LOD.NEAR) return NEAR_SAMPLING_FUNCTIONS;
+  if (level === TERRAIN_MATERIAL_LOD.MEDIUM) return MEDIUM_SAMPLING_FUNCTIONS;
+  return FAR_SAMPLING_FUNCTIONS;
+}
+
+function createTerrainUniforms(textures, options) {
+  return {
+    uRockTexture: { value: textures.rock },
+    uRockNormalTexture: { value: textures.rockNormal },
+    uGroundDirtAlbedoTexture: { value: textures.groundDirtAlbedo },
+    uGroundDirtNormalTexture: { value: textures.groundDirtNormal },
+    uMossAlbedoTexture: { value: textures.mossAlbedo },
+    uMossNormalTexture: { value: textures.mossNormal },
+    uDryGrassAlbedoTexture: { value: textures.dryGrassAlbedo },
+    uDryGrassNormalTexture: { value: textures.dryGrassNormal },
+    uGravelAlbedoTexture: { value: textures.gravelAlbedo },
+    uGravelNormalTexture: { value: textures.gravelNormal },
+    uBlendSplatTexture: { value: textures.blendSplat },
+    uRiverBankTexture: { value: textures.riverBank },
+    uRiverBedTexture: { value: textures.riverBed },
+    uMapWorldSize: { value: options.mapWorldSize },
+    uAlpineTextureWorldSize: { value: options.alpineTextureWorldSize },
+    uGroundDirtTextureWorldSize: { value: options.groundDirtTextureWorldSize },
+    uMossTextureWorldSize: { value: options.mossTextureWorldSize },
+    uDryGrassTextureWorldSize: { value: options.dryGrassTextureWorldSize },
+    uGravelTextureWorldSize: { value: options.gravelTextureWorldSize },
+    uRiverBankTextureWorldSize: { value: options.riverBankTextureWorldSize },
+    uRiverBedTextureWorldSize: { value: options.riverBedTextureWorldSize },
+  };
+}
+
+function createTerrainMaterialVariant(level, terrainUniforms) {
+  const samplingFunctions = getSamplingFunctions(level);
+  const mapFragment = createTerrainMapFragment(level);
+  const budget = TERRAIN_TEXTURE_BUDGETS[level];
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.9,
+    metalness: 0,
+    envMapIntensity: level === TERRAIN_MATERIAL_LOD.FAR ? 0.72 : 0.9,
+  });
+
+  material.name = `LayeredTerrainPBR_${level}`;
+  material.userData.terrainMaterialLod = level;
+  material.userData.terrainTextureBudget = budget;
+  material.userData.terrainReceivesShadow = level !== TERRAIN_MATERIAL_LOD.FAR;
+  material.userData.terrainUniforms = terrainUniforms;
+  material.userData.terrainShaderSource = {
+    vertexParameters: TERRAIN_VERTEX_PARAMETERS,
+    vertexAssignments: TERRAIN_VERTEX_ASSIGNMENTS,
+    fragmentParameters: `${TERRAIN_FRAGMENT_UNIFORMS}\n${samplingFunctions}`,
+    mapFragment,
+  };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, terrainUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${TERRAIN_VERTEX_PARAMETERS}`)
+      .replace('#include <project_vertex>', `#include <project_vertex>\n${TERRAIN_VERTEX_ASSIGNMENTS}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>\n${TERRAIN_FRAGMENT_UNIFORMS}\n${samplingFunctions}`,
+      )
+      .replace('#include <map_fragment>', mapFragment)
+      .replace(
+        '#include <roughnessmap_fragment>',
+        '#include <roughnessmap_fragment>\nroughnessFactor = clamp(terrainRoughness, 0.18, 1.0);',
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        '#include <normal_fragment_maps>\nnormal = normalize(mat3(viewMatrix) * terrainSurfaceNormal);\nnonPerturbedNormal = normal;',
+      )
+      .replace(
+        '#include <aomap_fragment>',
+        '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
+      );
+  };
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v2-${level}`;
+
+  return material;
+}
+
+export function createTerrainMaterials(textures, options) {
+  const terrainUniforms = createTerrainUniforms(textures, options);
+
+  return Object.freeze({
+    near: createTerrainMaterialVariant(TERRAIN_MATERIAL_LOD.NEAR, terrainUniforms),
+    medium: createTerrainMaterialVariant(TERRAIN_MATERIAL_LOD.MEDIUM, terrainUniforms),
+    far: createTerrainMaterialVariant(TERRAIN_MATERIAL_LOD.FAR, terrainUniforms),
+  });
+}
+
+export function getTerrainMaterialForSegments(materials, segments) {
+  if (segments >= 256) return materials.near;
+  if (segments >= 128) return materials.medium;
+  return materials.far;
+}
