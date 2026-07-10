@@ -1,73 +1,68 @@
 import * as THREE from 'three';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
-
-const HDR_ENVIRONMENT_PATH = '/assets/environment/outdoor.hdr';
-const ENVIRONMENT_MAP_WIDTH = 512;
-const ENVIRONMENT_MAP_HEIGHT = 256;
+import { createProceduralEnvironmentTexture, VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 
 export async function applyEnvironmentLighting(renderer, scene, hemisphereLight) {
-  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  scene.userData.environmentLighting?.dispose();
 
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
   pmremGenerator.compileEquirectangularShader();
+  const sourceTexture = createProceduralEnvironmentTexture();
+  let environmentTarget;
 
   try {
-    const hdrTexture = await new RGBELoader().loadAsync(HDR_ENVIRONMENT_PATH);
-    const environmentMap = pmremGenerator.fromEquirectangular(hdrTexture).texture;
-
-    scene.environment = environmentMap;
-    if (hemisphereLight) {
-      hemisphereLight.intensity = 0.9;
-    }
-
-    hdrTexture.dispose();
+    environmentTarget = pmremGenerator.fromEquirectangular(sourceTexture);
   } catch (error) {
-    const fallbackTexture = createOutdoorEnvironmentTexture();
-    const environmentMap = pmremGenerator.fromEquirectangular(fallbackTexture).texture;
-
-    scene.environment = environmentMap;
-    if (hemisphereLight) {
-      hemisphereLight.intensity = 1.05;
-    }
-
-    fallbackTexture.dispose();
-    console.warn(`HDR environment not loaded from ${HDR_ENVIRONMENT_PATH}; using procedural outdoor environment.`);
+    sourceTexture.dispose();
+    throw error;
   } finally {
     pmremGenerator.dispose();
   }
-}
 
-function createOutdoorEnvironmentTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = ENVIRONMENT_MAP_WIDTH;
-  canvas.height = ENVIRONMENT_MAP_HEIGHT;
+  const environmentMap = environmentTarget.texture;
+  scene.environment = environmentMap;
+  scene.environmentIntensity = VISUAL_ENVIRONMENT.environmentMap.intensity;
 
-  const context = canvas.getContext('2d');
-  const gradient = context.createLinearGradient(0, 0, 0, ENVIRONMENT_MAP_HEIGHT);
+  if (scene.background?.isColor) {
+    scene.background.copy(VISUAL_ENVIRONMENT.sky.horizonColor);
+  }
 
-  gradient.addColorStop(0, '#8fc9ff');
-  gradient.addColorStop(0.38, '#d8ecff');
-  gradient.addColorStop(0.55, '#f7e7c8');
-  gradient.addColorStop(1, '#465334');
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, ENVIRONMENT_MAP_WIDTH, ENVIRONMENT_MAP_HEIGHT);
+  if (scene.fog) {
+    scene.fog.color.copy(VISUAL_ENVIRONMENT.fog.color);
+    if (scene.fog.isFog) {
+      scene.fog.near = VISUAL_ENVIRONMENT.fog.near;
+      scene.fog.far = VISUAL_ENVIRONMENT.fog.far;
+    } else if (scene.fog.isFogExp2) {
+      scene.fog.density = VISUAL_ENVIRONMENT.fog.density;
+    }
+  }
 
-  const sunGradient = context.createRadialGradient(
-    ENVIRONMENT_MAP_WIDTH * 0.78,
-    ENVIRONMENT_MAP_HEIGHT * 0.34,
-    0,
-    ENVIRONMENT_MAP_WIDTH * 0.78,
-    ENVIRONMENT_MAP_HEIGHT * 0.34,
-    ENVIRONMENT_MAP_WIDTH * 0.22,
-  );
-  sunGradient.addColorStop(0, 'rgba(255, 244, 205, 0.95)');
-  sunGradient.addColorStop(0.28, 'rgba(255, 230, 180, 0.34)');
-  sunGradient.addColorStop(1, 'rgba(255, 230, 180, 0)');
-  context.fillStyle = sunGradient;
-  context.fillRect(0, 0, ENVIRONMENT_MAP_WIDTH, ENVIRONMENT_MAP_HEIGHT);
+  if (hemisphereLight) {
+    hemisphereLight.color.copy(VISUAL_ENVIRONMENT.hemisphere.skyColor);
+    hemisphereLight.groundColor.copy(VISUAL_ENVIRONMENT.hemisphere.groundColor);
+    hemisphereLight.intensity = VISUAL_ENVIRONMENT.hemisphere.intensity;
+  }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.mapping = THREE.EquirectangularReflectionMapping;
-  texture.colorSpace = THREE.SRGBColorSpace;
+  scene.traverse((object) => {
+    if (!object.isDirectionalLight) return;
+    object.color.copy(VISUAL_ENVIRONMENT.sun.color);
+    object.intensity = VISUAL_ENVIRONMENT.sun.intensity;
+  });
 
-  return texture;
+  const lighting = {
+    environmentMap,
+    sourceTexture,
+    dispose() {
+      if (scene.environment === environmentMap) {
+        scene.environment = null;
+      }
+      if (scene.userData.environmentLighting === lighting) {
+        delete scene.userData.environmentLighting;
+      }
+      sourceTexture.dispose();
+      environmentTarget.dispose();
+    },
+  };
+
+  scene.userData.environmentLighting = lighting;
+  return lighting;
 }

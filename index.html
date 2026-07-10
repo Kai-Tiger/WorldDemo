@@ -4,15 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>Three Third Person Prototype</title>
+    <title>Cold Mountain</title>
   </head>
   <body>
+    <section id="loading-screen" aria-live="polite">
+      <div class="loading-screen__content">
+        <span class="loading-screen__eyebrow">COLD MOUNTAIN</span>
+        <strong id="loading-status">Preparing the highlands</strong>
+        <span class="loading-screen__line" aria-hidden="true"></span>
+      </div>
+    </section>
     <div id="position-hud" aria-label="Performance menu">
       <div class="fps-readout">fps: <span id="fps-value">0</span></div>
       <div class="position-readout">
         <div>x: <span id="position-x">0.00</span></div>
         <div>z: <span id="position-z">0.00</span></div>
         <div>y: <span id="position-y">0.00</span></div>
+      </div>
+      <div class="renderer-readout">
+        <div>frame: <span id="frame-time-value">0.0</span> ms</div>
+        <div>draws: <span id="draw-call-value">0</span></div>
+        <div>tris: <span id="triangle-value">0</span></div>
+        <div>geometries: <span id="geometry-value">0</span></div>
+        <div>textures: <span id="texture-value">0</span></div>
+        <div>programs: <span id="program-value">0</span></div>
+        <div>scale: <span id="resolution-scale-value">1.00</span></div>
       </div>
       <label class="render-toggle">
         <input id="toggle-grass" type="checkbox" checked />

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { TAARenderPass } from 'three/examples/jsm/postprocessing/TAARenderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 
 const COLOR_GRADE_SHADER = {
   uniforms: {
@@ -15,7 +17,9 @@ const COLOR_GRADE_SHADER = {
     uHighlightTint: { value: new THREE.Color(0xfff1d4) },
     uShadowLift: { value: 0.015 },
     uTexelSize: { value: new THREE.Vector2(1, 1) },
-    uSharpenStrength: { value: 0.18 },
+    uSharpenStrength: { value: 0.08 },
+    uBloomStrength: { value: 0.06 },
+    uBloomThreshold: { value: 1.05 },
     uVignetteStrength: { value: 0.18 },
   },
   vertexShader: `
@@ -35,6 +39,8 @@ const COLOR_GRADE_SHADER = {
     uniform float uShadowLift;
     uniform vec2 uTexelSize;
     uniform float uSharpenStrength;
+    uniform float uBloomStrength;
+    uniform float uBloomThreshold;
     uniform float uVignetteStrength;
 
     varying vec2 vUv;
@@ -42,13 +48,19 @@ const COLOR_GRADE_SHADER = {
     void main() {
       vec4 color = texture2D(tDiffuse, vUv);
       vec3 center = color.rgb;
-      vec3 blur = (
-        texture2D(tDiffuse, vUv + vec2(uTexelSize.x, 0.0)).rgb
-        + texture2D(tDiffuse, vUv - vec2(uTexelSize.x, 0.0)).rgb
-        + texture2D(tDiffuse, vUv + vec2(0.0, uTexelSize.y)).rgb
-        + texture2D(tDiffuse, vUv - vec2(0.0, uTexelSize.y)).rgb
-      ) * 0.25;
-      vec3 sharpColor = max(center + (center - blur) * uSharpenStrength, vec3(0.0));
+      vec3 sharpColor = center;
+
+      if (uSharpenStrength > 0.0001 || uBloomStrength > 0.0001) {
+        vec3 blur = (
+          texture2D(tDiffuse, vUv + vec2(uTexelSize.x, 0.0)).rgb
+          + texture2D(tDiffuse, vUv - vec2(uTexelSize.x, 0.0)).rgb
+          + texture2D(tDiffuse, vUv + vec2(0.0, uTexelSize.y)).rgb
+          + texture2D(tDiffuse, vUv - vec2(0.0, uTexelSize.y)).rgb
+        ) * 0.25;
+        sharpColor = max(center + (center - blur) * uSharpenStrength, vec3(0.0));
+        sharpColor += max(blur - vec3(uBloomThreshold), vec3(0.0)) * uBloomStrength;
+      }
+
       float luma = dot(sharpColor, vec3(0.2126, 0.7152, 0.0722));
       vec3 graded = mix(vec3(luma), sharpColor, uSaturation);
 
@@ -67,71 +79,192 @@ const COLOR_GRADE_SHADER = {
 export function configureRenderer(renderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = VISUAL_ENVIRONMENT.exposure;
 }
 
 export function createPostProcessing(renderer, scene, camera, quality) {
   const composer = new EffectComposer(renderer);
+  const rendererSize = renderer.getSize(new THREE.Vector2());
+  let logicalWidth = rendererSize.x;
+  let logicalHeight = rendererSize.y;
+  let basePixelRatio = renderer.getPixelRatio();
+  let activeQuality = quality;
+  let resolutionScale = clampResolutionScale(1, activeQuality);
   let colorGradePass = null;
+  let antiAliasingPass = null;
 
+  composer.setPixelRatio(basePixelRatio * resolutionScale);
   applyQualityPreset(quality);
 
   return {
     composer,
     resize(width, height) {
-      composer.setSize(width, height);
-      colorGradePass?.uniforms.uTexelSize.value.set(1 / width, 1 / height);
+      logicalWidth = Math.max(1, width);
+      logicalHeight = Math.max(1, height);
+      composer.setSize(logicalWidth, logicalHeight);
+      syncPhysicalResolutions();
     },
     applyQualityPreset,
-    setPixelRatio(pixelRatio) {
-      composer.setPixelRatio(pixelRatio);
+    setPixelRatio(nextPixelRatio) {
+      basePixelRatio = Number.isFinite(nextPixelRatio)
+        ? Math.max(0.1, nextPixelRatio)
+        : 1;
+      applyComposerResolution();
+    },
+    setResolutionScale(nextScale) {
+      const clampedScale = clampResolutionScale(nextScale, activeQuality);
+
+      if (clampedScale !== resolutionScale) {
+        resolutionScale = clampedScale;
+        applyComposerResolution();
+      }
+
+      return resolutionScale;
+    },
+    getResolutionScale() {
+      return resolutionScale;
+    },
+    getResolutionScaleRange() {
+      return activeQuality.resolution;
+    },
+    getTargetFrameMs() {
+      return activeQuality.resolution?.targetFrameMs ?? 33.3;
+    },
+    getRenderSize(target = new THREE.Vector2()) {
+      const { width, height } = getPhysicalRenderSize(
+        logicalWidth,
+        logicalHeight,
+        basePixelRatio * resolutionScale,
+      );
+
+      return target.set(width, height);
     },
     render(deltaTime) {
       composer.render(deltaTime);
+    },
+    dispose() {
+      clearPasses(composer);
+      composer.dispose();
     },
   };
 
   function applyQualityPreset(nextQuality) {
     clearPasses(composer);
+    colorGradePass = null;
+    antiAliasingPass = null;
+    activeQuality = nextQuality;
+    resolutionScale = clampResolutionScale(resolutionScale, activeQuality);
+    composer.setPixelRatio(basePixelRatio * resolutionScale);
 
     const settings = nextQuality.postProcessing;
 
-    if (settings.taa) {
-      const taaPass = new TAARenderPass(scene, camera);
-
-      taaPass.sampleLevel = settings.taaSampleLevel;
-      taaPass.unbiased = false;
-      taaPass.accumulate = false;
-      composer.addPass(taaPass);
-    } else {
-      composer.addPass(new RenderPass(scene, camera));
+    for (const passName of getPostProcessingPassOrder(settings)) {
+      if (passName === 'RenderPass') composer.addPass(new RenderPass(scene, camera));
+      if (passName === 'GTAOPass') composer.addPass(createGtaoPass(scene, camera, settings));
+      if (passName === 'ColorGradePass') {
+        colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
+        colorGradePass.uniforms.uSharpenStrength.value = settings.sharpenStrength ?? 0;
+        colorGradePass.uniforms.uBloomStrength.value = settings.bloomStrength ?? 0;
+        colorGradePass.uniforms.uBloomThreshold.value = settings.bloomThreshold ?? 1;
+        composer.addPass(colorGradePass);
+      }
+      if (passName === 'SMAAPass') {
+        antiAliasingPass = new SMAAPass();
+        composer.addPass(antiAliasingPass);
+      }
+      if (passName === 'OutputPass') composer.addPass(new OutputPass());
+      if (passName === 'FXAAPass') {
+        antiAliasingPass = new FXAAPass();
+        composer.addPass(antiAliasingPass);
+      }
     }
 
-    if (settings.gtao) {
-      const gtaoSamples = settings.gtaoSamples;
-      const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight, undefined, {
-        radius: 2.6,
-        distanceExponent: 1.6,
-        thickness: 1.1,
-        scale: 0.38,
-        samples: gtaoSamples,
-      }, {
-        radius: 4,
-        radiusExponent: 1.8,
-        samples: gtaoSamples,
-      });
-
-      gtaoPass.output = GTAOPass.OUTPUT.Default;
-      gtaoPass.blendIntensity = 0.34;
-      composer.addPass(gtaoPass);
-    }
-
-    colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
-    colorGradePass.uniforms.uTexelSize.value.set(1 / window.innerWidth, 1 / window.innerHeight);
-    composer.addPass(colorGradePass);
-
-    composer.addPass(new OutputPass());
+    composer.setSize(logicalWidth, logicalHeight);
+    syncPhysicalResolutions();
   }
+
+  function applyComposerResolution() {
+    composer.setPixelRatio(basePixelRatio * resolutionScale);
+    composer.setSize(logicalWidth, logicalHeight);
+    syncPhysicalResolutions();
+  }
+
+  function syncPhysicalResolutions() {
+    const { width, height } = getPhysicalRenderSize(
+      logicalWidth,
+      logicalHeight,
+      basePixelRatio * resolutionScale,
+    );
+    const { x, y } = getPhysicalTexelSize(
+      logicalWidth,
+      logicalHeight,
+      basePixelRatio * resolutionScale,
+    );
+
+    colorGradePass?.uniforms.uTexelSize.value.set(x, y);
+    antiAliasingPass?.setSize(width, height);
+  }
+}
+
+export function getPostProcessingPassOrder(settings) {
+  return [
+    'RenderPass',
+    ...(settings.gtao ? ['GTAOPass'] : []),
+    'ColorGradePass',
+    ...(settings.antiAliasing === 'smaa' ? ['SMAAPass'] : []),
+    'OutputPass',
+    ...(settings.antiAliasing === 'fxaa' ? ['FXAAPass'] : []),
+  ];
+}
+
+export function getPhysicalTexelSize(width, height, effectivePixelRatio) {
+  const renderSize = getPhysicalRenderSize(width, height, effectivePixelRatio);
+
+  return { x: 1 / renderSize.width, y: 1 / renderSize.height };
+}
+
+export function getPhysicalRenderSize(width, height, effectivePixelRatio) {
+  return {
+    width: Math.max(1, Math.floor(width * effectivePixelRatio)),
+    height: Math.max(1, Math.floor(height * effectivePixelRatio)),
+  };
+}
+
+function createGtaoPass(scene, camera, settings) {
+  const samples = Math.max(1, Math.round(settings.gtaoSamples ?? 8));
+  const denoiseSamples = Math.max(1, Math.round(settings.gtaoDenoiseSamples ?? samples));
+  const resolutionScale = THREE.MathUtils.clamp(settings.gtaoResolutionScale ?? 1, 0.25, 1);
+  const pass = new GTAOPass(scene, camera, 1, 1, undefined, {
+    radius: 2.6,
+    distanceExponent: 1.6,
+    thickness: 1.1,
+    scale: 0.38,
+    samples,
+  }, {
+    radius: 4,
+    radiusExponent: 1.8,
+    samples: denoiseSamples,
+  });
+  const resizeGtao = pass.setSize.bind(pass);
+
+  pass.setSize = (width, height) => {
+    resizeGtao(
+      Math.max(1, Math.floor(width * resolutionScale)),
+      Math.max(1, Math.floor(height * resolutionScale)),
+    );
+  };
+  pass.output = GTAOPass.OUTPUT.Default;
+  pass.blendIntensity = settings.gtaoIntensity ?? 0.32;
+
+  return pass;
+}
+
+function clampResolutionScale(scale, quality) {
+  const minScale = quality.resolution?.minScale ?? 1;
+  const maxScale = quality.resolution?.maxScale ?? 1;
+  const resolvedScale = Number.isFinite(scale) ? scale : maxScale;
+
+  return THREE.MathUtils.clamp(resolvedScale, minScale, maxScale);
 }
 
 function clearPasses(composer) {

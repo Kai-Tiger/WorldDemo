@@ -8,6 +8,7 @@ body {
 }
 
 #position-hud {
+  display: none;
   position: fixed;
   top: 12px;
   left: 12px;
@@ -23,6 +24,10 @@ body {
   user-select: none;
 }
 
+body.debug-mode #position-hud {
+  display: block;
+}
+
 .position-readout {
   margin-bottom: 6px;
   pointer-events: none;
@@ -31,6 +36,94 @@ body {
 .fps-readout {
   margin-bottom: 6px;
   pointer-events: none;
+}
+
+.renderer-readout {
+  margin-bottom: 7px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(245, 247, 251, 0.78);
+  pointer-events: none;
+}
+
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 68% 30%, rgba(182, 157, 116, 0.13), transparent 34%),
+    linear-gradient(155deg, #182226 0%, #263238 46%, #101719 100%);
+  color: #e6eceb;
+  opacity: 1;
+  transition: opacity 700ms ease;
+}
+
+#loading-screen::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.025) 50%, transparent 80%);
+  content: '';
+  transform: translateX(-100%);
+  animation: loading-mist 2.8s ease-in-out infinite;
+}
+
+body.is-ready #loading-screen {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.loading-screen__content {
+  position: relative;
+  display: grid;
+  width: min(330px, 72vw);
+  gap: 12px;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+.loading-screen__eyebrow {
+  color: rgba(214, 225, 223, 0.62);
+  font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.32em;
+}
+
+#loading-status {
+  font: 400 17px/1.35 Georgia, 'Times New Roman', serif;
+}
+
+.loading-screen__line {
+  height: 1px;
+  overflow: hidden;
+  background: rgba(219, 229, 226, 0.16);
+}
+
+.loading-screen__line::after {
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(223, 205, 167, 0.9), transparent);
+  content: '';
+  animation: loading-line 1.8s ease-in-out infinite;
+}
+
+@keyframes loading-line {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(340%); }
+}
+
+@keyframes loading-mist {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #loading-screen::before,
+  .loading-screen__line::after {
+    animation: none;
+  }
 }
 
 .render-toggle {

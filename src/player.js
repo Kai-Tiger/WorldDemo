@@ -8,8 +8,11 @@ const WALK_ANIMATION_PATH = '/assets/player/walk.fbx';
 const PLAYER_HEIGHT = 1.8;
 const PLAYER_RADIUS = 0.35;
 const PLAYER_EMISSIVE_COLOR = 0x1c2630;
-const PLAYER_EMISSIVE_INTENSITY = 0.13;
+const PLAYER_EMISSIVE_INTENSITY = 0.11;
 const PLAYER_MAX_METALNESS = 0.35;
+const PLAYER_MIN_ROUGHNESS = 0.28;
+const PLAYER_ENVIRONMENT_INTENSITY = 1.3;
+const PLAYER_ALBEDO_LIFT = new THREE.Color(0x68747d);
 const GROUND_OFFSET = 0.03;
 const MIN_WALKABLE_NORMAL_Y = Math.cos(THREE.MathUtils.degToRad(50));
 const GROUND_SPEED = 5;
@@ -85,15 +88,43 @@ export class Player {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
     const readableMaterials = materials.map((material) => {
-      const readableMaterial = material.clone();
+      const readableMaterial = material.isMeshStandardMaterial
+        ? material.clone()
+        : new THREE.MeshStandardMaterial({
+            name: material.name,
+            color: material.color,
+            map: material.map,
+            normalMap: material.normalMap,
+            normalScale: material.normalScale,
+            bumpMap: material.bumpMap,
+            bumpScale: material.bumpScale,
+            alphaMap: material.alphaMap,
+            alphaTest: material.alphaTest,
+            opacity: material.opacity,
+            transparent: material.transparent,
+            side: material.side,
+            vertexColors: material.vertexColors,
+          });
 
       if ('emissive' in readableMaterial) {
         readableMaterial.emissive = new THREE.Color(PLAYER_EMISSIVE_COLOR);
         readableMaterial.emissiveIntensity = PLAYER_EMISSIVE_INTENSITY;
       }
 
+      if ('color' in readableMaterial) {
+        readableMaterial.color.lerp(PLAYER_ALBEDO_LIFT, 0.48);
+      }
+
       if ('metalness' in readableMaterial) {
         readableMaterial.metalness = Math.min(readableMaterial.metalness, PLAYER_MAX_METALNESS);
+      }
+
+      if ('roughness' in readableMaterial) {
+        readableMaterial.roughness = Math.max(readableMaterial.roughness, PLAYER_MIN_ROUGHNESS);
+      }
+
+      if ('envMapIntensity' in readableMaterial) {
+        readableMaterial.envMapIntensity = PLAYER_ENVIRONMENT_INTENSITY;
       }
 
       readableMaterial.needsUpdate = true;
@@ -110,6 +141,10 @@ export class Player {
     this.idleAction = this.mixer.clipAction(model.animations[0]);
     this.idleAction.setLoop(THREE.LoopRepeat, Infinity);
     this.setAction(this.idleAction);
+  }
+
+  setAnimationTime(time) {
+    this.mixer?.setTime(time);
   }
 
   loadWalkAnimation() {

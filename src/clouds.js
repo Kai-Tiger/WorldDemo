@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { SUN_LIGHT_DIRECTION } from './lighting.js';
+import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 
 const DOME_RADIUS = 240;
-const HORIZON_COLOR = new THREE.Color('#9bbdd0');
 
 export class Clouds {
   constructor(dome) {
@@ -16,10 +15,10 @@ export class Clouds {
     const dome = new THREE.Mesh(geometry, material);
 
     dome.name = 'SkyCloudDome';
-    dome.renderOrder = -900;
+    dome.renderOrder = 900;
     dome.frustumCulled = false;
     dome.material.depthWrite = false;
-    dome.material.depthTest = false;
+    dome.material.depthTest = true;
     dome.material.fog = false;
 
     dome.onBeforeRender = () => {
@@ -36,24 +35,33 @@ export class Clouds {
     this.dome._camPos.copy(camera.position);
     this.dome.material.uniforms.uTime.value = elapsedTime;
   }
+
+  setQualityPreset(preset) {
+    this.dome.material.uniforms.uCloudDetailWeight.value = preset.shaderQuality === 'low'
+      ? 0
+      : preset.shaderQuality === 'high'
+        ? 0.32
+        : 0.28;
+  }
 }
 
 function createSkyCloudMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
     fog: false,
     uniforms: {
       uTime: { value: 0 },
       uCameraPos: { value: new THREE.Vector3() },
-      uSunDir: { value: SUN_LIGHT_DIRECTION.clone() },
-      uZenithColor: { value: new THREE.Color('#3f77b8') },
-      uHorizonColor: { value: HORIZON_COLOR },
-      uCloudColor: { value: new THREE.Color('#f3f5f2') },
-      uCloudShadow: { value: new THREE.Color('#b0bdc3') },
-      uSunGlowColor: { value: new THREE.Color('#f5e4c0') },
-      uCloudCover: { value: 0.44 },
+      uSunDir: { value: VISUAL_ENVIRONMENT.sun.direction.clone() },
+      uZenithColor: { value: VISUAL_ENVIRONMENT.sky.zenithColor.clone() },
+      uHorizonColor: { value: VISUAL_ENVIRONMENT.sky.horizonColor.clone() },
+      uCloudColor: { value: VISUAL_ENVIRONMENT.sky.cloudColor.clone() },
+      uCloudShadow: { value: VISUAL_ENVIRONMENT.sky.cloudShadowColor.clone() },
+      uSunGlowColor: { value: VISUAL_ENVIRONMENT.sun.glowColor.clone() },
+      uCloudCover: { value: VISUAL_ENVIRONMENT.sky.cloudCover },
+      uCloudDetailWeight: { value: 0.28 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -63,7 +71,9 @@ function createSkyCloudMaterial() {
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
         vWorldPos = worldPos.xyz;
         vDir = position.xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 clipPosition = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        clipPosition.z = clipPosition.w;
+        gl_Position = clipPosition;
       }
     `,
     fragmentShader: `
@@ -76,6 +86,7 @@ function createSkyCloudMaterial() {
       uniform vec3 uCloudShadow;
       uniform vec3 uSunGlowColor;
       uniform float uCloudCover;
+      uniform float uCloudDetailWeight;
 
       varying vec3 vDir;
       varying vec3 vWorldPos;
@@ -101,7 +112,7 @@ function createSkyCloudMaterial() {
         float a = 0.5;
         mat2 m = mat2(1.58, 1.12, -1.12, 1.58);
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 4; i++) {
           v += a * noise(p);
           p = m * p + 8.37;
           a *= 0.5;
@@ -126,13 +137,16 @@ function createSkyCloudMaterial() {
         vec2 wind = vec2(uTime * 0.005, uTime * 0.0018);
         cp += wind;
 
-        float dens = fbm(cp) * 0.60 + fbm(cp * 2.3 + 3.1) * 0.28 + fbm(cp * 5.0) * 0.12;
+        float broadCloud = fbm(cp);
+        float detailCloud = broadCloud;
+        if (uCloudDetailWeight > 0.001) {
+          detailCloud = fbm(cp * 2.3 + 3.1);
+        }
+        float dens = mix(broadCloud, detailCloud, uCloudDetailWeight);
         float cover = uCloudCover;
         float cl = smoothstep(cover, cover + 0.16, dens);
 
-        float below = fbm(cp + vec2(0.0, 0.14)) * 0.60
-                    + fbm((cp + vec2(0.0, 0.14)) * 2.3 + 3.1) * 0.28;
-        float vshade = clamp((dens - below) * 1.8 + 0.80, 0.55, 1.05);
+        float vshade = clamp((detailCloud - broadCloud) * 0.48 + 0.82, 0.58, 1.04);
         float topLight = smoothstep(cover - 0.04, cover + 0.18, dens);
         vec3 cloudCol = mix(uCloudShadow, uCloudColor, topLight) * vshade;
         cloudCol += vec3(0.10, 0.085, 0.05) * pow(sunDot, 4.0);
@@ -142,8 +156,6 @@ function createSkyCloudMaterial() {
 
         float disc = smoothstep(0.9993, 0.99975, sunDot) * (1.0 - clamp(cl, 0.0, 1.0));
         sky += vec3(1.0, 0.95, 0.82) * disc * 1.2;
-
-        sky += (hash(gl_FragCoord.xy + uTime) - 0.5) * 0.012;
 
         gl_FragColor = vec4(max(sky, vec3(0.0)), 1.0);
       }
