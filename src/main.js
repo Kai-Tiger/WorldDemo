@@ -142,4 +142,4 @@ qualitySelect.addEventListener('change', () => {
   applyRenderQuality(renderQuality);
 });
 updateRenderToggles();
-animate();
+requestAnimationFrame(animate);
