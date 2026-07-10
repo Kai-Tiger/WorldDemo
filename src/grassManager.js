@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GrassZone } from './grassZone.js';
-import { ZONE_SIZE, LOD_DISTANCES, LOD_DENSITIES, updateGrassClumps } from './grassClumps.js';
+import { GrassZone, GRASS_LOD_CAPACITY_RATIOS } from './grassZone.js';
+import { ZONE_SIZE, LOD_DENSITIES, updateGrassClumps } from './grassClumps.js';
 import {
   MAP_SIZE,
   KEEP_ALIVE_PADDING,
@@ -13,28 +13,43 @@ import {
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const ZONE_MUTATIONS_PER_FRAME = GRASS_ZONE_MUTATIONS;
-const GENERATION_STEPS = GRASS_GENERATION_STEPS;
+const GENERATION_STEPS = Math.min(GRASS_GENERATION_STEPS, 64);
 const TOTAL_GENERATION_BUDGET = GRASS_GENERATION_BUDGET;
 const ZONE_REBUILDS_PER_FRAME = GRASS_REBUILDS_PER_FRAME;
 const REBUILD_THRESHOLD = GRASS_REBUILD_THRESHOLD;
+const LOD_JOB_STEPS = 256;
+
+export const DEFAULT_GRASS_PRESET = Object.freeze({
+  lodDistances: Object.freeze([20, 50, 120]),
+  keepRatios: Object.freeze([1, 0.25, 0.05]),
+  updateBudgetMs: 1,
+});
 
 export class GrassManager {
-  constructor(terrain, variants) {
+  constructor(terrain, variants, preset = DEFAULT_GRASS_PRESET) {
     this.terrain = terrain;
     this.variants = variants;
     this.group = new THREE.Group();
     this.group.name = 'GrassManager';
     this.zones = new Map();
-    this.lastRebuildPos = null;
+    this.grassPreset = normalizeGrassPreset(preset);
+    this.presetRevision = 0;
+    this.lodQueue = [];
+    this.queuedZones = new Set();
+    this.lodTarget = null;
+    this.lastQueuePos = null;
+    this.generationCursor = 0;
+    this.streamingTurn = 0;
   }
 
   update(cameraPosition, elapsedTime) {
-    updateGrassClumps(this.group, cameraPosition, elapsedTime);
+    updateGrassClumps(this.variants, cameraPosition, elapsedTime);
 
     const camX = cameraPosition.x;
     const camZ = cameraPosition.z;
+    this.lodTarget = { x: camX, z: camZ };
 
-    const maxViewDistance = LOD_DISTANCES[LOD_DISTANCES.length - 1];
+    const maxViewDistance = this.grassPreset.lodDistances[2];
     const centerChunkX = Math.floor((camX + HALF_MAP_SIZE) / ZONE_SIZE);
     const centerChunkZ = Math.floor((camZ + HALF_MAP_SIZE) / ZONE_SIZE);
     const chunkRadius = Math.ceil((maxViewDistance + KEEP_ALIVE_PADDING) / ZONE_SIZE);
@@ -112,6 +127,7 @@ export class GrassManager {
           break;
         }
         case 'remove': {
+          this.removeFromLODQueue(mutation.zone);
           mutation.zone.dispose();
           this.zones.delete(mutation.key);
           break;
@@ -121,19 +137,54 @@ export class GrassManager {
       mutationsDone += 1;
     }
 
-    this.processGenerations(camX, camZ);
+    const needsQueueRefresh = !this.lastQueuePos
+      || Math.hypot(camX - this.lastQueuePos.x, camZ - this.lastQueuePos.z) > REBUILD_THRESHOLD;
 
-    const needsRebuild = !this.lastRebuildPos
-      || Math.hypot(camX - this.lastRebuildPos.x, camZ - this.lastRebuildPos.z) > REBUILD_THRESHOLD
-      || this.hasUnbuiltZones();
-
-    if (needsRebuild) {
-      this.rebuildLODForZones(camX, camZ);
-      this.lastRebuildPos = { x: camX, z: camZ };
+    if (needsQueueRefresh) {
+      this.enqueueReadyZones();
+      this.lastQueuePos = { x: camX, z: camZ };
     }
+
+    this.processStreamingWork(camX, camZ);
   }
 
-  processGenerations(camX, camZ) {
+  setQualityPreset(preset) {
+    const nextPreset = normalizeGrassPreset(preset?.grass ?? preset);
+
+    if (presetsEqual(this.grassPreset, nextPreset)) return;
+
+    this.grassPreset = nextPreset;
+    this.presetRevision += 1;
+    this.enqueueReadyZones();
+  }
+
+  processStreamingWork(camX, camZ) {
+    const deadline = performance.now() + this.grassPreset.updateBudgetMs;
+
+    if (this.streamingTurn === 0) {
+      this.processGenerations(camX, camZ, deadline);
+      if (performance.now() < deadline) {
+        this.processLODQueue(
+          ZONE_REBUILDS_PER_FRAME,
+          LOD_JOB_STEPS,
+          deadline - performance.now(),
+        );
+      }
+    } else {
+      this.processLODQueue(
+        ZONE_REBUILDS_PER_FRAME,
+        LOD_JOB_STEPS,
+        this.grassPreset.updateBudgetMs,
+      );
+      if (performance.now() < deadline) {
+        this.processGenerations(camX, camZ, deadline);
+      }
+    }
+
+    this.streamingTurn = (this.streamingTurn + 1) % 2;
+  }
+
+  processGenerations(camX, camZ, deadline = Infinity) {
     const generatingZones = [];
 
     for (const zone of this.zones.values()) {
@@ -146,50 +197,114 @@ export class GrassManager {
       - Math.hypot(b.centerX - camX, b.centerZ - camZ)
     ));
 
-    let budgetRemaining = TOTAL_GENERATION_BUDGET;
-
-    for (const zone of generatingZones) {
-      if (budgetRemaining <= 0) break;
-      zone.processGeneration(Math.min(GENERATION_STEPS, budgetRemaining));
-      budgetRemaining -= GENERATION_STEPS;
-    }
-  }
-
-  hasUnbuiltZones() {
-    for (const zone of this.zones.values()) {
-      if (zone.hasPlacements && zone.builtForPosition === null) return true;
+    if (generatingZones.length === 0) {
+      this.generationCursor = 0;
+      return;
     }
 
-    return false;
+    const maxBatches = Math.min(
+      generatingZones.length,
+      Math.ceil(TOTAL_GENERATION_BUDGET / GENERATION_STEPS),
+    );
+    let batches = 0;
+
+    while (batches < maxBatches && (batches === 0 || performance.now() < deadline)) {
+      const index = (this.generationCursor + batches) % generatingZones.length;
+      const zone = generatingZones[index];
+      const done = zone.processGeneration(GENERATION_STEPS);
+
+      if (done && zone.hasPlacements) {
+        this.enqueueLODZone(zone);
+      }
+
+      batches += 1;
+    }
+
+    this.generationCursor = (this.generationCursor + Math.max(batches, 1)) % generatingZones.length;
   }
 
-  rebuildLODForZones(camX, camZ) {
-    const readyZones = [];
-
+  enqueueReadyZones() {
     for (const zone of this.zones.values()) {
       if (!zone.hasPlacements || zone.isGenerating) continue;
-      readyZones.push(zone);
+      this.enqueueLODZone(zone);
     }
+  }
 
-    readyZones.sort((a, b) => {
-      const aUnbuilt = a.builtForPosition === null ? 0 : 1;
-      const bUnbuilt = b.builtForPosition === null ? 0 : 1;
+  enqueueLODZone(zone) {
+    if (zone.isDisposed || this.queuedZones.has(zone)) return false;
 
-      if (aUnbuilt !== bUnbuilt) return aUnbuilt - bUnbuilt;
+    this.queuedZones.add(zone);
+    this.lodQueue.push(zone);
+    return true;
+  }
 
-      const da = Math.hypot(a.centerX - camX, a.centerZ - camZ);
-      const db = Math.hypot(b.centerX - camX, b.centerZ - camZ);
+  removeFromLODQueue(zone) {
+    if (!this.queuedZones.delete(zone)) return;
 
-      return da - db;
-    });
+    this.lodQueue = this.lodQueue.filter((queuedZone) => queuedZone !== zone);
+  }
 
-    let count = 0;
+  processLODQueue(
+    maxChunks = ZONE_REBUILDS_PER_FRAME,
+    placementSteps = LOD_JOB_STEPS,
+    budgetMs = this.grassPreset.updateBudgetMs,
+  ) {
+    if (!this.lodTarget || this.lodQueue.length === 0) return;
 
-    for (const zone of readyZones) {
-      if (count >= ZONE_REBUILDS_PER_FRAME) break;
-      zone.rebuildLOD(camX, camZ, LOD_DISTANCES);
-      count += 1;
+    const queueLengthAtStart = this.lodQueue.length;
+    const startTime = performance.now();
+    let chunksProcessed = 0;
+
+    for (let attempt = 0; attempt < queueLengthAtStart; attempt += 1) {
+      if (chunksProcessed >= maxChunks) break;
+      if (chunksProcessed > 0 && performance.now() - startTime >= budgetMs) break;
+
+      const zone = this.lodQueue.shift();
+
+      if (!zone || zone.isDisposed || !zone.hasPlacements || zone.isGenerating) {
+        this.queuedZones.delete(zone);
+        continue;
+      }
+
+      if (!zone.hasLODJob) {
+        const started = zone.startLODJob(
+          this.lodTarget.x,
+          this.lodTarget.z,
+          this.grassPreset.lodDistances,
+          this.grassPreset.keepRatios,
+          this.presetRevision,
+        );
+
+        if (!started) {
+          this.lodQueue.push(zone);
+          chunksProcessed += 1;
+          continue;
+        }
+      }
+
+      const done = zone.processLODJob(placementSteps);
+
+      if (done) {
+        this.queuedZones.delete(zone);
+
+        if (this.isZoneStale(zone)) {
+          this.enqueueLODZone(zone);
+        }
+      } else {
+        this.lodQueue.push(zone);
+      }
+
+      chunksProcessed += 1;
     }
+  }
+
+  isZoneStale(zone) {
+    if (!zone.builtForPosition || zone.builtForRevision !== this.presetRevision) return true;
+
+    return Math.hypot(
+      this.lodTarget.x - zone.builtForPosition.x,
+      this.lodTarget.z - zone.builtForPosition.z,
+    ) > REBUILD_THRESHOLD;
   }
 
   dispose() {
@@ -198,9 +313,46 @@ export class GrassManager {
     }
 
     this.zones.clear();
+    this.lodQueue.length = 0;
+    this.queuedZones.clear();
 
     if (this.group.parent) {
       this.group.parent.remove(this.group);
     }
   }
+}
+
+export function normalizeGrassPreset(preset = DEFAULT_GRASS_PRESET) {
+  const source = preset?.grass ?? preset ?? DEFAULT_GRASS_PRESET;
+  const lodDistances = normalizeArray(
+    source.lodDistances,
+    DEFAULT_GRASS_PRESET.lodDistances,
+    (value, index, values) => value > 0 && (index === 0 || value > values[index - 1]),
+  );
+  const keepRatios = normalizeArray(
+    source.keepRatios,
+    DEFAULT_GRASS_PRESET.keepRatios,
+    (value, index) => value >= 0 && value <= GRASS_LOD_CAPACITY_RATIOS[index],
+  );
+  const updateBudgetMs = Number.isFinite(source.updateBudgetMs) && source.updateBudgetMs > 0
+    ? source.updateBudgetMs
+    : DEFAULT_GRASS_PRESET.updateBudgetMs;
+
+  return { lodDistances, keepRatios, updateBudgetMs };
+}
+
+function normalizeArray(values, fallback, isValid) {
+  if (!Array.isArray(values) || values.length !== fallback.length) return [...fallback];
+
+  const normalized = values.map(Number);
+
+  return normalized.every((value, index) => Number.isFinite(value) && isValid(value, index, normalized))
+    ? normalized
+    : [...fallback];
+}
+
+function presetsEqual(a, b) {
+  return a.updateBudgetMs === b.updateBudgetMs
+    && a.lodDistances.every((value, index) => value === b.lodDistances[index])
+    && a.keepRatios.every((value, index) => value === b.keepRatios[index]);
 }

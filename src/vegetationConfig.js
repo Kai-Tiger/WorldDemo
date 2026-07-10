@@ -24,7 +24,6 @@ export const GRASS_ASSET_BASE_PATH = '/assets/vegetation/ribbon-grass';
 export const GRASS_LOD_DENSITIES = [16, 4, 1];
 
 /** LOD 距离阈值（米）：LOD0、LOD1、LOD2、billboard  |  LOD distance thresholds (m): LOD0, LOD1, LOD2, billboard */
-export const GRASS_LOD_DISTANCES = [20, 50, 105, 150];
 
 /** 草在河道两侧的排除缓冲区（米）  |  River exclusion buffer for grass (m) */
 export const GRASS_RIVER_BUFFER = 2;
@@ -107,7 +106,7 @@ export const SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER = 0.45;
 export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
 
 /** 树木暗部补光强度；逆光过黑时提高，发亮发平时降低  |  Tree shadow lift intensity; raise for dark backlight, lower if trees look flat */
-export const TREE_SHADOW_LIFT_INTENSITY = 0.6;
+export const TREE_SHADOW_LIFT_INTENSITY = 0.12;
 
 // --- 放置 (Placement) ---
 
@@ -130,8 +129,8 @@ export const TREE_HEIGHT_THRESHOLD_MID = 185;
 export const TREE_GROUND_MASK_THRESHOLD = 0.35;
 
 /** 树木缩放范围（随机）  |  Tree scale range (uniform random) */
-export const TREE_SCALE_MIN = 0.85;
-export const TREE_SCALE_MAX = 1.20;
+export const TREE_SCALE_MIN = 0.72;
+export const TREE_SCALE_MAX = 1.34;
 
 // --- FBM 分形噪声 (Fractal noise for natural clustering) ---
 

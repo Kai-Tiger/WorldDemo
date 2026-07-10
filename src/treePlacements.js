@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
-import { hash2 } from './grassClumps.js';
+import { hash2, sampleTerrainSurface } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
@@ -38,6 +38,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
 const TREE_ALPHA_TEST = 0.38;
+const TREE_ENVIRONMENT_INTENSITY = 0.92;
 
 const loader = new GLTFLoader();
 
@@ -93,6 +94,9 @@ function createTreeMaterial(sourceMaterial, isSpawnTree) {
       ? TREE_SHADOW_LIFT_INTENSITY * SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER
       : TREE_SHADOW_LIFT_INTENSITY;
   }
+  if ('envMapIntensity' in material) {
+    material.envMapIntensity = TREE_ENVIRONMENT_INTENSITY;
+  }
   material.needsUpdate = true;
 
   return material;
@@ -105,8 +109,8 @@ export function getTreeDensity(height) {
   return TREE_DENSITY_HIGHLAND;
 }
 
-export function isTreeArea(terrain, x, z) {
-  const vGroundMask = terrain.getTerrainGroundMask(x, z);
+export function isTreeArea(terrain, x, z, surface = null) {
+  const vGroundMask = (surface ?? sampleTerrainSurface(terrain, x, z)).groundMask;
 
   if (vGroundMask < TREE_GROUND_MASK_THRESHOLD) return false;
 
@@ -124,6 +128,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
   let worldX = startX;
   const placements = [];
   const occupied = {};
+  const surface = {};
 
   return {
     getPlacements() {
@@ -143,25 +148,33 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
           const z = worldZ + jitterZ;
 
           if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-            const height = terrain.getHeightAt(x, z);
+            sampleTerrainSurface(terrain, x, z, surface);
+            const height = surface.height;
             const density = getTreeDensity(height);
             const densityRatio = density / 0.05;
 
             const noiseVal = fbm(x * TREE_NOISE_SCALE, z * TREE_NOISE_SCALE, TREE_NOISE_OCTAVES);
-            const normal = terrain.getNormalAt(x, z);
-            const ridgeFactor = 1.0 - Math.abs(normal.y - 0.65) * 3.0;
+            const biomeNoise = fbm((x + 180) * 0.0045, (z - 260) * 0.0045, 4);
+            const moistureNoise = fbm((x - 430) * 0.007, (z + 90) * 0.007, 3);
+            const ridgeFactor = 1.0 - Math.abs(surface.normalY - 0.65) * 3.0;
             const ridgeBoost = THREE.MathUtils.clamp(ridgeFactor * 1.8, 0.4, 1.8);
-            const modulatedDensity = densityRatio * (TREE_NOISE_MIN_FACTOR + TREE_NOISE_INFLUENCE * noiseVal) * ridgeBoost;
+            const forestCluster = THREE.MathUtils.smoothstep(biomeNoise, 0.28, 0.74);
+            const moistureFactor = THREE.MathUtils.lerp(0.72, 1.18, moistureNoise);
+            const modulatedDensity = densityRatio
+              * (TREE_NOISE_MIN_FACTOR + TREE_NOISE_INFLUENCE * noiseVal)
+              * ridgeBoost
+              * THREE.MathUtils.lerp(0.42, 1.24, forestCluster)
+              * moistureFactor;
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
-              if (isTreeArea(terrain, x, z)) {
+              if (isTreeArea(terrain, x, z, surface)) {
                 if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
                   if (!isTooClose(x, z, occupied)) {
                     markOccupied(x, z, occupied);
                     const modelCount = TREE_MODEL_PATHS.length;
                     const modelIndex = Math.floor(hash2(gridX + 300, gridZ + 400) * modelCount);
 
-                    placements.push(createTreePlacement(terrain, x, z, gridX, gridZ, modelIndex));
+                    placements.push(createTreePlacement(terrain, x, z, gridX, gridZ, modelIndex, surface));
                   }
                 }
               }
@@ -202,9 +215,11 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
 
       for (let i = 0; i < modelPlacements.length; i += 1) {
         instanced.setMatrixAt(i, modelPlacements[i].matrix);
+        instanced.setColorAt(i, modelPlacements[i].tint);
       }
 
       instanced.instanceMatrix.needsUpdate = true;
+      instanced.instanceColor.needsUpdate = true;
       instanced.computeBoundingBox();
       instanced.computeBoundingSphere();
       parent.add(instanced);
@@ -268,17 +283,25 @@ function scaleTreePlacement(matrix, multiplier) {
   matrix.compose(position, rotation, scale);
 }
 
-function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex) {
-  const y = terrain.getHeightAt(x, z);
+function createTreePlacement(terrain, x, z, seedX, seedZ, modelIndex, surface = null) {
+  const y = (surface ?? sampleTerrainSurface(terrain, x, z)).height;
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const scaleValue = THREE.MathUtils.lerp(TREE_SCALE_MIN, TREE_SCALE_MAX, hash2(seedX + 5.7, seedZ + 33.1));
-  const rotation = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-  const scale = new THREE.Vector3(scaleValue, scaleValue, scaleValue);
+  const widthScale = scaleValue * THREE.MathUtils.lerp(0.84, 1.12, hash2(seedX - 7.4, seedZ + 81.2));
+  const heightScale = scaleValue * THREE.MathUtils.lerp(0.92, 1.16, hash2(seedX + 47.8, seedZ - 25.6));
+  const yawRotation = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
+  const leanAngle = THREE.MathUtils.lerp(-0.045, 0.045, hash2(seedX + 18.9, seedZ + 13.2));
+  const leanAxis = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+  const leanRotation = new THREE.Quaternion().setFromAxisAngle(leanAxis, leanAngle);
+  const rotation = yawRotation.multiply(leanRotation);
+  const scale = new THREE.Vector3(widthScale, heightScale, widthScale);
   const matrix = new THREE.Matrix4();
+  const tintValue = THREE.MathUtils.lerp(0.82, 1.04, hash2(seedX + 95.3, seedZ - 62.7));
+  const tint = new THREE.Color(tintValue * 0.91, tintValue, tintValue * 0.86);
 
   matrix.compose(new THREE.Vector3(x, y, z), rotation, scale);
 
-  return { matrix, modelIndex };
+  return { matrix, modelIndex, tint };
 }
 
 function isTooClose(x, z, occupied) {

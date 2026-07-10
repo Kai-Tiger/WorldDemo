@@ -4,34 +4,45 @@ import { GrassManager } from './grassManager.js';
 import { TreeManager } from './treeManager.js';
 import { loadTreeModels } from './treePlacements.js';
 import { loadLeafDecalTextures } from './leafDecals.js';
+import { createHeroRocks } from './heroRocks.js';
 import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
 import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
 import { createSmallLakes } from './smallLakes.js';
-import { SUN_LIGHT_DIRECTION } from './lighting.js';
+import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
+import { createCompressedTextureLoader } from './compressedTextureLoader.js';
+import { PLAYER_SPAWN_POSITION } from './spawn.js';
 
-const SHADOW_CAMERA_SIZE = 250;
+const SHADOW_CAMERA_SIZE = 120;
 
-const HORIZON_COLOR = '#9bbdd0';
-
-export async function createScene() {
+export async function createScene(renderer, quality) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(HORIZON_COLOR);
-  scene.fog = new THREE.Fog(HORIZON_COLOR, 500, 2000);
+  const compressedTextureLoader = createCompressedTextureLoader(renderer);
+  scene.background = VISUAL_ENVIRONMENT.sky.horizonColor.clone();
+  scene.fog = new THREE.FogExp2(
+    VISUAL_ENVIRONMENT.fog.color,
+    VISUAL_ENVIRONMENT.fog.density,
+  );
 
-  const [terrain, grassAsset, treeModels, leafTextures] = await Promise.all([
-    Terrain.create(),
-    loadGrassModel(),
-    loadTreeModels(),
-    loadLeafDecalTextures(),
-  ]);
+  let terrain;
+
+  try {
+    terrain = await Terrain.create({
+      compressedTextureLoader,
+      textureTier: quality.textureTier,
+      textureAnisotropy: quality.textureAnisotropy,
+    });
+    await terrain.prepareInitialChunk(PLAYER_SPAWN_POSITION);
+  } catch (error) {
+    compressedTextureLoader.dispose();
+    throw error;
+  }
   scene.add(terrain.group);
   const water = createRiverWaterMesh(terrain);
   const waterSystem = createWaterSystem(terrain);
-  const grassVariants = createGrassVariants(grassAsset);
-  const grassManager = new GrassManager(terrain, grassVariants);
-  const treeManager = new TreeManager(terrain, treeModels, leafTextures);
+  const grassManager = createDeferredManager('GrassManager');
+  const treeManager = createDeferredManager('TreeManager');
 
   scene.add(grassManager.group);
   scene.add(treeManager.group);
@@ -44,11 +55,18 @@ export async function createScene() {
   const clouds = Clouds.create();
   scene.add(clouds.dome);
 
-  const hemisphereLight = new THREE.HemisphereLight(0x7fc8ff, 0x4d5d3b, 1.6);
+  const hemisphereLight = new THREE.HemisphereLight(
+    VISUAL_ENVIRONMENT.hemisphere.skyColor,
+    VISUAL_ENVIRONMENT.hemisphere.groundColor,
+    VISUAL_ENVIRONMENT.hemisphere.intensity,
+  );
   scene.add(hemisphereLight);
 
-  const sunLight = new THREE.DirectionalLight(0xfff4d6, 3.2);
-  sunLight.position.copy(SUN_LIGHT_DIRECTION).multiplyScalar(320);
+  const sunLight = new THREE.DirectionalLight(
+    VISUAL_ENVIRONMENT.sun.color,
+    VISUAL_ENVIRONMENT.sun.intensity,
+  );
+  sunLight.position.copy(VISUAL_ENVIRONMENT.sun.direction).multiplyScalar(320);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.left = -SHADOW_CAMERA_SIZE;
@@ -62,5 +80,56 @@ export async function createScene() {
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  return { scene, terrain, water, wetBanks: null, waterSystem, grassManager, treeManager, sunLight, clouds, smallLakes };
+  const vegetationReady = Promise.all([
+    loadGrassModel(compressedTextureLoader, quality.textureTier),
+    loadTreeModels(),
+    loadLeafDecalTextures(),
+  ]).then(([grassAsset, treeModels, leafTextures]) => {
+    grassManager.attach(new GrassManager(terrain, createGrassVariants(grassAsset)));
+    treeManager.attach(new TreeManager(terrain, treeModels, leafTextures));
+  }).finally(() => compressedTextureLoader.dispose());
+  const heroRocksReady = createHeroRocks(terrain).then((heroRocks) => {
+    scene.add(heroRocks);
+    return heroRocks;
+  });
+
+  return {
+    scene,
+    terrain,
+    water,
+    wetBanks: null,
+    waterSystem,
+    grassManager,
+    treeManager,
+    sunLight,
+    clouds,
+    smallLakes,
+    backgroundReady: Promise.all([vegetationReady, heroRocksReady]),
+  };
+}
+
+function createDeferredManager(name) {
+  const group = new THREE.Group();
+  let implementation = null;
+  let qualityPreset = null;
+
+  group.name = `${name}Host`;
+
+  return {
+    group,
+    attach(nextImplementation) {
+      implementation = nextImplementation;
+      group.add(implementation.group);
+      if (qualityPreset) {
+        implementation.setQualityPreset?.(qualityPreset);
+      }
+    },
+    update(...args) {
+      return implementation?.update(...args);
+    },
+    setQualityPreset(preset) {
+      qualityPreset = preset;
+      implementation?.setQualityPreset?.(preset);
+    },
+  };
 }

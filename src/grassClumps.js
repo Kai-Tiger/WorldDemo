@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
@@ -35,6 +36,7 @@ const GRASS_WIND_SWAY_RADIUS = 20;
 const GRASS_WIND_REGION_SIZE = 12;
 const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const UP = new THREE.Vector3(0, 1, 0);
+const SURFACE_NORMAL = new THREE.Vector3();
 const GRASS_ALPHA_TEST = 0.12;
 const GRASS_SHADOW_LIFT_COLOR = 0x31482a;
 const GRASS_SHADOW_LIFT_INTENSITY = 0.16;
@@ -44,33 +46,26 @@ const GRASS_COLOR_GRADE = {
   saturation: 0.82,
   highlightCompression: 0.28,
 };
-const GRASS_FAR_COLOR_GRADE = {
-  brightness: 0.72,
-  saturation: 0.9,
-  highlightCompression: 0.42,
-};
 const GRASS_NEAR_TINT = 0xb2c879;
 const GRASS_FAR_TINT = 0x8aaa5a;
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
-const RIBBON_GRASS_TEXTURE_PREFIX = 'Ribbon_Grass_tbdpec3r_High_4K';
+const RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH = 'optimized/ktx2';
+const RIBBON_GRASS_OPTIMIZED_MODEL_PATH = 'optimized/models';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
 const RIBBON_GRASS_SCALE = 0.0135;
 const RIBBON_GRASS_LOD_DENSITIES = [2.5];
-const RIBBON_GRASS_LOD_DISTANCES = [30, 90, 220];
 
 export { RIBBON_GRASS_LOD_DENSITIES as LOD_DENSITIES };
-export { RIBBON_GRASS_LOD_DISTANCES as LOD_DISTANCES };
 export { ZONE_SIZE };
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
-const fbxLoader = new FBXLoader();
-const textureLoader = new THREE.TextureLoader();
+const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const grassPatches = createGrassPatches();
 const patchCellCache = new Map();
 
-export async function loadGrassModel() {
+export async function loadGrassModel(compressedTextureLoader, textureTier = '2k') {
   const [textures, models] = await Promise.all([
-    loadRibbonGrassTextures(),
+    loadRibbonGrassTextures(compressedTextureLoader, textureTier),
     loadRibbonGrassModels(),
   ]);
 
@@ -86,26 +81,22 @@ export function createGrassVariants(asset) {
   ]));
 }
 
-async function loadRibbonGrassTextures() {
+async function loadRibbonGrassTextures(compressedTextureLoader, textureTier) {
+  const tier = textureTier === '1k' ? '1k' : '2k';
   const textureSpecs = [
-    ['baseColor', `${RIBBON_GRASS_TEXTURE_PREFIX}_BaseColor.jpg`, THREE.SRGBColorSpace],
-    ['normal', `${RIBBON_GRASS_TEXTURE_PREFIX}_Normal.jpg`, THREE.NoColorSpace],
-    ['roughness', `${RIBBON_GRASS_TEXTURE_PREFIX}_Roughness.jpg`, THREE.NoColorSpace],
-    ['ao', `${RIBBON_GRASS_TEXTURE_PREFIX}_AO.jpg`, THREE.NoColorSpace],
-    ['opacity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Opacity.jpg`, THREE.NoColorSpace],
-    ['translucency', `${RIBBON_GRASS_TEXTURE_PREFIX}_Translucency.jpg`, THREE.SRGBColorSpace],
-    ['cavity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Cavity.jpg`, THREE.NoColorSpace],
-    ['bump', `${RIBBON_GRASS_TEXTURE_PREFIX}_Bump.jpg`, THREE.NoColorSpace],
-    ['displacement', `${RIBBON_GRASS_TEXTURE_PREFIX}_Displacement.jpg`, THREE.NoColorSpace],
-    ['gloss', `${RIBBON_GRASS_TEXTURE_PREFIX}_Gloss.jpg`, THREE.NoColorSpace],
-    ['specular', `${RIBBON_GRASS_TEXTURE_PREFIX}_Specular.jpg`, THREE.NoColorSpace],
-    ['billboardBaseColor', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_BaseColor.jpg`, THREE.SRGBColorSpace],
-    ['billboardNormal', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Normal.jpg`, THREE.NoColorSpace],
-    ['billboardOpacity', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Opacity.jpg`, THREE.NoColorSpace],
-    ['billboardTranslucency', `${RIBBON_GRASS_TEXTURE_PREFIX}_Billboard_Translucency.jpg`, THREE.SRGBColorSpace],
+    ['baseColor', 'BaseColor', THREE.SRGBColorSpace],
+    ['normal', 'Normal', THREE.NoColorSpace],
+    ['roughness', 'Roughness', THREE.NoColorSpace],
+    ['ao', 'AO', THREE.NoColorSpace],
+    ['opacity', 'Opacity', THREE.NoColorSpace],
+    ['translucency', 'Translucency', THREE.SRGBColorSpace],
+    ['billboardBaseColor', 'Billboard_BaseColor', THREE.SRGBColorSpace],
+    ['billboardNormal', 'Billboard_Normal', THREE.NoColorSpace],
+    ['billboardOpacity', 'Billboard_Opacity', THREE.NoColorSpace],
   ];
-  const entries = await Promise.all(textureSpecs.map(async ([key, fileName, colorSpace]) => {
-    const texture = await textureLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${fileName}`);
+  const entries = await Promise.all(textureSpecs.map(async ([key, name, colorSpace]) => {
+    const path = `${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH}/Ribbon_Grass_${name}_${tier}.ktx2`;
+    const texture = await compressedTextureLoader.loadAsync(path);
 
     texture.wrapS = THREE.ClampToEdgeWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -120,9 +111,13 @@ async function loadRibbonGrassTextures() {
 
 async function loadRibbonGrassModels() {
   const entries = await Promise.all(RIBBON_GRASS_VARIANTS.map(async (variantName) => {
-    const lods = await Promise.all([0, 1, 2].map((lodLevel) => (
-      fbxLoader.loadAsync(`${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD${lodLevel}.fbx`)
-    )));
+    const lods = await Promise.all([0, 1, 2].map(async (lodLevel) => {
+      const asset = await gltfLoader.loadAsync(
+        `${GRASS_ASSET_BASE_PATH}/${RIBBON_GRASS_OPTIMIZED_MODEL_PATH}/${RIBBON_GRASS_MODEL_PREFIX}_${variantName}_LOD${lodLevel}.glb`,
+      );
+
+      return asset.scene;
+    }));
 
     return [variantName, lods];
   }));
@@ -133,28 +128,17 @@ async function loadRibbonGrassModels() {
 function createRibbonGrassMaterials(textures) {
   const near = createRibbonGrassMaterial(textures, {
     useSway: true,
-    useHeightDetail: true,
     grade: GRASS_COLOR_GRADE,
     alphaTest: GRASS_ALPHA_TEST,
     tintColor: GRASS_NEAR_TINT,
     translucencyStrength: 0.18,
   });
   const mid = createRibbonGrassMaterial(textures, {
-    useSway: true,
-    useHeightDetail: false,
-    grade: GRASS_COLOR_GRADE,
+    useSway: false,
     alphaTest: GRASS_ALPHA_TEST,
     tintColor: GRASS_NEAR_TINT,
-    translucencyStrength: 0.1,
   });
-  const far = createRibbonGrassMaterial(textures, {
-    useSway: false,
-    useHeightDetail: false,
-    grade: GRASS_FAR_COLOR_GRADE,
-    alphaTest: GRASS_ALPHA_TEST,
-    tintColor: GRASS_FAR_TINT,
-    translucencyStrength: 0.04,
-  });
+  const far = createRibbonGrassFarMaterial(textures);
 
   return {
     lod: [near, mid, far],
@@ -168,8 +152,6 @@ function createRibbonGrassMaterial(textures, options) {
     roughnessMap: textures.roughness,
     aoMap: textures.ao,
     alphaMap: textures.opacity,
-    bumpMap: options.useHeightDetail ? textures.bump : null,
-    displacementMap: options.useHeightDetail ? textures.displacement : null,
     roughness: 0.86,
     metalness: 0,
     side: THREE.DoubleSide,
@@ -179,38 +161,51 @@ function createRibbonGrassMaterial(textures, options) {
     depthTest: true,
     alphaToCoverage: false,
     color: options.tintColor,
-    bumpScale: options.useHeightDetail ? 0.025 : 0,
-    displacementScale: options.useHeightDetail ? 0.012 : 0,
-    displacementBias: 0,
   });
 
   material.name = options.useSway ? 'RibbonGrassMaterial' : 'RibbonGrassFarMaterial';
-  material.userData.ribbonGrassMaps = {
-    translucency: textures.translucency,
-    cavity: textures.cavity,
-    gloss: textures.gloss,
-  };
   configureGrassMaterial(material);
 
   if (options.useSway) {
-    return createGrassSwayMaterial(material, null, options);
+    return createGrassSwayMaterial(material, null, {
+      ...options,
+      ribbonGrassMaps: { translucency: textures.translucency },
+    });
   }
 
+  material.userData.ribbonGrassMaps = { translucency: textures.translucency };
   material.userData.grassUniforms = null;
-  material.onBeforeCompile = (shader) => applyGrassColorGrade(shader, options.grade, false, material.userData.ribbonGrassMaps, options.translucencyStrength);
-  material.customProgramCacheKey = () => `ribbon-grass-static-${options.alphaTest}-${options.translucencyStrength}`;
+
+  return material;
+}
+
+function createRibbonGrassFarMaterial(textures) {
+  const material = new THREE.MeshLambertMaterial({
+    map: textures.billboardBaseColor,
+    alphaMap: textures.billboardOpacity,
+    side: THREE.DoubleSide,
+    alphaTest: GRASS_ALPHA_TEST,
+    transparent: false,
+    depthWrite: true,
+    depthTest: true,
+    color: GRASS_FAR_TINT,
+  });
+
+  configureGrassMaterial(material);
+  material.name = 'RibbonGrassFarLambertMaterial';
+  material.userData.grassUniforms = null;
 
   return material;
 }
 
 function createRibbonGrassVariant(lodRoots, materials) {
-  const lods = lodRoots.map((root, index) => (
+  const modelLods = lodRoots.map((root, index) => (
     buildRibbonGrassLeaves(root, materials.lod[Math.min(index, materials.lod.length - 1)], `LOD${index}`)
   ));
-
   return {
-    lods,
-    leaves: lods[0],
+    lods: modelLods,
+    leaves: modelLods[0],
+    billboard: modelLods[2],
   };
 }
 
@@ -263,6 +258,8 @@ function ensureAoUv(geometry) {
 
 export function createGrassSwayMaterial(sourceMaterial, geometry, options = {}) {
   const material = sourceMaterial.clone();
+  material.userData.ribbonGrassMaps = options.ribbonGrassMaps
+    ?? sourceMaterial.userData.ribbonGrassMaps;
   const height = geometry?.boundingBox
     ? Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001)
     : 1;
@@ -346,8 +343,6 @@ function applyGrassColorGrade(shader, grade, useHeightShading, maps = {}, transl
   shader.uniforms.uGrassSaturation = { value: grade.saturation };
   shader.uniforms.uGrassHighlightCompression = { value: grade.highlightCompression };
   shader.uniforms.uGrassTranslucencyMap = { value: maps.translucency || null };
-  shader.uniforms.uGrassCavityMap = { value: maps.cavity || null };
-  shader.uniforms.uGrassGlossMap = { value: maps.gloss || null };
   shader.uniforms.uGrassTranslucencyStrength = { value: translucencyStrength };
   shader.fragmentShader = shader.fragmentShader
     .replace(
@@ -359,8 +354,6 @@ uniform float uGrassBrightness;
 uniform float uGrassSaturation;
 uniform float uGrassHighlightCompression;
 uniform sampler2D uGrassTranslucencyMap;
-uniform sampler2D uGrassCavityMap;
-uniform sampler2D uGrassGlossMap;
 uniform float uGrassTranslucencyStrength;
 ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
     )
@@ -373,16 +366,12 @@ diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
     .replace(
       '#include <dithering_fragment>',
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
-float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
-float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
-vec3 grassTranslucency = texture2D(uGrassTranslucencyMap, vMapUv).rgb;
-float grassCavity = texture2D(uGrassCavityMap, vMapUv).r;
-float grassGloss = texture2D(uGrassGlossMap, vMapUv).r;
-gl_FragColor.rgb *= mix(1.0, 0.72, grassRootMask);
-gl_FragColor.rgb *= mix(0.92, 1.0, grassCavity);
-gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
-gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
-gl_FragColor.rgb += vec3(0.05, 0.06, 0.035) * grassGloss * grassTipMask * 0.06;
+	float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
+	float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
+	vec3 grassTranslucency = texture2D(uGrassTranslucencyMap, vMapUv).rgb;
+	gl_FragColor.rgb *= mix(1.0, 0.72, grassRootMask);
+	gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
+	gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
 float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
 gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
@@ -396,9 +385,10 @@ gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * (1.0 - uGrassHighlig
     );
 }
 
-export function isGrassArea(terrain, x, z) {
-  const vGroundMask = terrain.getTerrainGroundMask(x, z);
-  const height = terrain.getHeightAt(x, z);
+export function isGrassArea(terrain, x, z, surface = null) {
+  const sample = surface ?? sampleTerrainSurface(terrain, x, z);
+  const vGroundMask = sample.groundMask;
+  const height = sample.height;
   const lowGroundFade = 1 - smoothstep(GRASS_LOWLAND_FADE_START, GRASS_LOWLAND_FADE_END, height);
   const groundMask = smoothstepRange(0.08, 0.82, vGroundMask) * lowGroundFade;
 
@@ -469,7 +459,7 @@ export function buildInstancedMeshes(placements, variants, parent, lodLevel = 0)
 
       mesh.name = `${variantName}_${leaf.name}_Instances`;
       mesh.castShadow = false;
-      mesh.receiveShadow = false;
+      mesh.receiveShadow = lodLevel === 0;
 
       for (let i = 0; i < variantPlacements.length; i += 1) {
         mesh.setMatrixAt(i, variantPlacements[i].matrix);
@@ -499,13 +489,15 @@ function smoothstepRange(edge0, edge1, value) {
   return smoothstep(edge0, edge1, value);
 }
 
-export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1) {
-  const y = terrain.getHeightAt(x, z);
-  const normal = terrain.getNormalAt(x, z);
+export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1, surface = null) {
+  const sample = surface ?? sampleTerrainSurface(terrain, x, z);
+  const y = sample.height;
+  const normal = SURFACE_NORMAL.set(sample.normalX, sample.normalY, sample.normalZ);
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
   const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
   const scaleValue = THREE.MathUtils.lerp(0.82, 1.08, edgeStrength) * THREE.MathUtils.lerp(0.94, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
+  const lodRoll = hash2(seedX - 73.6, seedZ + 48.9);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
   const scale = new THREE.Vector3(scaleValue, scaleValue, scaleValue);
@@ -516,7 +508,22 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1)
   return {
     matrix,
     variantName: getGrassVariantName(variantRoll),
+    lodRoll,
   };
+}
+
+export function sampleTerrainSurface(terrain, x, z, target = {}) {
+  if (typeof terrain.sampleSurfaceAt === 'function') {
+    return terrain.sampleSurfaceAt(x, z, target);
+  }
+
+  const normal = terrain.getNormalAt(x, z);
+  target.height = terrain.getHeightAt(x, z);
+  target.normalX = normal.x;
+  target.normalY = normal.y;
+  target.normalZ = normal.z;
+  target.groundMask = terrain.getTerrainGroundMask?.(x, z) ?? 1;
+  return target;
 }
 
 function getGrassVariantName(roll) {
@@ -674,15 +681,22 @@ export async function createGrassClumps(terrain) {
   return group;
 }
 
-export function updateGrassClumps(grassManager, playerPosition, elapsedTime) {
-  grassManager?.traverse((child) => {
-    const uniforms = child.material?.userData?.grassUniforms;
+export function updateGrassClumps(variants, playerPosition, elapsedTime) {
+  const updatedUniforms = new Set();
 
-    if (uniforms) {
-      uniforms.uGrassTime.value = elapsedTime;
-      uniforms.uGrassPlayerPosition.value.set(playerPosition.x, playerPosition.z);
+  for (const variant of variants?.values?.() ?? []) {
+    for (const leaves of variant.lods ?? []) {
+      for (const leaf of leaves) {
+        const uniforms = leaf.material?.userData?.grassUniforms;
+
+        if (!uniforms || updatedUniforms.has(uniforms)) continue;
+
+        uniforms.uGrassTime.value = elapsedTime;
+        uniforms.uGrassPlayerPosition.value.set(playerPosition.x, playerPosition.z);
+        updatedUniforms.add(uniforms);
+      }
     }
-  });
+  }
 }
 
 function createGrassPlacements(terrain) {

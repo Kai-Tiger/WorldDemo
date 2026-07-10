@@ -1,8 +1,6 @@
 import * as THREE from 'three';
-import { hash2 } from './grassClumps.js';
+import { hash2, sampleTerrainSurface } from './grassClumps.js';
 
-const LEAF1_PATH = '/assets/terrain/leaf1.png';
-const LEAF2_PATH = '/assets/terrain/leaf2.png';
 const LEAF_COUNT_MIN = 3;
 const LEAF_COUNT_MAX = 5;
 const LEAF_SCATTER_RADIUS = 2.0;
@@ -17,11 +15,8 @@ export async function createLeafDecals(treePlacements, terrain) {
 }
 
 export async function loadLeafDecalTextures() {
-  const loader = new THREE.TextureLoader();
-  const [leaf1Texture, leaf2Texture] = await Promise.all([
-    loader.loadAsync(LEAF1_PATH),
-    loader.loadAsync(LEAF2_PATH),
-  ]);
+  const leaf1Texture = createLeafTexture('#7a5a32', '#3c2c1d', 0.16);
+  const leaf2Texture = createLeafTexture('#66502f', '#2f271c', -0.22);
 
   for (const texture of [leaf1Texture, leaf2Texture]) {
     texture.wrapS = THREE.RepeatWrapping;
@@ -32,10 +27,38 @@ export async function loadLeafDecalTextures() {
   return { leaf1Texture, leaf2Texture };
 }
 
+function createLeafTexture(fillColor, veinColor, rotation) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const context = canvas.getContext('2d');
+
+  context.translate(32, 32);
+  context.rotate(rotation);
+  context.fillStyle = fillColor;
+  context.beginPath();
+  context.moveTo(0, -27);
+  context.bezierCurveTo(23, -15, 22, 14, 0, 27);
+  context.bezierCurveTo(-22, 14, -23, -15, 0, -27);
+  context.fill();
+  context.strokeStyle = veinColor;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(0, -23);
+  context.lineTo(0, 24);
+  context.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.name = `ProceduralLeaf_${fillColor}`;
+  return texture;
+}
+
 export function buildLeafDecals(treePlacements, terrain, textures) {
   const { leaf1Texture, leaf2Texture } = textures;
   const leaf1Matrices = [];
   const leaf2Matrices = [];
+  const surface = {};
+  const normal = new THREE.Vector3();
 
   for (let i = 0; i < treePlacements.length; i += 1) {
     const matrix = treePlacements[i].matrix;
@@ -55,9 +78,10 @@ export function buildLeafDecals(treePlacements, terrain, textures) {
 
       const leafX = treeX + offsetX;
       const leafZ = treeZ + offsetZ;
-      const leafY = terrain.getHeightAt(leafX, leafZ) + LEAF_HEIGHT_OFFSET;
+      sampleTerrainSurface(terrain, leafX, leafZ, surface);
+      const leafY = surface.height + LEAF_HEIGHT_OFFSET;
 
-      const normal = terrain.getNormalAt(leafX, leafZ);
+      normal.set(surface.normalX, surface.normalY, surface.normalZ);
       const tilt = new THREE.Quaternion().setFromUnitVectors(PLANE_NORMAL, normal);
       const yaw = seedA * Math.PI * 2;
       const yawRotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw);
