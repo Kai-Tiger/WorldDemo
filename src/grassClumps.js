@@ -365,6 +365,12 @@ uniform float uGrassTranslucencyStrength;
 ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
     )
     .replace(
+      '#include <alphamap_fragment>',
+      `#ifdef USE_ALPHAMAP
+diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
+#endif`,
+    )
+    .replace(
       '#include <dithering_fragment>',
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
 float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
