@@ -131,9 +131,10 @@ export class Terrain {
     return new Terrain(data, width, height, textures, options);
   }
 
-  async prepareFullMap(centerPosition) {
+  async prepareInitialChunk(centerPosition) {
     const centerChunkX = this.getChunkCoord(centerPosition.x);
     const centerChunkZ = this.getChunkCoord(centerPosition.z);
+    const centerKey = this.getChunkKey(centerChunkX, centerChunkZ);
 
     this.centerChunkX = centerChunkX;
     this.centerChunkZ = centerChunkZ;
@@ -143,7 +144,7 @@ export class Terrain {
       const advance = () => {
         this.processChunkBuilds();
 
-        if (this.loadedChunks.size === CHUNKS_PER_SIDE * CHUNKS_PER_SIDE) {
+        if (this.loadedChunks.has(centerKey)) {
           resolve();
           return;
         }
@@ -164,17 +165,24 @@ export class Terrain {
     this.lodSegments = normalizeLodSegments(preset.lodSegments);
     this.buildBudgetMs = preset.buildBudgetMs ?? this.buildBudgetMs;
     this.shadowProxy.castShadow = preset.useShadowProxy ?? true;
+
+    if (this.centerChunkX !== null && this.centerChunkZ !== null) {
+      this.reconcilePendingChunkLods();
+      this.scheduleLoadedChunkLods();
+    }
   }
 
   setEditorMode(enabled) {
     if (enabled) {
       this.editorMode = true;
+      this.reconcilePendingChunkLods();
       this.scheduleLoadedChunkLods();
       return;
     }
 
     this.editorMode = false;
     this.endTerrainEditStroke();
+    this.reconcilePendingChunkLods();
     this.scheduleLoadedChunkLods();
   }
 
@@ -194,7 +202,19 @@ export class Terrain {
     for (const key of dirtyKeys) {
       const record = this.loadedChunks.get(key);
 
-      if (!record) continue;
+      if (!record) {
+        const { x, z } = this.parseChunkKey(key);
+        const segments = this.getDesiredChunkSegments(x, z);
+
+        this.requestChunkBuild(
+          x,
+          z,
+          segments,
+          this.getChunkBuildPriority(x, z, segments),
+        );
+        continue;
+      }
+
       const segments = this.getDesiredChunkSegments(record.chunkX, record.chunkZ);
       this.requestChunkBuild(
         record.chunkX,
@@ -249,6 +269,21 @@ export class Terrain {
         record.chunkZ,
         segments,
         this.getChunkBuildPriority(record.chunkX, record.chunkZ, segments),
+      );
+    }
+  }
+
+  reconcilePendingChunkLods() {
+    for (const task of [...this.pendingChunks.values()]) {
+      const segments = this.getDesiredChunkSegments(task.chunkX, task.chunkZ);
+
+      if (task.segments === segments) continue;
+
+      this.requestChunkBuild(
+        task.chunkX,
+        task.chunkZ,
+        segments,
+        this.getChunkBuildPriority(task.chunkX, task.chunkZ, segments),
       );
     }
   }
@@ -741,7 +776,10 @@ export class Terrain {
         const revision = this.bumpChunkRevision(key);
         const record = this.loadedChunks.get(key);
 
-        if (!record) continue;
+        if (!record) {
+          this.dirtyEditedChunks.add(key);
+          continue;
+        }
 
         this.updateLoadedChunkSurface(record, bounds);
         record.revision = revision;

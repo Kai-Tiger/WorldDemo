@@ -34,7 +34,7 @@ export async function createScene(renderer, quality) {
       textureAnisotropy: quality.textureAnisotropy,
     });
     terrain.setQualityPreset(quality.terrain);
-    await terrain.prepareFullMap(PLAYER_SPAWN_POSITION);
+    await terrain.prepareInitialChunk(PLAYER_SPAWN_POSITION);
   } catch (error) {
     compressedTextureLoader.dispose();
     throw error;

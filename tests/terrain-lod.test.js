@@ -30,6 +30,23 @@ function createTerrain(options = {}) {
   });
 }
 
+function completeNextScheduledChunk(terrain) {
+  const task = terrain.getNextChunkBuildTask();
+
+  if (!task) return;
+
+  terrain.loadedChunks.set(task.key, {
+    key: task.key,
+    chunkX: task.chunkX,
+    chunkZ: task.chunkZ,
+    minX: task.minX,
+    minZ: task.minZ,
+    segments: task.segments,
+    revision: task.revision,
+  });
+  terrain.pendingChunks.delete(task.key);
+}
+
 test('smoothed pixel samples are cached and a brush invalidates the local cache', () => {
   const terrain = createTerrain();
   const originalGetPixelHeight = terrain.getPixelHeight.bind(terrain);
@@ -78,6 +95,74 @@ test('quality presets keep the center at 256 and use preset values for rings', (
   assert.equal(terrain.getDesiredChunkSegments(4, 3), 128);
   assert.equal(terrain.getDesiredChunkSegments(5, 3), 64);
   assert.equal(terrain.buildBudgetMs, 5);
+});
+
+test('initial readiness waits for the spawn chunk while the full map keeps loading', async () => {
+  const terrain = createTerrain();
+  const animationFrames = [];
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+
+  globalThis.requestAnimationFrame = (callback) => {
+    animationFrames.push(callback);
+    return animationFrames.length;
+  };
+  terrain.processChunkBuilds = () => completeNextScheduledChunk(terrain);
+
+  try {
+    const ready = terrain.prepareInitialChunk({ x: 335, z: -358 });
+
+    assert.equal(terrain.loadedChunks.size, 0);
+    assert.equal(terrain.pendingChunks.size, 64);
+    assert.equal(animationFrames.length, 1);
+
+    animationFrames.shift()();
+    await ready;
+
+    assert.equal(terrain.loadedChunks.has('5,2'), true);
+    assert.equal(terrain.loadedChunks.size, 1);
+    assert.equal(terrain.pendingChunks.size, 63);
+
+    while (terrain.pendingChunks.size > 0) {
+      terrain.update({ x: -900, z: 900 });
+    }
+
+    assert.equal(terrain.loadedChunks.size, 64);
+    assert.equal(terrain.pendingChunks.size, 0);
+    assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [5, 2]);
+    assert.equal(
+      terrain.getAllChunkKeys().every((key) => terrain.loadedChunks.has(key)),
+      true,
+    );
+  } finally {
+    if (originalRequestAnimationFrame) {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      delete globalThis.requestAnimationFrame;
+    }
+  }
+});
+
+test('quality changes replace unfinished terrain tasks with the new LOD', () => {
+  const terrain = createTerrain();
+
+  terrain.centerChunkX = 3;
+  terrain.centerChunkZ = 3;
+  terrain.setQualityPreset({ lodSegments: [256, 128, 64] });
+  terrain.scheduleChunks(terrain.getAllChunkKeys());
+
+  const oldTask = terrain.pendingChunks.get('4,3');
+  assert.equal(oldTask.segments, 128);
+  terrain.advanceChunkBuildTask(oldTask, Number.POSITIVE_INFINITY);
+  assert.equal(oldTask.phase, 'vertices');
+
+  terrain.setQualityPreset({ lodSegments: [256, 64] });
+
+  const replacementTask = terrain.pendingChunks.get('4,3');
+  assert.equal(terrain.pendingChunks.size, 64);
+  assert.notEqual(replacementTask, oldTask);
+  assert.equal(replacementTask.segments, 64);
+  assert.equal(replacementTask.phase, 'allocate');
+  assert.equal(terrain.pendingChunks.get('3,3').segments, 256);
 });
 
 test('full terrain coverage is fixed and does not recenter around player movement', () => {
@@ -145,11 +230,35 @@ test('editor mode temporarily promotes the player neighborhood to 256', () => {
     segments: 64,
     revision: 0,
   });
+  terrain.requestChunkBuild(3, 4, 128, 0);
 
   terrain.setEditorMode(true);
   assert.equal(terrain.getDesiredChunkSegments(4, 3), 256);
+  assert.equal(terrain.pendingChunks.get('3,4').segments, 256);
   terrain.setEditorMode(false);
   assert.equal(terrain.getDesiredChunkSegments(4, 3), 128);
+  assert.equal(terrain.pendingChunks.get('3,4').segments, 128);
+});
+
+test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
+  const terrain = createTerrain();
+
+  terrain.centerChunkX = 3;
+  terrain.centerChunkZ = 3;
+  terrain.requestChunkBuild(0, 0, 64, 0);
+  const staleTask = terrain.pendingChunks.get('0,0');
+
+  terrain.refreshChunksInBounds({
+    minX: -1000,
+    maxX: -990,
+    minZ: -1000,
+    maxZ: -990,
+  });
+
+  const replacementTask = terrain.pendingChunks.get('0,0');
+  assert.notEqual(replacementTask, staleTask);
+  assert.equal(replacementTask.revision, 1);
+  assert.equal(replacementTask.segments, 64);
 });
 
 test('LOD replacement retains the old surface until an atomic swap and disposes both geometries', () => {
@@ -279,7 +388,7 @@ test('an edit stroke patches live and queues one forced rebuild per dirty chunk'
   const requestChunkBuild = terrain.requestChunkBuild.bind(terrain);
   let rebuildRequests = 0;
   terrain.requestChunkBuild = (...args) => {
-    rebuildRequests += 1;
+    if (args[4]) rebuildRequests += 1;
     return requestChunkBuild(...args);
   };
 
