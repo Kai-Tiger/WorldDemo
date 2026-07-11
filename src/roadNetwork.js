@@ -42,6 +42,26 @@ export const ROAD_ROUTES = Object.freeze([
       Object.freeze([401, -395]),
     ]),
   }),
+  Object.freeze({
+    id: 'mountain-access-trail',
+    type: 'trail',
+    width: 4.8,
+    terrainProfile: Object.freeze({
+      lowHeight: 0,
+      highHeight: 28,
+      innerHalfWidth: 3,
+      outerHalfWidth: 18,
+    }),
+    points: Object.freeze([
+      Object.freeze([444, -397]),
+      Object.freeze([432, -398]),
+      Object.freeze([427, -391]),
+      Object.freeze([421, -380]),
+      Object.freeze([412, -368]),
+      Object.freeze([401, -356]),
+      Object.freeze([389, -345]),
+    ]),
+  }),
 ]);
 
 const routes = ROAD_ROUTES.map(createRouteRuntime);
@@ -101,6 +121,36 @@ export function isInRoadVegetationExclusion(x, z, buffer = 0) {
   return false;
 }
 
+export function applyRoadTerrain(baseHeight, x, z) {
+  let height = baseHeight;
+
+  for (const route of routes) {
+    const profile = route.terrainProfile;
+
+    if (!profile || !isPointNearBounds(x, z, route.bounds, 0)) continue;
+
+    const frame = getClosestRouteFrame(route, x, z);
+
+    if (!frame || frame.distance > profile.outerHalfWidth) continue;
+
+    const progress = smoothstep(0, route.length, frame.along);
+    const targetHeight = THREE.MathUtils.lerp(
+      profile.lowHeight,
+      profile.highHeight,
+      progress,
+    );
+    const blend = 1 - smoothstep(
+      profile.innerHalfWidth,
+      profile.outerHalfWidth,
+      frame.distance,
+    );
+
+    height = THREE.MathUtils.lerp(height, targetHeight, blend);
+  }
+
+  return height;
+}
+
 export function getRoadMinimumSegmentsForBounds(bounds) {
   return routes.some((route) => boundsIntersect(bounds, route.bounds))
     ? ROAD_MINIMUM_SEGMENTS
@@ -141,7 +191,10 @@ function createRouteRuntime(route) {
     samples,
     length: distance,
     maxHalfWidth,
-    bounds: createRouteBounds(samples, maxHalfWidth + ROAD_EDGE_FADE),
+    bounds: createRouteBounds(
+      samples,
+      Math.max(maxHalfWidth + ROAD_EDGE_FADE, route.terrainProfile?.outerHalfWidth ?? 0),
+    ),
   };
 }
 

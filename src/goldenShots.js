@@ -29,6 +29,11 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 535, z: -370, heightOffset: 9 },
     target: { x: 580, z: -326, heightOffset: 1.3 },
   },
+  'mountain-access': {
+    player: { x: 444, z: -397 },
+    camera: { x: 454, z: -407, heightOffset: 6 },
+    target: { x: 414, z: -372, y: 14 },
+  },
   'terminal-lake-overhead': {
     player: { x: 720, z: -340 },
     camera: { x: 690, z: -340, y: 55 },

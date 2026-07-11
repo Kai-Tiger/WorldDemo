@@ -13,6 +13,7 @@ import {
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 import {
+  applyRoadTerrain,
   getRoadMaterialFrame,
   getRoadMinimumSegmentsForBounds,
 } from './roadNetwork.js';
@@ -1063,7 +1064,8 @@ export class Terrain {
   }
 
   getSurfaceHeightFromBase(baseHeight, x, z) {
-    const waterSystemHeight = applyWaterSystemTerrain(baseHeight, x, z);
+    const roadHeight = applyRoadTerrain(baseHeight, x, z);
+    const waterSystemHeight = applyWaterSystemTerrain(roadHeight, x, z);
     const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
     return applyRiverChannel(smallLakesHeight, x, z);
