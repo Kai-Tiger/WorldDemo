@@ -13,6 +13,10 @@ import {
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 import {
+  getRoadMaterialFrame,
+  getRoadMinimumSegmentsForBounds,
+} from './roadNetwork.js';
+import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
 } from './terrainMaterial.js';
@@ -127,6 +131,7 @@ export class Terrain {
     this.now = options.now ?? getCurrentTime;
     this.nextBuildSequence = 0;
     this.surfaceSampleScratch = {};
+    this.roadMaterialScratch = {};
     this.editorMode = false;
     this.editStrokeActive = false;
     this.dirtyEditedChunks = new Set();
@@ -972,9 +977,11 @@ export class Terrain {
     const riverFrame = getRiverMaterialFrame(sample.baseHeight, worldX, worldZ);
     const waterSystemFrame = getWaterSystemMaterialFrame(sample.baseHeight, worldX, worldZ);
     const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
+    const roadFrame = getRoadMaterialFrame(worldX, worldZ, this.roadMaterialScratch);
     const positionOffset = vertexIndex * 3;
     const uvOffset = vertexIndex * 2;
     const waterMaskOffset = vertexIndex * 4;
+    const roadFrameOffset = vertexIndex * 4;
 
     arrays.positions[positionOffset] = worldX;
     arrays.positions[positionOffset + 1] = sample.height;
@@ -995,6 +1002,10 @@ export class Terrain {
     arrays.waterSystemMasks[waterMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
     arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
     arrays.smallLakeMasks[vertexIndex] = smallLakesMask;
+    arrays.roadFrames[roadFrameOffset] = roadFrame.trailMask;
+    arrays.roadFrames[roadFrameOffset + 1] = roadFrame.cartMask;
+    arrays.roadFrames[roadFrameOffset + 2] = roadFrame.trailLateral;
+    arrays.roadFrames[roadFrameOffset + 3] = roadFrame.cartLateral;
   }
 
   sampleSurfaceAt(x, z, target = {}, surfaceHeightCache = null) {
@@ -1340,6 +1351,7 @@ function createChunkArrays(segments) {
     riverBedCoords: new Float32Array(vertexCount * 2),
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
+    roadFrames: new Float32Array(vertexCount * 4),
     indices: new Uint32Array(segments * segments * 6),
   };
 }
@@ -1408,6 +1420,7 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
+  geometry.setAttribute('roadFrame', new THREE.BufferAttribute(arrays.roadFrames, 4));
   geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
   geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
   return geometry;
@@ -1557,6 +1570,9 @@ function disposeChunkRecord(record) {
 function disableRaycast() {}
 
 function getConservativeMinimumChunkSegments(bounds) {
+  const roadMinimum = getRoadMinimumSegmentsForBounds(bounds);
+
+  if (roadMinimum > 0) return roadMinimum;
   if (NARROW_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
     return CHUNK_SIZE;
   }

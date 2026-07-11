@@ -24,6 +24,11 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 365, z: -322, y: 88 },
     target: { x: 300, z: -400, y: 38 },
   },
+  'carriage-road': {
+    player: { x: 545, z: -339 },
+    camera: { x: 535, z: -370, heightOffset: 9 },
+    target: { x: 580, z: -326, heightOffset: 1.3 },
+  },
   'terminal-lake-overhead': {
     player: { x: 720, z: -340 },
     camera: { x: 690, z: -340, y: 55 },

@@ -76,6 +76,7 @@ function createChunkTask(segments) {
       riverBedCoords: new Float32Array(vertexCount * 2),
       waterSystemMasks: new Float32Array(vertexCount * 4),
       smallLakeMasks: new Float32Array(vertexCount),
+      roadFrames: new Float32Array(vertexCount * 4),
       indices: new Uint32Array(segments * segments * 6),
     },
   };
@@ -120,6 +121,28 @@ test('all material variants compute masks before sampling branches and preserve 
     assert.match(mapFragment, /uRiverBedTexture/);
     assert.match(vertexAssignments, /vTerrainMacro = vec4/);
     assert.doesNotMatch(`${fragmentParameters}\n${mapFragment}`, /displacement|applyDetailNormal|applyForestFloorHeightNormal|fbm/i);
+  }
+});
+
+test('road layers reuse terrain textures between the base surface and snow/water overrides', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const { vertexParameters, fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
+    const baseSurfaceEnd = mapFragment.indexOf('terrainBaseColor *= mix(');
+    const roadStart = mapFragment.indexOf('float terrainRoadBreakup');
+    const snowStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
+    const waterStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
+
+    assert.match(vertexParameters, /attribute vec4 roadFrame;/);
+    assert.match(fragmentParameters, /varying vec4 vTerrainRoadFrame;/);
+    assert.doesNotMatch(fragmentParameters, /uRoadTexture/);
+    assert.match(mapFragment, /uGroundDirtAlbedoTexture/);
+    assert.match(mapFragment, /uGravelAlbedoTexture/);
+    assert.match(mapFragment, /abs\(abs\(vTerrainRoadFrame\.w\) - 0\.45\)/);
+    assert.ok(roadStart > baseSurfaceEnd);
+    assert.ok(snowStart > roadStart);
+    assert.ok(waterStart > snowStart);
   }
 });
 
@@ -266,6 +289,9 @@ test('Terrain assigns material LOD and disables shadow receiving on Far chunks',
   assert.equal(near.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.NEAR);
   assert.equal(medium.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.MEDIUM);
   assert.equal(far.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.FAR);
+  assert.equal(near.surface.geometry.getAttribute('roadFrame').itemSize, 4);
+  assert.equal(medium.surface.geometry.getAttribute('roadFrame').itemSize, 4);
+  assert.equal(far.surface.geometry.getAttribute('roadFrame').itemSize, 4);
   assert.equal(near.surface.receiveShadow, true);
   assert.equal(medium.surface.receiveShadow, true);
   assert.equal(far.surface.receiveShadow, false);

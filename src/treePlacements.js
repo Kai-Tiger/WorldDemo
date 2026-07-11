@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
+import { isInRoadVegetationExclusion } from './roadNetwork.js';
 import { hash2, sampleTerrainSurface } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
@@ -168,7 +169,12 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
 
             if (hash2(gridX + 500, gridZ + 700) < modulatedDensity) {
               if (isTreeArea(terrain, x, z, surface)) {
-                if (!isInRiverGrassExclusion(x, z, RIVER_BUFFER) && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER) && !isInSmallLakeExclusion(x, z)) {
+                if (
+                  !isInRiverGrassExclusion(x, z, RIVER_BUFFER)
+                  && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER)
+                  && !isInSmallLakeExclusion(x, z)
+                  && !isInRoadVegetationExclusion(x, z, 2.2)
+                ) {
                   if (!isTooClose(x, z, occupied)) {
                     markOccupied(x, z, occupied);
                     const modelCount = TREE_MODEL_PATHS.length;

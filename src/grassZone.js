@@ -8,6 +8,7 @@ import {
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
+import { isInRoadVegetationExclusion } from './roadNetwork.js';
 import { GRASS_CANDIDATE_JITTER } from './vegetationConfig.js';
 
 const GRASS_WATER_BUFFER = 4;
@@ -429,6 +430,7 @@ function shouldPlaceGrassAt(x, z, surface) {
   if (isInRiverGrassExclusion(x, z, GRASS_WATER_BUFFER)) return false;
   if (isInWaterSystemVegetationExclusion(x, z, GRASS_WATER_BUFFER)) return false;
   if (isInSmallLakeExclusion(x, z)) return false;
+  if (isInRoadVegetationExclusion(x, z, 0.55)) return false;
 
   return surface.normalY >= GRASS_MIN_NORMAL_Y
     && surface.groundMask >= GRASS_MIN_GROUND_MASK;

@@ -20,6 +20,7 @@ attribute float riverUnderwaterMask;
 attribute vec2 riverBedCoord;
 attribute vec4 waterSystemMask;
 attribute float smallLakesMask;
+attribute vec4 roadFrame;
 
 varying vec2 vTerrainRiverBedCoord;
 varying vec3 vTerrainWorldPosition;
@@ -30,6 +31,7 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
+varying vec4 vTerrainRoadFrame;
 varying vec4 vTerrainMacro;
 
 float terrainVertexHash(vec2 value) {
@@ -59,6 +61,7 @@ vTerrainRiverBedMask = riverBedMask;
 vTerrainRiverUnderwaterMask = riverUnderwaterMask;
 vTerrainWaterSystemMask = waterSystemMask;
 vTerrainSmallLakesMask = smallLakesMask;
+vTerrainRoadFrame = roadFrame;
 vTerrainMacro = vec4(
   terrainVertexNoise(terrainWorldPosition.xz * 0.012 + vec2(2.8, -7.1)),
   terrainVertexNoise(terrainWorldPosition.xz * 0.0065 + vec2(-8.0, 4.0)),
@@ -101,6 +104,7 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
+varying vec4 vTerrainRoadFrame;
 varying vec4 vTerrainMacro;
 
 float terrainHash(vec2 value) {
@@ -197,6 +201,7 @@ function createTerrainMapFragment(level) {
     ? 'vec3 terrainSurfaceNormal = terrainBaseNormal;'
     : 'vec3 terrainSurfaceNormal = terrainBaseNormal;';
   const groundBranches = createGroundBranches({ sampleNormal, useBakedForestFloor: isNear });
+  const roadOverlay = createRoadOverlay({ sampleNormal });
 
   return `
 #include <map_fragment>
@@ -303,6 +308,8 @@ terrainBaseColor *= mix(
   terrainGroundMacroWeight * (1.0 - max(terrainWaterBankMask, terrainWaterBedMask))
 );
 
+${roadOverlay}
+
 if (terrainSnowCoverage > 0.01) {
   vec3 terrainSnowColor = texture2D(uSnowTexture, terrainSnowUv).rgb
     * vec3(0.90, 0.94, 1.0);
@@ -343,6 +350,67 @@ if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
 
 diffuseColor.rgb *= terrainBaseColor;
 `;
+}
+
+function createRoadOverlay({ sampleNormal }) {
+  const roadNormal = sampleNormal
+    ? `vec3 terrainTrailNormal = sampleTerrainNormal(uGroundDirtNormalTexture, terrainDirtUv);
+  vec3 terrainCartNormal = normalize(mix(
+    terrainTrailNormal,
+    sampleTerrainNormal(uGravelNormalTexture, terrainGravelUv),
+    0.48
+  ));
+  vec3 terrainRoadNormal = normalize(mix(
+    terrainTrailNormal,
+    terrainCartNormal,
+    terrainCartBlend
+  ));
+  terrainSurfaceNormal = normalize(mix(
+    terrainSurfaceNormal,
+    terrainRoadNormal,
+    terrainRoadMask * 0.58
+  ));`
+    : '';
+
+  return `float terrainRoadBreakup = mix(0.86, 1.12, vTerrainMacro.z);
+float terrainTrailMask = smoothstep(0.06, 0.82, vTerrainRoadFrame.x * terrainRoadBreakup);
+float terrainCartMask = smoothstep(0.05, 0.78, vTerrainRoadFrame.y * terrainRoadBreakup);
+float terrainRoadMask = max(terrainTrailMask, terrainCartMask);
+if (terrainRoadMask > 0.01) {
+  float terrainTrailCenter = 1.0 - smoothstep(0.18, 0.92, abs(vTerrainRoadFrame.z));
+  float terrainCartRuts = 1.0 - smoothstep(
+    0.055,
+    0.145,
+    abs(abs(vTerrainRoadFrame.w) - 0.45)
+  );
+  float terrainCartCenter = 1.0 - smoothstep(0.04, 0.25, abs(vTerrainRoadFrame.w));
+  vec3 terrainRoadDirt = sampleTerrainLayer(
+    uGroundDirtAlbedoTexture,
+    terrainDirtUv,
+    10.0
+  ) * vec3(0.73, 0.66, 0.55);
+  vec3 terrainRoadGravel = sampleTerrainLayer(
+    uGravelAlbedoTexture,
+    terrainGravelUv,
+    11.0
+  ) * vec3(0.74, 0.70, 0.62);
+  vec3 terrainTrailColor = terrainRoadDirt
+    * mix(1.0, 0.78, terrainTrailCenter * 0.34);
+  vec3 terrainCartColor = mix(terrainRoadDirt, terrainRoadGravel, 0.46);
+  terrainCartColor *= mix(vec3(1.0), vec3(0.62, 0.56, 0.47), terrainCartRuts * 0.72);
+  terrainCartColor = mix(
+    terrainCartColor,
+    terrainCartColor * vec3(0.76, 0.88, 0.68),
+    terrainCartCenter * 0.2
+  );
+  float terrainCartBlend = terrainCartMask / max(terrainTrailMask + terrainCartMask, 0.0001);
+  vec3 terrainRoadColor = mix(terrainTrailColor, terrainCartColor, terrainCartBlend);
+
+  terrainBaseColor = mix(terrainBaseColor, terrainRoadColor, terrainRoadMask);
+  ${roadNormal}
+  terrainRoughness = mix(terrainRoughness, mix(0.9, 0.78, terrainCartRuts), terrainRoadMask);
+  terrainOcclusion = mix(terrainOcclusion, mix(0.94, 0.86, terrainCartRuts), terrainCartMask);
+}`;
 }
 
 function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
@@ -479,7 +547,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v4-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v5-${level}`;
 
   return material;
 }
