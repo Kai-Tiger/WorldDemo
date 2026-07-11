@@ -15,10 +15,9 @@ import {
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 import {
-  applyRoadTerrain,
-  getRoadMaterialFrame,
-  getRoadMinimumSegmentsForBounds,
-} from './roadNetwork.js';
+  applyNaturalMountainPassTerrain,
+  getNaturalMountainPassMinimumSegmentsForBounds,
+} from './naturalMountainPass.js';
 import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
@@ -30,9 +29,6 @@ const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
-const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
-const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
-const OPTIMIZED_TERRAIN_TEXTURE_PATH = '/assets/terrain/materials/optimized';
 const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const SHADOW_PROXY_SEGMENTS = 64;
@@ -59,7 +55,6 @@ const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
-const GRAVEL_TEXTURE_WORLD_SIZE = 12;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -89,7 +84,6 @@ export class Terrain {
     this.materials = createTerrainMaterials(textures, {
       alpineTextureWorldSize: ALPINE_TEXTURE_WORLD_SIZE,
       forestFloorTextureWorldSize: FOREST_FLOOR_TEXTURE_WORLD_SIZE,
-      gravelTextureWorldSize: GRAVEL_TEXTURE_WORLD_SIZE,
       riverBankTextureWorldSize: RIVER_BANK_TEXTURE_WORLD_SIZE,
       riverBedTextureWorldSize: RIVER_BED_TEXTURE_WORLD_SIZE,
     });
@@ -107,7 +101,6 @@ export class Terrain {
     this.now = options.now ?? getCurrentTime;
     this.nextBuildSequence = 0;
     this.surfaceSampleScratch = {};
-    this.roadMaterialScratch = {};
     this.editorMode = false;
     this.editStrokeActive = false;
     this.dirtyEditedChunks = new Set();
@@ -122,7 +115,6 @@ export class Terrain {
     ] = await Promise.all([
       loadHeightMap(HEIGHT_MAP_PATH),
       loadTerrainTextures(
-        options.compressedTextureLoader,
         options.textureTier,
         options.textureAnisotropy,
       ),
@@ -930,11 +922,9 @@ export class Terrain {
       smallLakesMask,
       waterSystemFrame.riverNetworkBedMask,
     );
-    const roadFrame = getRoadMaterialFrame(worldX, worldZ, this.roadMaterialScratch);
     const positionOffset = vertexIndex * 3;
     const uvOffset = vertexIndex * 2;
     const waterMaskOffset = vertexIndex * 4;
-    const roadFrameOffset = vertexIndex * 4;
 
     arrays.positions[positionOffset] = worldX;
     arrays.positions[positionOffset + 1] = sample.height;
@@ -958,10 +948,6 @@ export class Terrain {
     arrays.waterSystemMasks[waterMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
     arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
     arrays.smallLakeMasks[vertexIndex] = worldSpaceWaterBedMask;
-    arrays.roadFrames[roadFrameOffset] = roadFrame.trailMask;
-    arrays.roadFrames[roadFrameOffset + 1] = roadFrame.cartMask;
-    arrays.roadFrames[roadFrameOffset + 2] = roadFrame.trailLateral;
-    arrays.roadFrames[roadFrameOffset + 3] = roadFrame.cartLateral;
   }
 
   sampleSurfaceAt(x, z, target = {}, surfaceHeightCache = null) {
@@ -1019,8 +1005,8 @@ export class Terrain {
   }
 
   getSurfaceHeightFromBase(baseHeight, x, z) {
-    const roadHeight = applyRoadTerrain(baseHeight, x, z);
-    const waterSystemHeight = applyWaterSystemTerrain(roadHeight, x, z);
+    const mountainPassHeight = applyNaturalMountainPassTerrain(baseHeight, x, z);
+    const waterSystemHeight = applyWaterSystemTerrain(mountainPassHeight, x, z);
     const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
     return applyRiverChannel(smallLakesHeight, x, z);
@@ -1182,22 +1168,16 @@ async function loadHeightMap(path) {
   };
 }
 
-async function loadTerrainTextures(compressedTextureLoader, textureTier, textureAnisotropy) {
+async function loadTerrainTextures(textureTier, textureAnisotropy) {
   const standardTextureLoader = new THREE.TextureLoader();
-  const materialTextureLoader = compressedTextureLoader ?? standardTextureLoader;
   const tier = textureTier === '1k' ? '1k' : '2k';
   const anisotropy = textureAnisotropy ?? 4;
-  const optimizedPath = (name, fallback) => compressedTextureLoader
-    ? `${OPTIMIZED_TERRAIN_TEXTURE_PATH}/${name}_${tier}.ktx2`
-    : fallback;
   const [
     rock,
     rockNormal,
     snow,
     forestFloorBaseColor,
     forestFloorNormal,
-    gravelAlbedo,
-    gravelNormal,
     riverBank,
     riverBed,
   ] = await Promise.all([
@@ -1206,8 +1186,6 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     standardTextureLoader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_basecolor_${tier}.jpg`),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_normal_${tier}.jpg`),
-    materialTextureLoader.loadAsync(optimizedPath('gravel_albedo', GRAVEL_ALBEDO_TEXTURE_PATH)),
-    materialTextureLoader.loadAsync(optimizedPath('gravel_normal', GRAVEL_NORMAL_TEXTURE_PATH)),
     standardTextureLoader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
@@ -1216,7 +1194,6 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     rock,
     snow,
     forestFloorBaseColor,
-    gravelAlbedo,
     riverBank,
     riverBed,
   ]) {
@@ -1229,7 +1206,6 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   for (const texture of [
     rockNormal,
     forestFloorNormal,
-    gravelNormal,
   ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -1243,8 +1219,6 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     snow,
     forestFloorBaseColor,
     forestFloorNormal,
-    gravelAlbedo,
-    gravelNormal,
     riverBank,
     riverBed,
   };
@@ -1292,7 +1266,6 @@ function createChunkArrays(segments) {
     riverBedCoords: new Float32Array(vertexCount * 2),
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
-    roadFrames: new Float32Array(vertexCount * 4),
     indices: new Uint32Array(segments * segments * 6),
   };
 }
@@ -1361,7 +1334,6 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
-  geometry.setAttribute('roadFrame', new THREE.BufferAttribute(arrays.roadFrames, 4));
   geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
   geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
   return geometry;
@@ -1511,10 +1483,10 @@ function disposeChunkRecord(record) {
 function disableRaycast() {}
 
 function getConservativeMinimumChunkSegments(bounds) {
-  const roadMinimum = getRoadMinimumSegmentsForBounds(bounds);
+  const mountainPassMinimum = getNaturalMountainPassMinimumSegmentsForBounds(bounds);
   const waterMinimum = getWaterSystemMinimumSegmentsForBounds(bounds);
 
-  return Math.max(roadMinimum, waterMinimum);
+  return Math.max(mountainPassMinimum, waterMinimum);
 }
 
 function getCurrentTime() {

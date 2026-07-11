@@ -20,8 +20,6 @@ function createTerrain(options = {}) {
     rockNormal: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
-    gravelAlbedo: texture,
-    gravelNormal: texture,
     riverBank: texture,
     riverBed: texture,
   }, {

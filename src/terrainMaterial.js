@@ -20,7 +20,6 @@ attribute float riverUnderwaterMask;
 attribute vec2 riverBedCoord;
 attribute vec4 waterSystemMask;
 attribute float smallLakesMask;
-attribute vec4 roadFrame;
 
 varying vec2 vTerrainRiverBedCoord;
 varying vec3 vTerrainWorldPosition;
@@ -31,7 +30,6 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
-varying vec4 vTerrainRoadFrame;
 varying vec4 vTerrainMacro;
 
 float terrainVertexHash(vec2 value) {
@@ -61,7 +59,6 @@ vTerrainRiverBedMask = riverBedMask;
 vTerrainRiverUnderwaterMask = riverUnderwaterMask;
 vTerrainWaterSystemMask = waterSystemMask;
 vTerrainSmallLakesMask = smallLakesMask;
-vTerrainRoadFrame = roadFrame;
 vTerrainMacro = vec4(
   terrainVertexNoise(terrainWorldPosition.xz * 0.012 + vec2(2.8, -7.1)),
   terrainVertexNoise(terrainWorldPosition.xz * 0.0065 + vec2(-8.0, 4.0)),
@@ -76,14 +73,11 @@ uniform sampler2D uRockNormalTexture;
 uniform sampler2D uSnowTexture;
 uniform sampler2D uForestFloorBaseColorTexture;
 uniform sampler2D uForestFloorNormalTexture;
-uniform sampler2D uGravelAlbedoTexture;
-uniform sampler2D uGravelNormalTexture;
 uniform sampler2D uRiverBankTexture;
 uniform sampler2D uRiverBedTexture;
 
 uniform float uAlpineTextureWorldSize;
 uniform float uForestFloorTextureWorldSize;
-uniform float uGravelTextureWorldSize;
 uniform float uRiverBankTextureWorldSize;
 uniform float uRiverBedTextureWorldSize;
 
@@ -96,7 +90,6 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
-varying vec4 vTerrainRoadFrame;
 varying vec4 vTerrainMacro;
 
 float terrainHash(vec2 value) {
@@ -275,11 +268,6 @@ vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
   return mix(primary, secondary, 0.32);
 }
 
-vec3 sampleTerrainNormal(sampler2D normalTexture, vec2 uv) {
-  vec3 tangentNormal = texture2D(normalTexture, uv).rgb * 2.0 - 1.0;
-  return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
-}
-
 vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
   vec3 blend = pow(abs(worldNormal), vec3(4.0));
   blend /= max(blend.x + blend.y + blend.z, 0.0001);
@@ -306,11 +294,6 @@ vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float texture
 const MEDIUM_SAMPLING_FUNCTIONS = `
 vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
   return texture2D(terrainTexture, uv + vec2(seed * 0.37, -seed * 0.21)).rgb;
-}
-
-vec3 sampleTerrainNormal(sampler2D normalTexture, vec2 uv) {
-  vec3 tangentNormal = texture2D(normalTexture, uv).rgb * 2.0 - 1.0;
-  return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
 }
 
 vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
@@ -354,7 +337,6 @@ function createTerrainMapFragment(level) {
     rockColor,
     rockTransitionNormal,
   });
-  const roadOverlay = createRoadOverlay({ sampleNormal });
 
   return `
 #include <map_fragment>
@@ -407,7 +389,6 @@ float terrainWaterBedMask = max(
 vec2 terrainForestFloorUv = vTerrainWorldPosition.xz / uForestFloorTextureWorldSize;
 vec2 terrainForestFloorUvDx = dFdx(terrainForestFloorUv);
 vec2 terrainForestFloorUvDy = dFdy(terrainForestFloorUv);
-vec2 terrainGravelUv = vTerrainWorldPosition.xz / uGravelTextureWorldSize + vec2(4.7, 12.8);
 vec2 terrainAlpineUv = vTerrainWorldPosition.xz / uAlpineTextureWorldSize;
 vec2 terrainSnowUv = vTerrainWorldPosition.xz / (uAlpineTextureWorldSize * 1.35)
   + vec2(6.4, -3.7);
@@ -431,8 +412,6 @@ terrainBaseColor *= mix(
   mix(0.96, 1.05, vTerrainMacro.w),
   terrainGroundMacroWeight * (1.0 - max(terrainWaterBankMask, terrainWaterBedMask))
 );
-
-${roadOverlay}
 
 if (terrainSnowCoverage > 0.01) {
   vec3 terrainSnowColor = texture2D(uSnowTexture, terrainSnowUv).rgb
@@ -479,52 +458,6 @@ if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
 
 diffuseColor.rgb *= terrainBaseColor;
 `;
-}
-
-function createRoadOverlay({ sampleNormal }) {
-  const roadNormal = sampleNormal
-    ? `vec3 terrainRoadNormal = sampleTerrainNormal(uGravelNormalTexture, terrainGravelUv);
-  terrainSurfaceNormal = normalize(mix(
-    terrainSurfaceNormal,
-    terrainRoadNormal,
-    terrainRoadMask * 0.58
-  ));`
-    : '';
-
-  return `float terrainRoadBreakup = mix(0.86, 1.12, vTerrainMacro.z);
-float terrainTrailMask = clamp(vTerrainRoadFrame.x * terrainRoadBreakup, 0.0, 1.0);
-float terrainCartMask = clamp(vTerrainRoadFrame.y * terrainRoadBreakup, 0.0, 1.0);
-float terrainRoadMask = max(terrainTrailMask, terrainCartMask);
-if (terrainRoadMask > 0.01) {
-  float terrainTrailCenter = 1.0 - smoothstep(0.18, 0.92, abs(vTerrainRoadFrame.z));
-  float terrainCartRuts = 1.0 - smoothstep(
-    0.055,
-    0.145,
-    abs(abs(vTerrainRoadFrame.w) - 0.45)
-  );
-  float terrainCartCenter = 1.0 - smoothstep(0.04, 0.25, abs(vTerrainRoadFrame.w));
-  vec3 terrainRoadGravel = sampleTerrainLayer(
-    uGravelAlbedoTexture,
-    terrainGravelUv,
-    11.0
-  ) * vec3(0.72, 0.74, 0.76);
-  vec3 terrainTrailColor = terrainRoadGravel
-    * mix(1.0, 0.82, terrainTrailCenter * 0.32);
-  vec3 terrainCartColor = terrainRoadGravel
-    * mix(vec3(1.0), vec3(0.68, 0.70, 0.72), terrainCartRuts * 0.66);
-  terrainCartColor = mix(
-    terrainCartColor,
-    terrainCartColor * vec3(0.86, 0.92, 0.84),
-    terrainCartCenter * 0.14
-  );
-  float terrainCartBlend = terrainCartMask / max(terrainTrailMask + terrainCartMask, 0.0001);
-  vec3 terrainRoadColor = mix(terrainTrailColor, terrainCartColor, terrainCartBlend);
-
-  terrainBaseColor = mix(terrainBaseColor, terrainRoadColor, terrainRoadMask);
-  ${roadNormal}
-  terrainRoughness = mix(terrainRoughness, mix(0.9, 0.78, terrainCartRuts), terrainRoadMask);
-  terrainOcclusion = mix(terrainOcclusion, mix(0.94, 0.86, terrainCartRuts), terrainRoadMask);
-}`;
 }
 
 function createGroundBranches({ sampleNormal }) {
@@ -607,13 +540,10 @@ function createTerrainUniforms(textures, options) {
     uSnowTexture: { value: textures.snow },
     uForestFloorBaseColorTexture: { value: textures.forestFloorBaseColor },
     uForestFloorNormalTexture: { value: textures.forestFloorNormal },
-    uGravelAlbedoTexture: { value: textures.gravelAlbedo },
-    uGravelNormalTexture: { value: textures.gravelNormal },
     uRiverBankTexture: { value: textures.riverBank },
     uRiverBedTexture: { value: textures.riverBed },
     uAlpineTextureWorldSize: { value: options.alpineTextureWorldSize },
     uForestFloorTextureWorldSize: { value: options.forestFloorTextureWorldSize },
-    uGravelTextureWorldSize: { value: options.gravelTextureWorldSize },
     uRiverBankTextureWorldSize: { value: options.riverBankTextureWorldSize },
     uRiverBedTextureWorldSize: { value: options.riverBedTextureWorldSize },
   };
@@ -665,7 +595,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v7-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v8-${level}`;
 
   return material;
 }
