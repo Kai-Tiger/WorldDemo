@@ -41,6 +41,14 @@ test('color-grade texel size follows scaled composer physical dimensions', () =>
   assert.deepEqual(getPhysicalRenderSize(100, 80, 1.25 * 0.75), { width: 93, height: 75 });
 });
 
+test('pre-tonemap grading preserves terrain shadows with neutral contrast and restrained vignette', async () => {
+  const source = await readFile(new URL('../src/postProcessing.js', import.meta.url), 'utf8');
+
+  assert.match(source, /uContrast:\s*\{ value: 1\.0 \}/);
+  assert.match(source, /uShadowLift:\s*\{ value: 0\.015 \}/);
+  assert.match(source, /uVignetteStrength:\s*\{ value: 0\.08 \}/);
+});
+
 test('GTAO temporarily hides only explicitly excluded roots and always restores visibility', () => {
   const scene = new THREE.Scene();
   const water = new THREE.Group();

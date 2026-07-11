@@ -11,7 +11,7 @@ import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 const COLOR_GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null },
-    uContrast: { value: 1.05 },
+    uContrast: { value: 1.0 },
     uSaturation: { value: 1.02 },
     uShadowTint: { value: new THREE.Color(0xf3f7ff) },
     uHighlightTint: { value: new THREE.Color(0xfff1d4) },
@@ -20,7 +20,7 @@ const COLOR_GRADE_SHADER = {
     uSharpenStrength: { value: 0.08 },
     uBloomStrength: { value: 0.06 },
     uBloomThreshold: { value: 1.05 },
-    uVignetteStrength: { value: 0.18 },
+    uVignetteStrength: { value: 0.08 },
   },
   vertexShader: `
     varying vec2 vUv;
