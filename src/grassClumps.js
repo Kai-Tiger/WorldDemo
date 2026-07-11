@@ -39,7 +39,7 @@ const PATCH_FULL_ACCEPTANCE = 1;
 const RIVER_BUFFER = GRASS_RIVER_BUFFER;
 const PATCH_COUNT = GRASS_PATCH_COUNT;
 const SWAY_STRENGTH = GRASS_SWAY_STRENGTH;
-const GRASS_SWAY_MOTION_SCALE = 0.32;
+const GRASS_SWAY_MOTION_SCALE = 0.8;
 const GRASS_PLAYER_SWAY_RADIUS = 2;
 const GRASS_WIND_SWAY_RADIUS = 20;
 const GRASS_WIND_REGION_SIZE = 12;
@@ -356,7 +356,7 @@ vec2 grassWorldSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.
 vec2 grassLocalSideDirection = vec2(-grassLocalWindDirection.y, grassLocalWindDirection.x);
 float grassPlayerDistance = distance(grassInstanceWorld.xz, uGrassPlayerPosition);
 float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_PLAYER_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_PLAYER_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
-float grassWindSwayMask = (1.0 - smoothstep(14.0, ${GRASS_WIND_SWAY_RADIUS.toFixed(1)}, grassPlayerDistance)) * 0.34;
+float grassWindSwayMask = (1.0 - smoothstep(14.0, ${GRASS_WIND_SWAY_RADIUS.toFixed(1)}, grassPlayerDistance)) * 0.55;
 float grassSwayMask = max(grassPlayerSwayMask, grassWindSwayMask);
 float grassNearDetailMask = 1.0 - smoothstep(4.0, 12.0, grassPlayerDistance);
 vec2 grassWindRegion = floor(grassInstanceWorld.xz / ${GRASS_WIND_REGION_SIZE.toFixed(1)} + 0.5) * ${GRASS_WIND_REGION_SIZE.toFixed(1)};
@@ -372,7 +372,7 @@ transformed.xz += (
       );
     applyGrassColorGrade(shader, options.grade || GRASS_COLOR_GRADE, true, material.userData.ribbonGrassMaps, options.translucencyStrength || 0.14);
   };
-  material.customProgramCacheKey = () => `ribbon-grass-sway-height-attribute-world-wind-v2-${options.translucencyStrength || 0.14}`;
+  material.customProgramCacheKey = () => `ribbon-grass-sway-height-attribute-world-wind-v3-${options.translucencyStrength || 0.14}`;
 
   return material;
 }

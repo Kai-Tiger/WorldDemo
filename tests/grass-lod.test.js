@@ -19,7 +19,10 @@ import {
   normalizeGrassPreset,
 } from '../src/grassManager.js';
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
-import { GRASS_CANDIDATE_JITTER } from '../src/vegetationConfig.js';
+import {
+  GRASS_CANDIDATE_JITTER,
+  GRASS_SWAY_STRENGTH,
+} from '../src/vegetationConfig.js';
 
 const VARIANT_NAME = 'RibbonGrass_VarA';
 const DISTANCES = [10, 50, 100];
@@ -722,8 +725,13 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.match(nearShader.vertexShader, /mat3\(modelMatrix\) \* mat3\(instanceMatrix\)/);
   assert.match(nearShader.vertexShader, /dot\(grassWorldWindDirection, normalize\(grassInstanceTransform\[0\]\)\)/);
   assert.match(nearShader.vertexShader, /grassLocalWindDirection \* grassWave/);
+  assert.match(nearShader.vertexShader, /grassPlayerDistance\)\) \* 0\.55/);
   assert.doesNotMatch(nearShader.vertexShader, /uGrassBaseY|uGrassHeight/);
-  assert.match(lods[0][0].material.customProgramCacheKey(), /height-attribute-world-wind-v2/);
+  assert.equal(
+    lods[0][0].material.userData.grassUniforms.uGrassSwayStrength.value,
+    GRASS_SWAY_STRENGTH * 0.8,
+  );
+  assert.match(lods[0][0].material.customProgramCacheKey(), /height-attribute-world-wind-v3/);
   assert.match(midShader.fragmentShader, /vAlphaMapUv\)\.r/);
   assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
 });
