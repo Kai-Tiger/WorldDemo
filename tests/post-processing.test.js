@@ -9,7 +9,11 @@ import {
   getPostProcessingPassOrder,
   renderWithGtaoExclusions,
 } from '../src/postProcessing.js';
-import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
+import {
+  getShadowCameraFit,
+  getShadowCameraSize,
+  RENDER_QUALITY_PRESETS,
+} from '../src/renderQuality.js';
 
 test('post-processing uses FXAA after output or SMAA before output and never uses TAA', async () => {
   assert.deepEqual(
@@ -103,6 +107,24 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.shadows.mapSize),
     [1024, 2048, 2048],
   );
+  assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => getShadowCameraSize(preset.shadows)),
+    [360, 520, 840],
+  );
+  const sunDirection = new THREE.Vector3(0.48, 0.48, 0.73).normalize();
+  const shadowFits = Object.values(RENDER_QUALITY_PRESETS).map((preset) => (
+    getShadowCameraFit(preset.shadows, sunDirection, -40, 340, 0.5)
+  ));
+
+  for (const fit of shadowFits) {
+    const horizontalSunLength = Math.hypot(sunDirection.x, sunDirection.z);
+    const projectedHeight = 190.5 * horizontalSunLength;
+
+    assert.equal(fit.centerY, 150);
+    assert.ok(fit.halfWidth >= fit.cameraSize * 0.5 + 0.5);
+    assert.ok(fit.halfHeight >= fit.halfWidth * Math.abs(sunDirection.y) + projectedHeight);
+    assert.ok(fit.halfDepth >= fit.halfWidth * horizontalSunLength + 190.5 * Math.abs(sunDirection.y));
+  }
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.terrain.lodSegments),
     [[128, 64], [256, 128, 64], [256, 128, 64]],

@@ -11,18 +11,15 @@ function createPlacement() {
   };
 }
 
-test('tree quality preset applies generation budget and shadow hysteresis distances', () => {
+test('tree quality preset applies generation budget and visibility distance', () => {
   const manager = new TreeManager({}, [], {});
 
   manager.setQualityPreset({
     trees: { updateBudgetMs: 0.75 },
     vegetation: { treeDistance: 260 },
-    shadows: { casterEnableDistance: 100, casterDisableDistance: 120 },
   });
 
   assert.equal(manager.updateBudgetMs, 0.75);
-  assert.equal(manager.shadowEnableDistance, 100);
-  assert.equal(manager.shadowDisableDistance, 120);
   assert.equal(manager.treeDistance, 260);
   assert.equal(distanceToChunkBounds({ x: 90, z: 20 }, {
     minX: 0,
@@ -83,6 +80,61 @@ test('tree zone disposal releases each instance buffer once and preserves shared
   assert.equal(treeGeometryDisposals, 0);
   assert.equal(treeMaterialDisposals, 0);
 
+  treeGeometry.dispose();
+  treeMaterial.dispose();
+  leafTexture.dispose();
+});
+
+test('visible tree zones keep complete shadow casting outside the old shadow tier', () => {
+  const chunk = { key: '0,0', minX: 0, minZ: 0, maxX: 256, maxZ: 256 };
+  const treeGeometry = new THREE.PlaneGeometry(1, 2);
+  const treeMaterial = new THREE.MeshBasicMaterial();
+  const leafTexture = new THREE.Texture();
+  const terrain = {
+    getLoadedChunkBounds: () => [chunk],
+    sampleSurfaceAt(_x, _z, target) {
+      Object.assign(target, {
+        height: 0,
+        normalX: 0,
+        normalY: 1,
+        normalZ: 0,
+        groundMask: 1,
+      });
+      return target;
+    },
+  };
+  const zone = new TreeZone(
+    terrain,
+    [{ meshes: [{ geometry: treeGeometry, material: treeMaterial }] }],
+    { leaf1Texture: leafTexture, leaf2Texture: leafTexture },
+    chunk,
+  );
+
+  zone.iterator = {
+    step: () => true,
+    getPlacements: () => [createPlacement()],
+  };
+  zone.processGeneration(1);
+
+  const manager = new TreeManager(terrain, [], {});
+  manager.setQualityPreset({
+    trees: { updateBudgetMs: 1 },
+    vegetation: { treeDistance: 260 },
+  });
+  manager.zones.set(chunk.key, zone);
+  manager.group.add(zone.group);
+  manager.update({ x: 500, y: 0, z: 128 });
+
+  const treeInstances = [];
+  zone.group.traverse((child) => {
+    if (child.isInstancedMesh && child.name.startsWith('Tree')) treeInstances.push(child);
+  });
+
+  assert.equal(zone.group.visible, true);
+  assert.ok(treeInstances.length > 0);
+  assert.ok(treeInstances.every((mesh) => mesh.castShadow));
+
+  zone.dispose();
   treeGeometry.dispose();
   treeMaterial.dispose();
   leafTexture.dispose();

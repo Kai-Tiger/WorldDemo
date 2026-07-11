@@ -9,8 +9,6 @@ import { PLAYER_SPAWN_POSITION } from './spawn.js';
 
 const GENERATION_BATCH_SIZE = 64;
 const DEFAULT_UPDATE_BUDGET_MS = 1;
-const DEFAULT_SHADOW_ENABLE_DISTANCE = 160;
-const DEFAULT_SHADOW_DISABLE_DISTANCE = 190;
 const DEFAULT_TREE_DISTANCE = 380;
 
 export class TreeManager {
@@ -22,8 +20,6 @@ export class TreeManager {
     this.group.name = 'Trees';
     this.zones = new Map();
     this.updateBudgetMs = DEFAULT_UPDATE_BUDGET_MS;
-    this.shadowEnableDistance = DEFAULT_SHADOW_ENABLE_DISTANCE;
-    this.shadowDisableDistance = DEFAULT_SHADOW_DISABLE_DISTANCE;
     this.treeDistance = DEFAULT_TREE_DISTANCE;
     this.shadowNeedsUpdate = true;
     this.generationCursor = 0;
@@ -51,32 +47,30 @@ export class TreeManager {
     }
 
     this.updateZoneVisibility(cameraPosition);
-    this.updateShadowCasters(cameraPosition);
     this.processGenerations(cameraPosition);
 
     return this.consumeShadowUpdate();
   }
 
-  setQualityPreset(treePreset = {}, shadowPreset = {}) {
-    if (treePreset.trees || treePreset.shadows) {
+  setQualityPreset(treePreset = {}) {
+    if (treePreset.trees || treePreset.vegetation) {
       const vegetationPreset = treePreset.vegetation ?? {};
-      shadowPreset = treePreset.shadows ?? {};
       treePreset = treePreset.trees ?? {};
       this.treeDistance = vegetationPreset.treeDistance ?? this.treeDistance;
     }
 
     this.updateBudgetMs = treePreset.updateBudgetMs ?? this.updateBudgetMs;
-    this.shadowEnableDistance = shadowPreset.casterEnableDistance ?? this.shadowEnableDistance;
-    this.shadowDisableDistance = Math.max(
-      shadowPreset.casterDisableDistance ?? this.shadowDisableDistance,
-      this.shadowEnableDistance,
-    );
     this.shadowNeedsUpdate = true;
   }
 
   updateZoneVisibility(cameraPosition) {
     for (const zone of this.zones.values()) {
-      zone.group.visible = distanceToChunkBounds(cameraPosition, zone.chunk) <= this.treeDistance;
+      const visible = distanceToChunkBounds(cameraPosition, zone.chunk) <= this.treeDistance;
+
+      if (zone.group.visible === visible) continue;
+
+      zone.group.visible = visible;
+      this.shadowNeedsUpdate = true;
     }
   }
 
@@ -124,19 +118,6 @@ export class TreeManager {
 
     this.generationCursor = (this.generationCursor + Math.max(processed, 1)) % generatingZones.length;
   }
-
-  updateShadowCasters(cameraPosition) {
-    for (const zone of this.zones.values()) {
-      const distance = distanceToChunkBounds(cameraPosition, zone.chunk);
-      const shouldCast = zone.shadowCasting
-        ? distance <= this.shadowDisableDistance
-        : distance <= this.shadowEnableDistance;
-
-      if (zone.setShadowCasting(shouldCast)) {
-        this.shadowNeedsUpdate = true;
-      }
-    }
-  }
 }
 
 export class TreeZone {
@@ -158,7 +139,6 @@ export class TreeZone {
     );
     this.isGenerating = true;
     this.leafGroup = null;
-    this.shadowCasting = false;
     this.isDisposed = false;
   }
 
@@ -178,7 +158,6 @@ export class TreeZone {
     buildTreeInstancedMeshes(placements, this.treeModels, this.group);
     this.leafGroup = buildLeafDecals(placements, this.terrain, this.leafTextures);
     this.group.add(this.leafGroup);
-    this.applyShadowCasting();
     this.iterator = null;
     this.isGenerating = false;
   }
@@ -188,21 +167,6 @@ export class TreeZone {
       && PLAYER_SPAWN_POSITION.x <= this.chunk.maxX
       && PLAYER_SPAWN_POSITION.z >= this.chunk.minZ
       && PLAYER_SPAWN_POSITION.z <= this.chunk.maxZ;
-  }
-
-  setShadowCasting(enabled) {
-    if (this.shadowCasting === enabled) return false;
-
-    this.shadowCasting = enabled;
-    this.applyShadowCasting();
-    return true;
-  }
-
-  applyShadowCasting() {
-    this.group.traverse((child) => {
-      if (!child.isInstancedMesh || !child.name.startsWith('Tree')) return;
-      child.castShadow = this.shadowCasting;
-    });
   }
 
   dispose() {

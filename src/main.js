@@ -13,7 +13,11 @@ import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import { updateWaterSystemVisuals } from './waterSystem.js';
 import { updateSmallLakes } from './smallLakes.js';
 import { createTerrainEditor } from './terrainEditor.js';
-import { DEFAULT_RENDER_QUALITY, getRenderQualityPreset } from './renderQuality.js';
+import {
+  DEFAULT_RENDER_QUALITY,
+  getRenderQualityPreset,
+  getShadowCameraFit,
+} from './renderQuality.js';
 import { FrameBenchmark } from './performanceBenchmark.js';
 import { createWaterRenderController } from './waterContext.js';
 
@@ -32,6 +36,18 @@ const DYNAMIC_RESOLUTION = Object.freeze({
 });
 const PLAYER_FILL_COLOR = 0xb7d3df;
 const PLAYER_FILL_INTENSITY = 120;
+const SHADOW_WORLD_MIN_Y = -40;
+const SHADOW_WORLD_MAX_Y = 340;
+const SHADOW_BOUNDS_MARGIN = 0.5;
+const SHADOW_DEPTH_MARGIN = 8;
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const SHADOW_CAMERA_RIGHT = new THREE.Vector3()
+  .crossVectors(WORLD_UP, SUN_LIGHT_DIRECTION)
+  .normalize();
+const SHADOW_CAMERA_UP = new THREE.Vector3()
+  .crossVectors(SUN_LIGHT_DIRECTION, SHADOW_CAMERA_RIGHT)
+  .normalize();
+const shadowCenter = new THREE.Vector3();
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
@@ -88,7 +104,6 @@ const {
   backgroundReady,
 } = await createScene(renderer, renderQuality);
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
-const sunLightOffset = SUN_LIGHT_DIRECTION.clone().multiplyScalar(320);
 sunLight.shadow.camera.layers.enable(terrain.shadowProxyLayer);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 1800);
@@ -215,14 +230,21 @@ function applyRenderQuality(quality, rebuildPostProcessing = true) {
   clouds.setQualityPreset?.(quality);
   applyWaterAndTextureQuality(quality);
   const shadowSettings = quality.shadows;
-  const halfShadowSize = shadowSettings.cameraSize * 0.5;
+  const shadowFit = getShadowCameraFit(
+    shadowSettings,
+    SUN_LIGHT_DIRECTION,
+    SHADOW_WORLD_MIN_Y,
+    SHADOW_WORLD_MAX_Y,
+    SHADOW_BOUNDS_MARGIN,
+  );
 
   sunLight.shadow.mapSize.set(shadowSettings.mapSize, shadowSettings.mapSize);
-  sunLight.shadow.camera.left = -halfShadowSize;
-  sunLight.shadow.camera.right = halfShadowSize;
-  sunLight.shadow.camera.top = halfShadowSize;
-  sunLight.shadow.camera.bottom = -halfShadowSize;
-  sunLight.shadow.camera.far = Math.max(500, shadowSettings.cameraSize + 320);
+  sunLight.shadow.camera.left = -shadowFit.halfWidth;
+  sunLight.shadow.camera.right = shadowFit.halfWidth;
+  sunLight.shadow.camera.top = shadowFit.halfHeight;
+  sunLight.shadow.camera.bottom = -shadowFit.halfHeight;
+  sunLight.shadow.camera.far = shadowFit.halfDepth * 2
+    + SHADOW_DEPTH_MARGIN * 2;
   sunLight.shadow.camera.updateProjectionMatrix();
   sunLight.shadow.map?.dispose();
   sunLight.shadow.map = null;
@@ -237,18 +259,52 @@ function updateSunLight(now = performance.now()) {
 
   if (now - lastShadowUpdate < minInterval) return;
 
-  const cameraSize = renderQuality.shadows.cameraSize;
-  const texelSize = cameraSize / renderQuality.shadows.mapSize;
-  const targetX = Math.round(player.position.x / texelSize) * texelSize;
-  const targetZ = Math.round(player.position.z / texelSize) * texelSize;
+  const shadowSettings = renderQuality.shadows;
+  const shadowFit = getShadowCameraFit(
+    shadowSettings,
+    SUN_LIGHT_DIRECTION,
+    SHADOW_WORLD_MIN_Y,
+    SHADOW_WORLD_MAX_Y,
+    SHADOW_BOUNDS_MARGIN,
+  );
+  const snappedCenter = getSnappedShadowCenter(
+    player.position,
+    shadowFit,
+    shadowSettings.mapSize,
+  );
+  const shadowLightDistance = shadowFit.halfDepth + SHADOW_DEPTH_MARGIN;
 
-  sunLight.target.position.set(targetX, player.position.y, targetZ);
-  sunLight.position.copy(sunLight.target.position).add(sunLightOffset);
+  sunLight.target.position.copy(snappedCenter);
+  sunLight.position
+    .copy(sunLight.target.position)
+    .addScaledVector(SUN_LIGHT_DIRECTION, shadowLightDistance);
   sunLight.target.updateMatrixWorld();
   if (updateHz > 0) {
     sunLight.shadow.needsUpdate = true;
   }
   lastShadowUpdate = now;
+}
+
+function getSnappedShadowCenter(position, shadowFit, mapSize) {
+  shadowCenter.set(position.x, shadowFit.centerY, position.z);
+
+  const depth = shadowCenter.dot(SUN_LIGHT_DIRECTION);
+  const right = shadowCenter.dot(SHADOW_CAMERA_RIGHT);
+  const up = shadowCenter.dot(SHADOW_CAMERA_UP);
+  const texelWidth = shadowFit.halfWidth * 2 / mapSize;
+  const texelHeight = shadowFit.halfHeight * 2 / mapSize;
+
+  return shadowCenter
+    .copy(SUN_LIGHT_DIRECTION)
+    .multiplyScalar(depth)
+    .addScaledVector(
+      SHADOW_CAMERA_RIGHT,
+      Math.round(right / texelWidth) * texelWidth,
+    )
+    .addScaledVector(
+      SHADOW_CAMERA_UP,
+      Math.round(up / texelHeight) * texelHeight,
+    );
 }
 
 function updatePlayerFillLight() {

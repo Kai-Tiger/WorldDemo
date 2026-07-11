@@ -23,7 +23,7 @@ export const RENDER_QUALITY_PRESETS = Object.freeze({
     textureAnisotropy: 2,
     textureTier: '1k',
     streamingBudgetMs: 3,
-    shadows: [1024, 160, 180, 1, 30, 100, 120],
+    shadows: [1024, 160, 180, 1, 30],
     terrainSegments: [128, 64],
     terrainBudgetMs: 1.5,
     vegetation: [90, 260, 150, 6],
@@ -48,7 +48,7 @@ export const RENDER_QUALITY_PRESETS = Object.freeze({
     textureAnisotropy: 4,
     textureTier: '2k',
     streamingBudgetMs: 4,
-    shadows: [2048, 200, 260, 1, 0, 160, 190],
+    shadows: [2048, 200, 260, 1, 0],
     terrainSegments: [256, 128, 64],
     terrainBudgetMs: 2,
     vegetation: [110, 380, 220, 8],
@@ -74,7 +74,7 @@ export const RENDER_QUALITY_PRESETS = Object.freeze({
     textureAnisotropy: 8,
     textureTier: 'hero-4k',
     streamingBudgetMs: 5,
-    shadows: [2048, 250, 420, 2, 0, 240, 280],
+    shadows: [2048, 250, 420, 2, 0],
     terrainSegments: [256, 128, 64],
     terrainBudgetMs: 2.5,
     vegetation: [180, 520, 320, 10],
@@ -98,6 +98,32 @@ export const DEFAULT_RENDER_QUALITY = 'balanced';
 
 export function getRenderQualityPreset(key) {
   return RENDER_QUALITY_PRESETS[key] ?? RENDER_QUALITY_PRESETS[DEFAULT_RENDER_QUALITY];
+}
+
+export function getShadowCameraSize(shadowSettings) {
+  return Math.max(shadowSettings.cameraSize, shadowSettings.distance * 2);
+}
+
+export function getShadowCameraFit(
+  shadowSettings,
+  lightDirection,
+  minWorldY,
+  maxWorldY,
+  boundsMargin = 0,
+) {
+  const cameraSize = getShadowCameraSize(shadowSettings);
+  const halfWidth = cameraSize * 0.5 + boundsMargin;
+  const halfWorldHeight = (maxWorldY - minWorldY) * 0.5 + boundsMargin;
+  const verticalSunLength = Math.abs(lightDirection.y);
+  const horizontalSunLength = Math.hypot(lightDirection.x, lightDirection.z);
+
+  return {
+    cameraSize,
+    centerY: (minWorldY + maxWorldY) * 0.5,
+    halfWidth,
+    halfHeight: halfWidth * verticalSunLength + halfWorldHeight * horizontalSunLength,
+    halfDepth: halfWidth * horizontalSunLength + halfWorldHeight * verticalSunLength,
+  };
 }
 
 function createPreset({
@@ -144,8 +170,6 @@ function createPreset({
       distance: shadows[2],
       cascadeCount: shadows[3],
       updateHz: shadows[4],
-      casterEnableDistance: shadows[5],
-      casterDisableDistance: shadows[6],
     }),
     terrain: Object.freeze({
       lodSegments: Object.freeze(terrainSegments),
