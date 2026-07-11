@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   hash2,
   createPlacement,
+  getGrassInstanceColor,
   sampleGrassCommunity,
   sampleTerrainSurface,
 } from './grassClumps.js';
@@ -137,6 +138,11 @@ export class GrassZone {
           mesh.count = 0;
           mesh.visible = false;
           mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          mesh.instanceColor = new THREE.InstancedBufferAttribute(
+            new Float32Array(capacity * 3).fill(1),
+            3,
+          );
+          mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
           mesh.boundingBox = state.bounds.box.clone();
           mesh.boundingSphere = state.bounds.sphere.clone();
           this.lodGroups[lodLevel].add(mesh);
@@ -148,6 +154,7 @@ export class GrassZone {
           capacity,
           meshes,
           staging: new Float32Array(capacity * 16),
+          colorStaging: new Float32Array(capacity * 3).fill(1),
         });
       });
     }
@@ -212,6 +219,7 @@ export class GrassZone {
       if (index >= bucket.capacity) continue;
 
       bucket.staging.set(elements, index * 16);
+      getGrassInstanceColor(placement.isDry).toArray(bucket.colorStaging, index * 3);
       job.counts[lodLevel].set(placement.variantName, index + 1);
     }
 
@@ -230,6 +238,7 @@ export class GrassZone {
       for (const [variantName, bucket] of lodMeshes) {
         const count = job.counts[lodLevel].get(variantName) ?? 0;
         const matrixValues = bucket.staging.subarray(0, count * 16);
+        const colorValues = bucket.colorStaging.subarray(0, count * 3);
 
         for (const mesh of bucket.meshes) {
           if (count > 0) {
@@ -237,6 +246,10 @@ export class GrassZone {
             mesh.instanceMatrix.clearUpdateRanges();
             mesh.instanceMatrix.addUpdateRange(0, count * 16);
             mesh.instanceMatrix.needsUpdate = true;
+            mesh.instanceColor.array.set(colorValues, 0);
+            mesh.instanceColor.clearUpdateRanges();
+            mesh.instanceColor.addUpdateRange(0, count * 3);
+            mesh.instanceColor.needsUpdate = true;
           }
 
           mesh.count = count;

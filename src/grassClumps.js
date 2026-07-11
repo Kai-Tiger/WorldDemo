@@ -62,6 +62,8 @@ const GRASS_COLOR_GRADE = {
 };
 const GRASS_NEAR_TINT = 0xa5c77f;
 const GRASS_FAR_TINT = 0x82a66a;
+const GRASS_GREEN_INSTANCE_COLOR = new THREE.Color(1, 1, 1);
+const GRASS_DRY_INSTANCE_COLOR = new THREE.Color(1.45, 0.72, 0.48);
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH = 'optimized/ktx2';
 const RIBBON_GRASS_OPTIMIZED_MODEL_PATH = 'optimized/models';
@@ -73,6 +75,12 @@ const GRASS_MACRO_ROTATION_COS = Math.cos(GRASS_MACRO_ROTATION);
 const GRASS_MACRO_ROTATION_SIN = Math.sin(GRASS_MACRO_ROTATION);
 const GRASS_MICRO_ROTATION_COS = Math.cos(GRASS_MICRO_ROTATION);
 const GRASS_MICRO_ROTATION_SIN = Math.sin(GRASS_MICRO_ROTATION);
+const GRASS_DRY_MACRO_ROTATION = 0.73;
+const GRASS_DRY_DETAIL_ROTATION = -0.31;
+const GRASS_DRY_MACRO_ROTATION_COS = Math.cos(GRASS_DRY_MACRO_ROTATION);
+const GRASS_DRY_MACRO_ROTATION_SIN = Math.sin(GRASS_DRY_MACRO_ROTATION);
+const GRASS_DRY_DETAIL_ROTATION_COS = Math.cos(GRASS_DRY_DETAIL_ROTATION);
+const GRASS_DRY_DETAIL_ROTATION_SIN = Math.sin(GRASS_DRY_DETAIL_ROTATION);
 const GRASS_SWAY_PROGRAM_KEY = [
   'ribbon-grass-sway-config-v4',
   GRASS_SWAY_PLAYER_RADIUS,
@@ -565,9 +573,11 @@ export function buildInstancedMeshes(placements, variants, parent, lodLevel = 0)
 
       for (let i = 0; i < variantPlacements.length; i += 1) {
         mesh.setMatrixAt(i, variantPlacements[i].matrix);
+        mesh.setColorAt(i, getGrassInstanceColor(variantPlacements[i].isDry));
       }
 
       mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingBox();
       mesh.computeBoundingSphere();
       parent.add(mesh);
@@ -655,7 +665,12 @@ export function sampleGrassCommunity(worldX, worldZ, gridX, gridZ) {
     primaryVariantName: getGrassVariantName(primaryVariantIndex / RIBBON_GRASS_VARIANTS.length),
     secondaryVariantName: getGrassVariantName(secondaryVariantIndex / RIBBON_GRASS_VARIANTS.length),
     variantName: getGrassVariantName(variantIndex / RIBBON_GRASS_VARIANTS.length),
+    isDry: sampleDryGrass(worldX, worldZ, gridX, gridZ),
   };
+}
+
+export function getGrassInstanceColor(isDry) {
+  return isDry ? GRASS_DRY_INSTANCE_COLOR : GRASS_GREEN_INSTANCE_COLOR;
 }
 
 export function smoothstep(edge0, edge1, value) {
@@ -718,9 +733,37 @@ export function createPlacement(terrain, x, z, seedX, seedZ, community = 1, surf
     variantName: typeof community === 'number'
       ? getGrassVariantName(variantRoll)
       : community.variantName,
+    isDry: typeof community === 'number' || typeof community.isDry !== 'boolean'
+      ? sampleDryGrass(x, z, seedX, seedZ)
+      : community.isDry,
     lodRoll,
     transitionRoll,
   };
+}
+
+function sampleDryGrass(worldX, worldZ, gridX, gridZ) {
+  const macro = sampleRotatedValueNoise(
+    worldX,
+    worldZ,
+    3.6,
+    GRASS_DRY_MACRO_ROTATION_COS,
+    GRASS_DRY_MACRO_ROTATION_SIN,
+    127.4,
+    -88.2,
+  );
+  const detail = sampleRotatedValueNoise(
+    worldX,
+    worldZ,
+    1,
+    GRASS_DRY_DETAIL_ROTATION_COS,
+    GRASS_DRY_DETAIL_ROTATION_SIN,
+    -35.6,
+    146.8,
+  );
+  const field = macro.value * 0.82 + detail.value * 0.18;
+  const dryProbability = smoothstep(0.665, 0.785, field);
+
+  return hash2(gridX + 203.7, gridZ - 119.4) < dryProbability;
 }
 
 export function sampleTerrainSurface(terrain, x, z, target = {}) {

@@ -20,8 +20,8 @@ export const GRASS_ASSET_BASE_PATH = '/assets/vegetation/ribbon-grass';
 
 // --- 放置 (Placement) ---
 
-/** 全局草地候选密度（丛 / 平方米）  |  Global grass candidate density (clumps / m²) */
-export const GRASS_LOD_DENSITIES = [2.5];
+/** 全局草地候选总密度（丛 / 平方米），绿色候选期望为 5.0  |  Total grass candidate density (clumps / m²), targeting 5.0 green candidates */
+export const GRASS_LOD_DENSITIES = [40 / 7];
 
 /** 全局候选 cell 内的最大抖动比例  |  Jitter span within each global candidate cell */
 export const GRASS_CANDIDATE_JITTER = 0.7;

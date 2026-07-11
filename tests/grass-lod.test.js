@@ -4,6 +4,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import {
   LOD_DENSITIES,
+  buildInstancedMeshes,
   createGrassVariants,
   createPlacement,
   flipGrassTextureVertically,
@@ -56,10 +57,11 @@ function createVariants() {
   };
 }
 
-function createTestPlacement(x, lodRoll = 0, transitionRoll = 0) {
+function createTestPlacement(x, lodRoll = 0, transitionRoll = 0, isDry = false) {
   return {
     matrix: new THREE.Matrix4().makeTranslation(x, 0, 0),
     variantName: VARIANT_NAME,
+    isDry,
     lodRoll,
     transitionRoll,
   };
@@ -122,6 +124,7 @@ function generateGrassZone(minX, minZ, maxX, maxZ) {
 function placementKey(placement) {
   return JSON.stringify([
     placement.variantName,
+    placement.isDry,
     placement.lodRoll,
     placement.transitionRoll,
     placement.matrix.elements,
@@ -135,12 +138,20 @@ test('createPlacement assigns independent stable rolls with nested quality subse
   };
   const first = createPlacement(terrain, 1, 2, 7, 9);
   const moved = createPlacement(terrain, 30, 40, 7, 9);
+  const community = sampleGrassCommunity(1, 2, 7, 9);
+  const forcedDryState = createPlacement(terrain, 1, 2, 7, 9, {
+    influence: 1,
+    variantName: VARIANT_NAME,
+    isDry: !community.isDry,
+  });
 
   assert.equal(first.lodRoll, moved.lodRoll);
   assert.equal(first.transitionRoll, moved.transitionRoll);
   assert.ok(first.lodRoll >= 0 && first.lodRoll < 1);
   assert.ok(first.transitionRoll >= 0 && first.transitionRoll < 1);
   assert.notEqual(first.lodRoll, first.transitionRoll);
+  assert.equal(first.isDry, community.isDry);
+  assert.equal(forcedDryState.isDry, !community.isDry);
 
   const rolls = Array.from({ length: 128 }, (_value, index) => (
     createPlacement(terrain, index, index * 2, index, index * 3).lodRoll
@@ -158,26 +169,35 @@ test('createPlacement assigns independent stable rolls with nested quality subse
 });
 
 test('world-space communities are deterministic and retain the candidate budget', () => {
-  assert.equal(LOD_DENSITIES[0], 2.5);
+  assert.equal(LOD_DENSITIES[0], 40 / 7);
 
   const cellSize = Math.sqrt(1 / LOD_DENSITIES[0]);
   const deterministicSample = sampleGrassCommunity(12.3, -44.1, 7, 9);
+  const gridSize = 400;
+  const gridHalf = gridSize / 2;
+  const drySamples = new Uint8Array(gridSize * gridSize);
   let accepted = 0;
+  let acceptedDry = 0;
   let count = 0;
+  let dryCandidates = 0;
   let minAcceptance = 1;
   let maxAcceptance = 0;
 
   assert.deepEqual(deterministicSample, sampleGrassCommunity(12.3, -44.1, 7, 9));
 
-  for (let gridZ = -100; gridZ < 100; gridZ += 1) {
-    for (let gridX = -100; gridX < 100; gridX += 1) {
+  for (let gridZ = -gridHalf; gridZ < gridHalf; gridZ += 1) {
+    for (let gridX = -gridHalf; gridX < gridHalf; gridX += 1) {
       const jitterX = (hash2(gridX, gridZ) - 0.5) * GRASS_CANDIDATE_JITTER;
       const jitterZ = (hash2(gridX + 17.31, gridZ - 9.73) - 0.5) * GRASS_CANDIDATE_JITTER;
       const x = (gridX + 0.5 + jitterX) * cellSize;
       const z = (gridZ + 0.5 + jitterZ) * cellSize;
       const community = sampleGrassCommunity(x, z, gridX, gridZ);
+      const index = (gridZ + gridHalf) * gridSize + gridX + gridHalf;
 
       accepted += Number(community.accepted);
+      acceptedDry += Number(community.accepted && community.isDry);
+      dryCandidates += Number(community.isDry);
+      drySamples[index] = Number(community.isDry);
       count += 1;
       minAcceptance = Math.min(minAcceptance, community.acceptance);
       maxAcceptance = Math.max(maxAcceptance, community.acceptance);
@@ -185,12 +205,45 @@ test('world-space communities are deterministic and retain the candidate budget'
   }
 
   const acceptanceRatio = accepted / count;
+  const dryRatio = dryCandidates / count;
+  const acceptedDryRatio = acceptedDry / accepted;
+  const greenCandidateDensity = LOD_DENSITIES[0] * (1 - dryRatio);
+  const conditionalDryRatio = (offset) => {
+    const directions = [[offset, 0], [-offset, 0], [0, offset], [0, -offset]];
+    let dryPairs = 0;
+    let dryNeighbors = 0;
+
+    for (let z = 0; z < gridSize; z += 1) {
+      for (let x = 0; x < gridSize; x += 1) {
+        if (!drySamples[z * gridSize + x]) continue;
+
+        for (const [dx, dz] of directions) {
+          const neighborX = x + dx;
+          const neighborZ = z + dz;
+
+          if (neighborX < 0 || neighborX >= gridSize) continue;
+          if (neighborZ < 0 || neighborZ >= gridSize) continue;
+          dryPairs += 1;
+          dryNeighbors += drySamples[neighborZ * gridSize + neighborX];
+        }
+      }
+    }
+
+    return dryNeighbors / dryPairs;
+  };
+  const oneMeterDryRatio = conditionalDryRatio(Math.round(1 / cellSize));
+  const fiveMeterDryRatio = conditionalDryRatio(Math.round(5 / cellSize));
 
   assert.ok(acceptanceRatio >= 0.55);
   assert.ok(acceptanceRatio <= 0.7);
   assert.ok(minAcceptance <= 0.1);
   assert.ok(maxAcceptance >= 0.95);
   assert.ok(maxAcceptance / minAcceptance >= 6);
+  assert.ok(Math.abs(LOD_DENSITIES[0] * 0.875 - 5) < 0.000001);
+  assert.ok(greenCandidateDensity >= 4.9 && greenCandidateDensity <= 5.1);
+  assert.ok(acceptedDryRatio >= 0.1 && acceptedDryRatio <= 0.15);
+  assert.ok(oneMeterDryRatio >= dryRatio * 3);
+  assert.ok(Math.abs(fiveMeterDryRatio - dryRatio) <= 0.04);
 });
 
 test('global cells join adjacent half-open zones without seams or duplicates', () => {
@@ -261,6 +314,26 @@ test('one community favors 72/20/8 variants and scales cores above edges', () =>
   assert.equal(edge.variantName, core.variantName);
   assert.equal(edge.lodRoll, core.lodRoll);
   assert.equal(edge.transitionRoll, core.transitionRoll);
+});
+
+test('legacy instancing colors dry grass without adding a draw call', () => {
+  const { variants, geometry, material } = createVariants();
+  const parent = new THREE.Group();
+
+  buildInstancedMeshes([
+    createTestPlacement(0),
+    createTestPlacement(1, 0, 0, true),
+  ], variants, parent);
+
+  assert.equal(parent.children.length, 1);
+  assertColorArray(parent.children[0].instanceColor.array, [
+    1, 1, 1,
+    1.45, 0.72, 0.48,
+  ]);
+
+  parent.children[0].dispose();
+  geometry.dispose();
+  material.dispose();
 });
 
 test('spatial dither mixes adjacent LODs without duplicate instances', () => {
@@ -346,7 +419,7 @@ test('converted GLB grass preserves and embeds the authored root plane', () => {
 test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', () => {
   const { zone } = createZone([
     createTestPlacement(0),
-    createTestPlacement(1),
+    createTestPlacement(1, 0, 0, true),
     createTestPlacement(2),
   ]);
 
@@ -355,6 +428,8 @@ test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', (
   const meshes = [0, 1, 2].map((lodLevel) => getMesh(zone, lodLevel));
   const attributes = meshes.map((mesh) => mesh.instanceMatrix);
   const arrays = attributes.map((attribute) => attribute.array);
+  const colorAttributes = meshes.map((mesh) => mesh.instanceColor);
+  const colorArrays = colorAttributes.map((attribute) => attribute.array);
   const childCounts = zone.lodGroups.map((group) => group.children.length);
   let disposeEvents = 0;
 
@@ -364,6 +439,12 @@ test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', (
 
   assert.deepEqual(meshes.map((mesh) => mesh.count), [3, 0, 0]);
   assert.ok(attributes.every((attribute) => attribute.usage === THREE.DynamicDrawUsage));
+  assert.ok(colorAttributes.every((attribute) => attribute.usage === THREE.DynamicDrawUsage));
+  assertColorArray(meshes[0].instanceColor.array.slice(0, 9), [
+    1, 1, 1,
+    1.45, 0.72, 0.48,
+    1, 1, 1,
+  ]);
 
   for (let iteration = 0; iteration < 1000; iteration += 1) {
     completeJob(zone, iteration % 2 === 0 ? 40 : 0, iteration + 1);
@@ -372,6 +453,8 @@ test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', (
       assert.equal(getMesh(zone, lodLevel), meshes[lodLevel]);
       assert.equal(getMesh(zone, lodLevel).instanceMatrix, attributes[lodLevel]);
       assert.equal(getMesh(zone, lodLevel).instanceMatrix.array, arrays[lodLevel]);
+      assert.equal(getMesh(zone, lodLevel).instanceColor, colorAttributes[lodLevel]);
+      assert.equal(getMesh(zone, lodLevel).instanceColor.array, colorArrays[lodLevel]);
     }
 
     assert.deepEqual(zone.lodGroups.map((group) => group.children.length), childCounts);
@@ -379,6 +462,7 @@ test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', (
 
   assert.equal(disposeEvents, 0);
   assert.deepEqual(meshes[0].instanceMatrix.updateRanges, [{ start: 0, count: 48 }]);
+  assert.deepEqual(meshes[0].instanceColor.updateRanges, [{ start: 0, count: 9 }]);
 });
 
 test('persistent mesh allocation advances one variant per queued slice', () => {
@@ -414,7 +498,7 @@ test('persistent mesh allocation advances one variant per queued slice', () => {
 test('incremental LOD jobs commit matrices and counts atomically', () => {
   const { zone } = createZone([
     createTestPlacement(0),
-    createTestPlacement(1),
+    createTestPlacement(1, 0, 0, true),
     createTestPlacement(2),
   ]);
 
@@ -423,20 +507,29 @@ test('incremental LOD jobs commit matrices and counts atomically', () => {
   const meshes = [0, 1, 2].map((lodLevel) => getMesh(zone, lodLevel));
   const countsBefore = meshes.map((mesh) => mesh.count);
   const matricesBefore = meshes.map((mesh) => Float32Array.from(mesh.instanceMatrix.array));
+  const colorsBefore = meshes.map((mesh) => Float32Array.from(mesh.instanceColor.array));
 
   assert.equal(zone.startLODJob(40, 0, DISTANCES, KEEP_ALL, 1), true);
   assert.equal(zone.processLODJob(1), false);
   assert.equal(zone.startLODJob(80, 0, DISTANCES, KEEP_ALL, 2), false);
   assert.deepEqual(meshes.map((mesh) => mesh.count), countsBefore);
   assert.deepEqual(meshes.map((mesh) => Float32Array.from(mesh.instanceMatrix.array)), matricesBefore);
+  assert.deepEqual(meshes.map((mesh) => Float32Array.from(mesh.instanceColor.array)), colorsBefore);
   assert.deepEqual(zone.builtForPosition, { x: 0, z: 0 });
   assert.equal(zone.builtForRevision, 0);
 
   while (!zone.processLODJob(1)) {
     assert.deepEqual(meshes.map((mesh) => mesh.count), countsBefore);
+    assert.deepEqual(meshes.map((mesh) => Float32Array.from(mesh.instanceMatrix.array)), matricesBefore);
+    assert.deepEqual(meshes.map((mesh) => Float32Array.from(mesh.instanceColor.array)), colorsBefore);
   }
 
   assert.deepEqual(meshes.map((mesh) => mesh.count), [0, 3, 0]);
+  assertColorArray(meshes[1].instanceColor.array.slice(0, 9), [
+    1, 1, 1,
+    1.45, 0.72, 0.48,
+    1, 1, 1,
+  ]);
   assert.deepEqual(zone.builtForPosition, { x: 40, z: 0 });
   assert.equal(zone.builtForRevision, 1);
 });
@@ -876,4 +969,12 @@ function createModelRoot(geometry = new THREE.PlaneGeometry(1, 1)) {
 
   root.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
   return root;
+}
+
+function assertColorArray(actual, expected) {
+  assert.equal(actual.length, expected.length);
+
+  for (let index = 0; index < expected.length; index += 1) {
+    assert.ok(Math.abs(actual[index] - expected[index]) < 0.000001);
+  }
 }
