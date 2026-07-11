@@ -26,6 +26,9 @@ export const GRASS_LOD_DENSITIES = [2.5];
 /** 全局候选 cell 内的最大抖动比例  |  Jitter span within each global candidate cell */
 export const GRASS_CANDIDATE_JITTER = 0.7;
 
+/** 草根埋入地表的深度（米）  |  Grass-root embed depth below the terrain surface (m) */
+export const GRASS_ROOT_EMBED_DEPTH = 0.02;
+
 /** LOD 距离阈值（米）：LOD0、LOD1、LOD2、billboard  |  LOD distance thresholds (m): LOD0, LOD1, LOD2, billboard */
 
 /** 草在河道两侧的排除缓冲区（米）  |  River exclusion buffer for grass (m) */

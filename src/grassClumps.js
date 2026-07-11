@@ -11,6 +11,7 @@ import {
   ZONE_SIZE,
   GRASS_ASSET_BASE_PATH,
   GRASS_LOD_DENSITIES as RIBBON_GRASS_LOD_DENSITIES,
+  GRASS_ROOT_EMBED_DEPTH,
   GRASS_RIVER_BUFFER,
   GRASS_SWAY_DETAIL_FADE_END,
   GRASS_SWAY_DETAIL_FADE_START,
@@ -296,19 +297,20 @@ export function normalizeRibbonGrassGeometry(geometry) {
   const centerX = (box.min.x + box.max.x) * 0.5;
   const centerZ = (box.min.z + box.max.z) * 0.5;
 
-  geometry.translate(-centerX, -box.min.y, -centerZ);
+  geometry.translate(-centerX, 0, -centerZ);
   geometry.scale(RIBBON_GRASS_SCALE, RIBBON_GRASS_SCALE, RIBBON_GRASS_SCALE);
+  geometry.translate(0, -GRASS_ROOT_EMBED_DEPTH, 0);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
 
   const position = geometry.getAttribute('position');
-  const height = Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001);
+  const height = Math.max(geometry.boundingBox.max.y, 0.001);
   const heightRatios = new Float32Array(position.count);
 
   for (let index = 0; index < position.count; index += 1) {
     heightRatios[index] = THREE.MathUtils.clamp(
-      (position.getY(index) - geometry.boundingBox.min.y) / height,
+      position.getY(index) / height,
       0,
       1,
     );

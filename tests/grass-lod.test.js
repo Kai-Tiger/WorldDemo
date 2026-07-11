@@ -21,6 +21,7 @@ import {
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 import {
   GRASS_CANDIDATE_JITTER,
+  GRASS_ROOT_EMBED_DEPTH,
   GRASS_SWAY_FADE_END,
   GRASS_SWAY_FADE_START,
   GRASS_SWAY_FLUTTER_FREQUENCY,
@@ -299,8 +300,16 @@ test('quality presets expose the intended grass dither widths', () => {
   ], [6, 8, 10]);
 });
 
-test('converted GLB grass is restored to the authored model scale', () => {
-  const geometry = new THREE.BoxGeometry(0.70821, 0.54101, 0.72914);
+test('converted GLB grass preserves and embeds the authored root plane', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    -0.354105, 0, -0.36457,
+    0.354105, 0, -0.36457,
+    0, 0.54101, 0.36457,
+    -0.1, -0.1, 0,
+    0.1, 0, 0,
+    0, 0.2, 0.1,
+  ], 3));
 
   normalizeRibbonGrassGeometry(geometry);
 
@@ -316,14 +325,16 @@ test('converted GLB grass is restored to the authored model scale', () => {
     minimumHeightRatio = Math.min(minimumHeightRatio, heightRatio);
     maximumHeightRatio = Math.max(maximumHeightRatio, heightRatio);
     assert.ok(heightRatio >= 0 && heightRatio <= 1);
-
-    if (Math.abs(positions.getY(index) - geometry.boundingBox.min.y) < 0.000001) {
-      assert.equal(heightRatio, 0);
-    }
   }
 
-  assert.equal(geometry.boundingBox.min.y, 0);
-  assert.ok(Math.abs(height - 0.7303635) < 0.000001);
+  assert.ok(Math.abs(positions.getY(0) + GRASS_ROOT_EMBED_DEPTH) < 0.000001);
+  assert.ok(positions.getY(3) < -GRASS_ROOT_EMBED_DEPTH);
+  assert.equal(heightRatios.getX(0), 0);
+  assert.equal(heightRatios.getX(1), 0);
+  assert.equal(heightRatios.getX(3), 0);
+  assert.equal(heightRatios.getX(4), 0);
+  assert.equal(heightRatios.getX(2), 1);
+  assert.ok(Math.abs(height - 0.8653635) < 0.000001);
   assert.equal(heightRatios.itemSize, 1);
   assert.equal(heightRatios.count, positions.count);
   assert.equal(minimumHeightRatio, 0);
@@ -795,6 +806,7 @@ test('far grass LOD is one Y-up cross-card geometry', () => {
     billboardOpacity: texture,
   };
   const singleCard = new THREE.PlaneGeometry(1, 2);
+  singleCard.translate(0, 1, 0);
   const singleCardTriangleCount = singleCard.index.count / 3;
   const modelNames = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
   const models = new Map(modelNames.map((name) => [name, [
@@ -822,7 +834,7 @@ test('far grass LOD is one Y-up cross-card geometry', () => {
   assert.ok(size.x > 0);
   assert.ok(size.y > 0);
   assert.ok(size.z > 0);
-  assert.ok(Math.abs(box.min.y) < 0.000001);
+  assert.ok(Math.abs(box.min.y + GRASS_ROOT_EMBED_DEPTH) < 0.000001);
   assert.ok(Math.abs(size.y - 2 * 1.35) < 0.000001);
   assert.ok(size.y > size.x);
   assert.ok(size.y > size.z);
