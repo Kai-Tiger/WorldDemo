@@ -567,8 +567,6 @@ export function createTerrainMaterials(textures, options) {
   });
 }
 
-export function getTerrainMaterialForSegments(materials, segments) {
-  if (segments >= 256) return materials.near;
-  if (segments >= 128) return materials.medium;
-  return materials.far;
+export function getTerrainMaterialForSegments(materials) {
+  return materials.medium;
 }

@@ -269,32 +269,32 @@ function smoothstep(edge0, edge1, value) {
   return amount * amount * (3 - 2 * amount);
 }
 
-test('material selection follows chunk geometry resolution', () => {
+test('all chunk geometry resolutions share one global terrain material', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
-  assert.equal(getTerrainMaterialForSegments(materials, 256), materials.near);
+  assert.equal(getTerrainMaterialForSegments(materials, 256), materials.medium);
   assert.equal(getTerrainMaterialForSegments(materials, 128), materials.medium);
-  assert.equal(getTerrainMaterialForSegments(materials, 64), materials.far);
+  assert.equal(getTerrainMaterialForSegments(materials, 64), materials.medium);
 });
 
-test('Terrain assigns material LOD and disables shadow receiving on Far chunks', () => {
+test('Terrain assigns the same material and shadow behavior to every geometry LOD', () => {
   const terrain = createTerrain();
   const near = terrain.createChunkRecord(createChunkTask(256));
   const medium = terrain.createChunkRecord(createChunkTask(128));
   const far = terrain.createChunkRecord(createChunkTask(64));
 
-  assert.equal(near.surface.material, terrain.materials.near);
+  assert.equal(near.surface.material, terrain.materials.medium);
   assert.equal(medium.surface.material, terrain.materials.medium);
-  assert.equal(far.surface.material, terrain.materials.far);
-  assert.equal(near.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.NEAR);
+  assert.equal(far.surface.material, terrain.materials.medium);
+  assert.equal(near.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.MEDIUM);
   assert.equal(medium.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.MEDIUM);
-  assert.equal(far.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.FAR);
+  assert.equal(far.surface.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.MEDIUM);
   assert.equal(near.surface.geometry.getAttribute('roadFrame').itemSize, 4);
   assert.equal(medium.surface.geometry.getAttribute('roadFrame').itemSize, 4);
   assert.equal(far.surface.geometry.getAttribute('roadFrame').itemSize, 4);
   assert.equal(near.surface.receiveShadow, true);
   assert.equal(medium.surface.receiveShadow, true);
-  assert.equal(far.surface.receiveShadow, false);
+  assert.equal(far.surface.receiveShadow, true);
 
   near.surface.geometry.dispose();
   near.skirt.geometry.dispose();
