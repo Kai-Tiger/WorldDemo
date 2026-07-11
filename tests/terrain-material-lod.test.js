@@ -16,8 +16,8 @@ function createTextures() {
     rockNormal: texture,
     groundDirtAlbedo: texture,
     groundDirtNormal: texture,
-    mossAlbedo: texture,
-    mossNormal: texture,
+    forestFloorBaseColor: texture,
+    forestFloorNormal: texture,
     dryGrassAlbedo: texture,
     dryGrassNormal: texture,
     gravelAlbedo: texture,
@@ -33,7 +33,7 @@ function createOptions() {
     mapWorldSize: 2048,
     alpineTextureWorldSize: 8,
     groundDirtTextureWorldSize: 7,
-    mossTextureWorldSize: 5.5,
+    forestFloorTextureWorldSize: 2,
     dryGrassTextureWorldSize: 6.5,
     gravelTextureWorldSize: 4.5,
     riverBankTextureWorldSize: 6,
@@ -116,6 +116,21 @@ test('all material variants compute masks before sampling branches and preserve 
     assert.match(vertexAssignments, /vTerrainMacro = vec4/);
     assert.doesNotMatch(`${fragmentParameters}\n${mapFragment}`, /displacement|applyDetailNormal|applyForestFloorHeightNormal|fbm/i);
   }
+});
+
+test('Near restores the baked forest floor while lower material LODs keep branch-limited sampling', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+  const nearSource = materials.near.userData.terrainShaderSource.mapFragment;
+  const mediumSource = materials.medium.userData.terrainShaderSource.mapFragment;
+  const farSource = materials.far.userData.terrainShaderSource.mapFragment;
+
+  assert.match(nearSource, /uForestFloorBaseColorTexture/);
+  assert.match(nearSource, /uForestFloorNormalTexture/);
+  assert.doesNotMatch(nearSource, /terrainForestFloorWeight >=/);
+  assert.match(mediumSource, /terrainForestFloorWeight >=/);
+  assert.match(mediumSource, /uForestFloorNormalTexture/);
+  assert.match(farSource, /uForestFloorBaseColorTexture/);
+  assert.doesNotMatch(farSource, /uForestFloorNormalTexture/);
 });
 
 test('material selection follows chunk geometry resolution', () => {

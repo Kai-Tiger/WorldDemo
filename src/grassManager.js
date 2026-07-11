@@ -13,7 +13,7 @@ import {
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const ZONE_MUTATIONS_PER_FRAME = GRASS_ZONE_MUTATIONS;
-const GENERATION_STEPS = Math.min(GRASS_GENERATION_STEPS, 64);
+const GENERATION_STEPS = Math.min(GRASS_GENERATION_STEPS, 256);
 const TOTAL_GENERATION_BUDGET = GRASS_GENERATION_BUDGET;
 const ZONE_REBUILDS_PER_FRAME = GRASS_REBUILDS_PER_FRAME;
 const REBUILD_THRESHOLD = GRASS_REBUILD_THRESHOLD;
@@ -38,7 +38,6 @@ export class GrassManager {
     this.queuedZones = new Set();
     this.lodTarget = null;
     this.lastQueuePos = null;
-    this.generationCursor = 0;
     this.streamingTurn = 0;
   }
 
@@ -197,30 +196,26 @@ export class GrassManager {
       - Math.hypot(b.centerX - camX, b.centerZ - camZ)
     ));
 
-    if (generatingZones.length === 0) {
-      this.generationCursor = 0;
-      return;
-    }
-
-    const maxBatches = Math.min(
-      generatingZones.length,
-      Math.ceil(TOTAL_GENERATION_BUDGET / GENERATION_STEPS),
-    );
+    let stepsRemaining = TOTAL_GENERATION_BUDGET;
     let batches = 0;
 
-    while (batches < maxBatches && (batches === 0 || performance.now() < deadline)) {
-      const index = (this.generationCursor + batches) % generatingZones.length;
-      const zone = generatingZones[index];
-      const done = zone.processGeneration(GENERATION_STEPS);
+    while (
+      generatingZones.length > 0
+      && stepsRemaining > 0
+      && (batches === 0 || performance.now() < deadline)
+    ) {
+      const zone = generatingZones[0];
+      const steps = Math.min(GENERATION_STEPS, stepsRemaining);
+      const done = zone.processGeneration(steps);
 
       if (done && zone.hasPlacements) {
         this.enqueueLODZone(zone);
       }
+      if (done) generatingZones.shift();
 
+      stepsRemaining -= steps;
       batches += 1;
     }
-
-    this.generationCursor = (this.generationCursor + Math.max(batches, 1)) % generatingZones.length;
   }
 
   enqueueReadyZones() {

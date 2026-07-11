@@ -23,8 +23,7 @@ const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
 const GROUND_DIRT_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
 const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
-const MOSS_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/moss_albedo.png';
-const MOSS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/moss_normal.png';
+const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
 const DRY_GRASS_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_albedo.png';
 const DRY_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_normal.png';
 const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
@@ -72,7 +71,7 @@ const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const GROUND_DIRT_TEXTURE_WORLD_SIZE = 16;
-const MOSS_TEXTURE_WORLD_SIZE = 18;
+const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
 const DRY_GRASS_TEXTURE_WORLD_SIZE = 20;
 const GRAVEL_TEXTURE_WORLD_SIZE = 12;
 const HEIGHT_SMOOTHING_ENABLED = true;
@@ -105,7 +104,7 @@ export class Terrain {
       mapWorldSize: MAP_SIZE,
       alpineTextureWorldSize: ALPINE_TEXTURE_WORLD_SIZE,
       groundDirtTextureWorldSize: GROUND_DIRT_TEXTURE_WORLD_SIZE,
-      mossTextureWorldSize: MOSS_TEXTURE_WORLD_SIZE,
+      forestFloorTextureWorldSize: FOREST_FLOOR_TEXTURE_WORLD_SIZE,
       dryGrassTextureWorldSize: DRY_GRASS_TEXTURE_WORLD_SIZE,
       gravelTextureWorldSize: GRAVEL_TEXTURE_WORLD_SIZE,
       riverBankTextureWorldSize: RIVER_BANK_TEXTURE_WORLD_SIZE,
@@ -1220,8 +1219,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     rockNormal,
     groundDirtAlbedo,
     groundDirtNormal,
-    mossAlbedo,
-    mossNormal,
+    forestFloorBaseColor,
+    forestFloorNormal,
     dryGrassAlbedo,
     dryGrassNormal,
     gravelAlbedo,
@@ -1234,8 +1233,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     standardTextureLoader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
     materialTextureLoader.loadAsync(optimizedPath('ground_dirt_albedo', GROUND_DIRT_ALBEDO_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('ground_dirt_normal', GROUND_DIRT_NORMAL_TEXTURE_PATH)),
-    materialTextureLoader.loadAsync(optimizedPath('moss_albedo', MOSS_ALBEDO_TEXTURE_PATH)),
-    materialTextureLoader.loadAsync(optimizedPath('moss_normal', MOSS_NORMAL_TEXTURE_PATH)),
+    standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_basecolor_${tier}.jpg`),
+    standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_normal_${tier}.jpg`),
     materialTextureLoader.loadAsync(optimizedPath('dry_grass_albedo', DRY_GRASS_ALBEDO_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('dry_grass_normal', DRY_GRASS_NORMAL_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('gravel_albedo', GRAVEL_ALBEDO_TEXTURE_PATH)),
@@ -1248,7 +1247,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   for (const texture of [
     rock,
     groundDirtAlbedo,
-    mossAlbedo,
+    forestFloorBaseColor,
     dryGrassAlbedo,
     gravelAlbedo,
     riverBank,
@@ -1263,7 +1262,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   for (const texture of [
     rockNormal,
     groundDirtNormal,
-    mossNormal,
+    forestFloorNormal,
     dryGrassNormal,
     gravelNormal,
     blendSplat,
@@ -1282,8 +1281,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     rockNormal,
     groundDirtAlbedo,
     groundDirtNormal,
-    mossAlbedo,
-    mossNormal,
+    forestFloorBaseColor,
+    forestFloorNormal,
     dryGrassAlbedo,
     dryGrassNormal,
     gravelAlbedo,

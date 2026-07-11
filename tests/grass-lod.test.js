@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   createGrassVariants,
   createPlacement,
+  normalizeRibbonGrassGeometry,
   updateGrassClumps,
 } from '../src/grassClumps.js';
 import { GrassZone } from '../src/grassZone.js';
@@ -92,6 +93,18 @@ test('createPlacement assigns a stable lodRoll with nested quality subsets', () 
       if (roll < balanced[lodLevel]) assert.ok(roll < quality[lodLevel]);
     }
   }
+});
+
+test('converted GLB grass is restored to the authored model scale', () => {
+  const geometry = new THREE.BoxGeometry(0.70821, 0.54101, 0.72914);
+
+  normalizeRibbonGrassGeometry(geometry);
+
+  const height = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
+  assert.equal(geometry.boundingBox.min.y, 0);
+  assert.ok(Math.abs(height - 0.7303635) < 0.000001);
+
+  geometry.dispose();
 });
 
 test('persistent LOD meshes reuse InstancedMesh and DynamicDrawUsage buffers', () => {
@@ -398,6 +411,42 @@ test('generation and LOD alternate first claim on their shared time budget', () 
   assert.deepEqual(calls, ['generation', 'lod', 'lod', 'generation']);
 });
 
+test('generation finishes the nearest zone before streaming farther zones', () => {
+  const manager = new GrassManager({}, new Map());
+  const calls = [];
+  const near = {
+    isGenerating: true,
+    hasPlacements: false,
+    centerX: 0,
+    centerZ: 0,
+    remainingBatches: 3,
+    processGeneration(steps) {
+      calls.push(['near', steps]);
+      this.remainingBatches -= 1;
+      this.isGenerating = this.remainingBatches > 0;
+      return !this.isGenerating;
+    },
+  };
+  const far = {
+    isGenerating: true,
+    hasPlacements: false,
+    centerX: 100,
+    centerZ: 100,
+    processGeneration(steps) {
+      calls.push(['far', steps]);
+      this.isGenerating = false;
+      return true;
+    },
+  };
+
+  manager.zones.set('far', far);
+  manager.zones.set('near', near);
+  manager.processGenerations(0, 0, Infinity);
+
+  assert.deepEqual(calls.map(([name]) => name), ['near', 'near', 'near', 'far']);
+  assert.ok(calls.every(([, steps]) => steps === 256));
+});
+
 test('only the near grass material keeps sway uniforms', () => {
   const texture = new THREE.Texture();
   const textures = {
@@ -429,6 +478,14 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.equal(lods[2][0].material.alphaMap, texture);
   assert.equal(lods[2][0].material.alphaTest, 0.12);
   assert.notEqual(lods[2][0].geometry, lods[1][0].geometry);
+
+  const midShader = {
+    uniforms: {},
+    fragmentShader: '#include <common>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
+  };
+  lods[1][0].material.onBeforeCompile(midShader);
+  assert.match(midShader.fragmentShader, /vAlphaMapUv\)\.r/);
+  assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
 });
 
 test('runtime grass loading uses tiered KTX2 maps and Meshopt GLB LODs', async () => {

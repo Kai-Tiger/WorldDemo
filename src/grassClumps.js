@@ -38,9 +38,9 @@ const WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize()
 const UP = new THREE.Vector3(0, 1, 0);
 const SURFACE_NORMAL = new THREE.Vector3();
 const GRASS_ALPHA_TEST = 0.12;
-const GRASS_SHADOW_LIFT_COLOR = 0x31482a;
-const GRASS_SHADOW_LIFT_INTENSITY = 0.16;
-const GRASS_EMISSIVE_INTENSITY = 0.015;
+const GRASS_SHADOW_LIFT_COLOR = 0x647c4a;
+const GRASS_SHADOW_LIFT_INTENSITY = 0.24;
+const GRASS_EMISSIVE_INTENSITY = 0.06;
 const GRASS_COLOR_GRADE = {
   brightness: 0.95,
   saturation: 0.82,
@@ -52,7 +52,7 @@ const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH = 'optimized/ktx2';
 const RIBBON_GRASS_OPTIMIZED_MODEL_PATH = 'optimized/models';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
-const RIBBON_GRASS_SCALE = 0.0135;
+const RIBBON_GRASS_SCALE = 1.35;
 const RIBBON_GRASS_LOD_DENSITIES = [2.5];
 
 export { RIBBON_GRASS_LOD_DENSITIES as LOD_DENSITIES };
@@ -234,7 +234,7 @@ function buildRibbonGrassLeaves(root, material, suffix) {
   return leaves;
 }
 
-function normalizeRibbonGrassGeometry(geometry) {
+export function normalizeRibbonGrassGeometry(geometry) {
   geometry.computeBoundingBox();
 
   const box = geometry.boundingBox;
@@ -333,6 +333,11 @@ function configureGrassMaterial(material) {
     material.emissive = new THREE.Color(GRASS_SHADOW_LIFT_COLOR);
     material.emissiveIntensity = Math.min(material.emissiveIntensity || GRASS_EMISSIVE_INTENSITY, GRASS_EMISSIVE_INTENSITY);
   }
+  material.onBeforeCompile = (shader) => {
+    applyGrassAlphaMap(shader);
+    applyGrassShadowLift(shader);
+  };
+  material.customProgramCacheKey = () => 'ribbon-grass-readable-alpha-red-v2';
   material.needsUpdate = true;
 }
 
@@ -344,8 +349,7 @@ function applyGrassColorGrade(shader, grade, useHeightShading, maps = {}, transl
   shader.uniforms.uGrassHighlightCompression = { value: grade.highlightCompression };
   shader.uniforms.uGrassTranslucencyMap = { value: maps.translucency || null };
   shader.uniforms.uGrassTranslucencyStrength = { value: translucencyStrength };
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
+  shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `#include <common>
 uniform vec3 uGrassShadowLiftColor;
@@ -356,14 +360,9 @@ uniform float uGrassHighlightCompression;
 uniform sampler2D uGrassTranslucencyMap;
 uniform float uGrassTranslucencyStrength;
 ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
-    )
-    .replace(
-      '#include <alphamap_fragment>',
-      `#ifdef USE_ALPHAMAP
-diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
-#endif`,
-    )
-    .replace(
+    );
+  applyGrassAlphaMap(shader);
+  shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
 	float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
@@ -374,6 +373,7 @@ diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
 	gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
 float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
+gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * grassShadowMask * 0.38);
 gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
 grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 vec3 grassGray = vec3(grassLuminance);
@@ -381,6 +381,35 @@ float grassHighlightMask = smoothstep(0.42, 0.92, grassLuminance);
 gl_FragColor.rgb = mix(grassGray, gl_FragColor.rgb, uGrassSaturation);
 gl_FragColor.rgb *= uGrassBrightness;
 gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * (1.0 - uGrassHighlightCompression), grassHighlightMask);
+#include <dithering_fragment>`,
+    );
+}
+
+function applyGrassAlphaMap(shader) {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <alphamap_fragment>',
+    `#ifdef USE_ALPHAMAP
+diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
+#endif`,
+  );
+}
+
+function applyGrassShadowLift(shader) {
+  shader.uniforms.uGrassShadowLiftColor = { value: new THREE.Color(GRASS_SHADOW_LIFT_COLOR) };
+  shader.uniforms.uGrassShadowLiftIntensity = { value: GRASS_SHADOW_LIFT_INTENSITY };
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+uniform vec3 uGrassShadowLiftColor;
+uniform float uGrassShadowLiftIntensity;`,
+    )
+    .replace(
+      '#include <dithering_fragment>',
+      `float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
+gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * grassShadowMask * 0.38);
+gl_FragColor.rgb += uGrassShadowLiftColor * grassShadowMask * uGrassShadowLiftIntensity;
 #include <dithering_fragment>`,
     );
 }
