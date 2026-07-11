@@ -488,6 +488,56 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
 });
 
+test('far grass LOD is one Y-up cross-card geometry', () => {
+  const texture = new THREE.Texture();
+  const textures = {
+    baseColor: texture,
+    normal: texture,
+    roughness: texture,
+    ao: texture,
+    opacity: texture,
+    translucency: texture,
+    billboardBaseColor: texture,
+    billboardNormal: texture,
+    billboardOpacity: texture,
+  };
+  const singleCard = new THREE.PlaneGeometry(1, 2);
+  const singleCardTriangleCount = singleCard.index.count / 3;
+  const modelNames = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
+  const models = new Map(modelNames.map((name) => [name, [
+    createModelRoot(),
+    createModelRoot(),
+    createModelRoot(singleCard),
+  ]]));
+  const variants = createGrassVariants({ textures, models });
+  const farLeaves = variants.get(VARIANT_NAME).lods[2];
+  const geometry = farLeaves[0].geometry;
+  const box = geometry.boundingBox;
+  const size = box.getSize(new THREE.Vector3());
+  const positionsPerCard = singleCard.getAttribute('position').count;
+  const normals = geometry.getAttribute('normal');
+  const firstNormal = new THREE.Vector3().fromBufferAttribute(normals, 0).normalize();
+  const secondNormal = new THREE.Vector3()
+    .fromBufferAttribute(normals, positionsPerCard)
+    .normalize();
+
+  assert.equal(farLeaves.length, 1);
+  assert.equal(farLeaves[0].material.isMeshLambertMaterial, true);
+  assert.equal(geometry.index.count / 3, singleCardTriangleCount * 2);
+  assert.equal(geometry.getAttribute('position').count, positionsPerCard * 2);
+  assert.equal(geometry.getAttribute('uv').count, positionsPerCard * 2);
+  assert.ok(size.x > 0);
+  assert.ok(size.y > 0);
+  assert.ok(size.z > 0);
+  assert.ok(Math.abs(box.min.y) < 0.000001);
+  assert.ok(Math.abs(size.y - 2 * 1.35) < 0.000001);
+  assert.ok(size.y > size.x);
+  assert.ok(size.y > size.z);
+  assert.ok(Math.abs(firstNormal.dot(secondNormal)) < 0.000001);
+
+  singleCard.dispose();
+});
+
 test('runtime grass loading uses tiered KTX2 maps and Meshopt GLB LODs', async () => {
   const source = await readFile(new URL('../src/grassClumps.js', import.meta.url), 'utf8');
   const textureSpecBlock = source.slice(
@@ -503,9 +553,9 @@ test('runtime grass loading uses tiered KTX2 maps and Meshopt GLB LODs', async (
   assert.match(source, /\[0, 1, 2\]/);
 });
 
-function createModelRoot() {
+function createModelRoot(geometry = new THREE.PlaneGeometry(1, 1)) {
   const root = new THREE.Group();
 
-  root.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial()));
+  root.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
   return root;
 }

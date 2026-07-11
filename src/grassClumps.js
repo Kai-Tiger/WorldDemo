@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
@@ -200,7 +201,12 @@ function createRibbonGrassFarMaterial(textures) {
 
 function createRibbonGrassVariant(lodRoots, materials) {
   const modelLods = lodRoots.map((root, index) => (
-    buildRibbonGrassLeaves(root, materials.lod[Math.min(index, materials.lod.length - 1)], `LOD${index}`)
+    buildRibbonGrassLeaves(
+      root,
+      materials.lod[Math.min(index, materials.lod.length - 1)],
+      `LOD${index}`,
+      index === 2,
+    )
   ));
   return {
     lods: modelLods,
@@ -209,7 +215,7 @@ function createRibbonGrassVariant(lodRoots, materials) {
   };
 }
 
-function buildRibbonGrassLeaves(root, material, suffix) {
+function buildRibbonGrassLeaves(root, material, suffix, useCrossCard) {
   root.updateMatrixWorld(true);
 
   const leaves = [];
@@ -217,12 +223,24 @@ function buildRibbonGrassLeaves(root, material, suffix) {
   root.traverse((child) => {
     if (!child.isMesh) return;
 
-    const geometry = child.geometry.clone();
+    let geometry = child.geometry.clone();
     const transform = child.matrixWorld.clone();
 
     geometry.applyMatrix4(transform);
     normalizeRibbonGrassGeometry(geometry);
     ensureAoUv(geometry);
+
+    if (useCrossCard) {
+      const rotatedGeometry = geometry.clone().rotateY(Math.PI * 0.5);
+      const crossCardGeometry = mergeGeometries([geometry, rotatedGeometry], false);
+
+      geometry.dispose();
+      rotatedGeometry.dispose();
+      geometry = crossCardGeometry;
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    }
 
     leaves.push({
       name: `${child.name || 'Mesh'}_${suffix}`,
