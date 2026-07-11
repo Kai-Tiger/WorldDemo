@@ -10,6 +10,7 @@ import {
   MAP_SIZE,
   ZONE_SIZE,
   GRASS_ASSET_BASE_PATH,
+  GRASS_LOD_DENSITIES as RIBBON_GRASS_LOD_DENSITIES,
   GRASS_RIVER_BUFFER,
   GRASS_SWAY_STRENGTH,
   GRASS_WIND_X,
@@ -21,6 +22,12 @@ import {
   GRASS_GROUND_MASK_THRESHOLD,
   GRASS_LOWLAND_FADE_START,
   GRASS_LOWLAND_FADE_END,
+  GRASS_COMMUNITY_MACRO_SIZE,
+  GRASS_COMMUNITY_MICRO_SIZE,
+  GRASS_COMMUNITY_GAP_ACCEPTANCE,
+  GRASS_COMMUNITY_CORE_ACCEPTANCE,
+  GRASS_COMMUNITY_PRIMARY_RATIO,
+  GRASS_COMMUNITY_SECONDARY_RATIO,
 } from './vegetationConfig.js';
 
 const PLACEMENT_RADIUS = 15;
@@ -54,7 +61,12 @@ const RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH = 'optimized/ktx2';
 const RIBBON_GRASS_OPTIMIZED_MODEL_PATH = 'optimized/models';
 const RIBBON_GRASS_MODEL_PREFIX = 'Ribbon_Grass_tbdpec3r_High_tbdpec3r';
 const RIBBON_GRASS_SCALE = 1.35;
-const RIBBON_GRASS_LOD_DENSITIES = [2.5];
+const GRASS_MACRO_ROTATION = 0.39;
+const GRASS_MICRO_ROTATION = -0.58;
+const GRASS_MACRO_ROTATION_COS = Math.cos(GRASS_MACRO_ROTATION);
+const GRASS_MACRO_ROTATION_SIN = Math.sin(GRASS_MACRO_ROTATION);
+const GRASS_MICRO_ROTATION_COS = Math.cos(GRASS_MICRO_ROTATION);
+const GRASS_MICRO_ROTATION_SIN = Math.sin(GRASS_MICRO_ROTATION);
 
 export { RIBBON_GRASS_LOD_DENSITIES as LOD_DENSITIES };
 export { ZONE_SIZE };
@@ -526,23 +538,128 @@ export function hash2(x, z) {
   return value - Math.floor(value);
 }
 
+export function sampleGrassCommunity(worldX, worldZ, gridX, gridZ) {
+  const macro = sampleRotatedValueNoise(
+    worldX,
+    worldZ,
+    GRASS_COMMUNITY_MACRO_SIZE,
+    GRASS_MACRO_ROTATION_COS,
+    GRASS_MACRO_ROTATION_SIN,
+    17.3,
+    -41.9,
+  );
+  const micro = sampleRotatedValueNoise(
+    worldX,
+    worldZ,
+    GRASS_COMMUNITY_MICRO_SIZE,
+    GRASS_MICRO_ROTATION_COS,
+    GRASS_MICRO_ROTATION_SIN,
+    -63.7,
+    28.1,
+  );
+  const macroInfluence = smoothstep(0.34, 0.68, macro.value);
+  const influence = THREE.MathUtils.clamp(
+    macroInfluence * THREE.MathUtils.lerp(0.72, 1, micro.value),
+    0,
+    1,
+  );
+  const acceptanceInfluence = smoothstep(0, 0.9, Math.sqrt(influence));
+  const acceptance = THREE.MathUtils.lerp(
+    GRASS_COMMUNITY_GAP_ACCEPTANCE,
+    GRASS_COMMUNITY_CORE_ACCEPTANCE,
+    acceptanceInfluence,
+  );
+  const communityX = Math.round(macro.x);
+  const communityZ = Math.round(macro.z);
+  const primaryVariantIndex = Math.min(
+    Math.floor(hash2(communityX + 83.4, communityZ - 19.7) * RIBBON_GRASS_VARIANTS.length),
+    RIBBON_GRASS_VARIANTS.length - 1,
+  );
+  const secondaryOffset = 1 + Math.min(
+    Math.floor(hash2(communityX - 27.1, communityZ + 64.2) * (RIBBON_GRASS_VARIANTS.length - 1)),
+    RIBBON_GRASS_VARIANTS.length - 2,
+  );
+  const secondaryVariantIndex = (primaryVariantIndex + secondaryOffset) % RIBBON_GRASS_VARIANTS.length;
+  const roleRoll = hash2(gridX + 41.6, gridZ - 93.2);
+  let variantIndex = primaryVariantIndex;
+
+  if (roleRoll >= GRASS_COMMUNITY_PRIMARY_RATIO) {
+    if (roleRoll < GRASS_COMMUNITY_PRIMARY_RATIO + GRASS_COMMUNITY_SECONDARY_RATIO) {
+      variantIndex = secondaryVariantIndex;
+    } else {
+      let remainingIndex = Math.min(
+        Math.floor(hash2(gridX - 18.5, gridZ + 72.4) * (RIBBON_GRASS_VARIANTS.length - 2)),
+        RIBBON_GRASS_VARIANTS.length - 3,
+      );
+
+      for (let index = 0; index < RIBBON_GRASS_VARIANTS.length; index += 1) {
+        if (index === primaryVariantIndex || index === secondaryVariantIndex) continue;
+        if (remainingIndex === 0) {
+          variantIndex = index;
+          break;
+        }
+        remainingIndex -= 1;
+      }
+    }
+  }
+
+  return {
+    influence,
+    acceptance,
+    accepted: hash2(gridX - 54.8, gridZ + 16.9) < acceptance,
+    communityX,
+    communityZ,
+    primaryVariantName: getGrassVariantName(primaryVariantIndex / RIBBON_GRASS_VARIANTS.length),
+    secondaryVariantName: getGrassVariantName(secondaryVariantIndex / RIBBON_GRASS_VARIANTS.length),
+    variantName: getGrassVariantName(variantIndex / RIBBON_GRASS_VARIANTS.length),
+  };
+}
+
 export function smoothstep(edge0, edge1, value) {
   const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
 
   return t * t * (3 - 2 * t);
 }
 
+function sampleRotatedValueNoise(worldX, worldZ, scale, cos, sin, seedX, seedZ) {
+  const x = (worldX * cos - worldZ * sin) / scale;
+  const z = (worldX * sin + worldZ * cos) / scale;
+  const cellX = Math.floor(x);
+  const cellZ = Math.floor(z);
+  const localX = x - cellX;
+  const localZ = z - cellZ;
+  const blendX = localX * localX * (3 - 2 * localX);
+  const blendZ = localZ * localZ * (3 - 2 * localZ);
+  const bottom = THREE.MathUtils.lerp(
+    hash2(cellX + seedX, cellZ + seedZ),
+    hash2(cellX + 1 + seedX, cellZ + seedZ),
+    blendX,
+  );
+  const top = THREE.MathUtils.lerp(
+    hash2(cellX + seedX, cellZ + 1 + seedZ),
+    hash2(cellX + 1 + seedX, cellZ + 1 + seedZ),
+    blendX,
+  );
+
+  return {
+    value: THREE.MathUtils.lerp(bottom, top, blendZ),
+    x,
+    z,
+  };
+}
+
 function smoothstepRange(edge0, edge1, value) {
   return smoothstep(edge0, edge1, value);
 }
 
-export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1, surface = null) {
+export function createPlacement(terrain, x, z, seedX, seedZ, community = 1, surface = null) {
   const sample = surface ?? sampleTerrainSurface(terrain, x, z);
   const y = sample.height;
   const normal = SURFACE_NORMAL.set(sample.normalX, sample.normalY, sample.normalZ);
+  const communityInfluence = typeof community === 'number' ? community : community.influence;
   const yaw = hash2(seedX - 41.8, seedZ + 12.6) * Math.PI * 2;
-  const edgeStrength = smoothstep(0.18, 0.78, patchInfluence);
-  const scaleValue = THREE.MathUtils.lerp(0.82, 1.08, edgeStrength) * THREE.MathUtils.lerp(0.94, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
+  const edgeStrength = smoothstep(0.12, 0.88, communityInfluence);
+  const scaleValue = THREE.MathUtils.lerp(0.82, 1.05, edgeStrength) * THREE.MathUtils.lerp(0.92, 1.12, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const lodRoll = hash2(seedX - 73.6, seedZ + 48.9);
   const transitionRoll = hash2(seedX + 28.4, seedZ - 67.3);
@@ -555,7 +672,9 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1,
 
   return {
     matrix,
-    variantName: getGrassVariantName(variantRoll),
+    variantName: typeof community === 'number'
+      ? getGrassVariantName(variantRoll)
+      : community.variantName,
     lodRoll,
     transitionRoll,
   };

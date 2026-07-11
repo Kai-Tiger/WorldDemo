@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import {
   hash2,
   createPlacement,
+  sampleGrassCommunity,
   sampleTerrainSurface,
 } from './grassClumps.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
+import { GRASS_CANDIDATE_JITTER } from './vegetationConfig.js';
 
 const GRASS_WATER_BUFFER = 4;
 const GRASS_MIN_NORMAL_Y = 0.88;
@@ -372,13 +374,13 @@ function createZoneBounds(placements, minX, minZ, maxX, maxZ) {
 
 function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
   const cellSize = Math.sqrt(1 / density);
-  const startZ = minZ - cellSize * 0.5;
-  const endZ = maxZ + cellSize * 0.5;
-  const startX = minX - cellSize * 0.5;
-  const endX = maxX + cellSize * 0.5;
+  const startGridX = Math.floor(minX / cellSize);
+  const endGridX = Math.ceil(maxX / cellSize);
+  const startGridZ = Math.floor(minZ / cellSize);
+  const endGridZ = Math.ceil(maxZ / cellSize);
 
-  let worldZ = startZ;
-  let worldX = startX;
+  let gridX = startGridX;
+  let gridZ = startGridZ;
   const placements = [];
   const surface = {};
 
@@ -389,35 +391,36 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
     step(count) {
       let done = 0;
 
-      while (done < count && worldZ <= endZ) {
-        while (done < count && worldX <= endX) {
-          const gridX = Math.round(worldX / cellSize);
-          const gridZ = Math.round(worldZ / cellSize);
+      while (done < count && gridZ < endGridZ) {
+        while (done < count && gridX < endGridX) {
+          const jitterX = (hash2(gridX, gridZ) - 0.5) * GRASS_CANDIDATE_JITTER;
+          const jitterZ = (hash2(gridX + 17.31, gridZ - 9.73) - 0.5) * GRASS_CANDIDATE_JITTER;
+          const x = (gridX + 0.5 + jitterX) * cellSize;
+          const z = (gridZ + 0.5 + jitterZ) * cellSize;
 
-          const jitterX = (hash2(gridX, gridZ) - 0.5) * cellSize;
-          const jitterZ = (hash2(gridX + 17.31, gridZ - 9.73) - 0.5) * cellSize;
-          const x = worldX + jitterX;
-          const z = worldZ + jitterZ;
+          if (x >= minX && x < maxX && z >= minZ && z < maxZ) {
+            const community = sampleGrassCommunity(x, z, gridX, gridZ);
 
-          if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-            sampleTerrainSurface(terrain, x, z, surface);
+            if (community.accepted) {
+              sampleTerrainSurface(terrain, x, z, surface);
+
+              if (shouldPlaceGrassAt(x, z, surface)) {
+                placements.push(createPlacement(terrain, x, z, gridX, gridZ, community, surface));
+              }
+            }
           }
 
-          if (x >= minX && x <= maxX && z >= minZ && z <= maxZ && shouldPlaceGrassAt(x, z, surface)) {
-            placements.push(createPlacement(terrain, x, z, gridX, gridZ, 1, surface));
-          }
-
-          worldX += cellSize;
+          gridX += 1;
           done += 1;
         }
 
-        if (worldX > endX) {
-          worldX = startX;
-          worldZ += cellSize;
+        if (gridX >= endGridX) {
+          gridX = startGridX;
+          gridZ += 1;
         }
       }
 
-      return worldZ > endZ;
+      return gridZ >= endGridZ;
     },
   };
 }

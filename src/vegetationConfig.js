@@ -20,8 +20,11 @@ export const GRASS_ASSET_BASE_PATH = '/assets/vegetation/ribbon-grass';
 
 // --- 放置 (Placement) ---
 
-/** LOD 各级密度（丛 / 平方米）  |  Density per LOD level (clumps / m²) */
-export const GRASS_LOD_DENSITIES = [16, 4, 1];
+/** 全局草地候选密度（丛 / 平方米）  |  Global grass candidate density (clumps / m²) */
+export const GRASS_LOD_DENSITIES = [2.5];
+
+/** 全局候选 cell 内的最大抖动比例  |  Jitter span within each global candidate cell */
+export const GRASS_CANDIDATE_JITTER = 0.7;
 
 /** LOD 距离阈值（米）：LOD0、LOD1、LOD2、billboard  |  LOD distance thresholds (m): LOD0, LOD1, LOD2, billboard */
 
@@ -46,6 +49,22 @@ export const GRASS_PATCH_RADIUS_MAX = 4.0;
 
 /** 斑块内空隙接受率（值域 0-1），越低斑块外越稀疏  |  Acceptance rate outside patches */
 export const GRASS_PATCH_GAP_ACCEPTANCE = 0.75;
+
+// --- 世界坐标群落 (World-space communities) ---
+
+/** 宏观草群特征尺度（米）  |  Macro grass-community feature size (m) */
+export const GRASS_COMMUNITY_MACRO_SIZE = 14;
+
+/** 草群内部破碎特征尺度（米）  |  Intra-community breakup feature size (m) */
+export const GRASS_COMMUNITY_MICRO_SIZE = 3.2;
+
+/** 群落空隙和核心的候选接受率  |  Candidate acceptance at community gaps and cores */
+export const GRASS_COMMUNITY_GAP_ACCEPTANCE = 0.08;
+export const GRASS_COMMUNITY_CORE_ACCEPTANCE = 0.96;
+
+/** 同群落的主、次草变体比例  |  Primary and secondary variant ratios within one community */
+export const GRASS_COMMUNITY_PRIMARY_RATIO = 0.72;
+export const GRASS_COMMUNITY_SECONDARY_RATIO = 0.20;
 
 // --- 风动 (Wind sway) ---
 

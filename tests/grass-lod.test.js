@@ -3,9 +3,12 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
+  LOD_DENSITIES,
   createGrassVariants,
   createPlacement,
+  hash2,
   normalizeRibbonGrassGeometry,
+  sampleGrassCommunity,
   updateGrassClumps,
 } from '../src/grassClumps.js';
 import { GrassZone } from '../src/grassZone.js';
@@ -15,6 +18,7 @@ import {
   normalizeGrassPreset,
 } from '../src/grassManager.js';
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
+import { GRASS_CANDIDATE_JITTER } from '../src/vegetationConfig.js';
 
 const VARIANT_NAME = 'RibbonGrass_VarA';
 const DISTANCES = [10, 50, 100];
@@ -79,6 +83,40 @@ function getMesh(zone, lodLevel) {
   return zone.lodMeshes[lodLevel].get(VARIANT_NAME).meshes[0];
 }
 
+function generateGrassZone(minX, minZ, maxX, maxZ) {
+  let sampleCalls = 0;
+  const terrain = {
+    sampleSurfaceAt(_x, _z, target) {
+      sampleCalls += 1;
+      Object.assign(target, {
+        height: 12,
+        normalX: 0,
+        normalY: 1,
+        normalZ: 0,
+        groundMask: 1,
+      });
+      return target;
+    },
+  };
+  const zone = new GrassZone(terrain, new Map(), minX, minZ, maxX, maxZ);
+
+  zone.startGeneration(LOD_DENSITIES[0]);
+  while (!zone.processGeneration(128)) {
+    // Drain the incremental world-space candidate iterator.
+  }
+
+  return { placements: zone.allPlacements, sampleCalls };
+}
+
+function placementKey(placement) {
+  return JSON.stringify([
+    placement.variantName,
+    placement.lodRoll,
+    placement.transitionRoll,
+    placement.matrix.elements,
+  ]);
+}
+
 test('createPlacement assigns independent stable rolls with nested quality subsets', () => {
   const terrain = {
     getHeightAt: () => 0,
@@ -106,6 +144,112 @@ test('createPlacement assigns independent stable rolls with nested quality subse
       if (roll < balanced[lodLevel]) assert.ok(roll < quality[lodLevel]);
     }
   }
+});
+
+test('world-space communities are deterministic and retain the candidate budget', () => {
+  assert.equal(LOD_DENSITIES[0], 2.5);
+
+  const cellSize = Math.sqrt(1 / LOD_DENSITIES[0]);
+  const deterministicSample = sampleGrassCommunity(12.3, -44.1, 7, 9);
+  let accepted = 0;
+  let count = 0;
+  let minAcceptance = 1;
+  let maxAcceptance = 0;
+
+  assert.deepEqual(deterministicSample, sampleGrassCommunity(12.3, -44.1, 7, 9));
+
+  for (let gridZ = -100; gridZ < 100; gridZ += 1) {
+    for (let gridX = -100; gridX < 100; gridX += 1) {
+      const jitterX = (hash2(gridX, gridZ) - 0.5) * GRASS_CANDIDATE_JITTER;
+      const jitterZ = (hash2(gridX + 17.31, gridZ - 9.73) - 0.5) * GRASS_CANDIDATE_JITTER;
+      const x = (gridX + 0.5 + jitterX) * cellSize;
+      const z = (gridZ + 0.5 + jitterZ) * cellSize;
+      const community = sampleGrassCommunity(x, z, gridX, gridZ);
+
+      accepted += Number(community.accepted);
+      count += 1;
+      minAcceptance = Math.min(minAcceptance, community.acceptance);
+      maxAcceptance = Math.max(maxAcceptance, community.acceptance);
+    }
+  }
+
+  const acceptanceRatio = accepted / count;
+
+  assert.ok(acceptanceRatio >= 0.55);
+  assert.ok(acceptanceRatio <= 0.7);
+  assert.ok(minAcceptance <= 0.1);
+  assert.ok(maxAcceptance >= 0.95);
+  assert.ok(maxAcceptance / minAcceptance >= 6);
+});
+
+test('global cells join adjacent half-open zones without seams or duplicates', () => {
+  const left = generateGrassZone(-128, -128, -112, -112);
+  const right = generateGrassZone(-112, -128, -96, -112);
+  const combined = generateGrassZone(-128, -128, -96, -112);
+  const repeated = generateGrassZone(-128, -128, -96, -112);
+  const leftKeys = new Set(left.placements.map(placementKey));
+  const rightKeys = new Set(right.placements.map(placementKey));
+  const joinedKeys = new Set([...leftKeys, ...rightKeys]);
+  const combinedKeys = new Set(combined.placements.map(placementKey));
+
+  assert.ok(left.placements.every((placement) => placement.matrix.elements[12] < -112));
+  assert.ok(right.placements.every((placement) => placement.matrix.elements[12] >= -112));
+  assert.ok([...leftKeys].every((key) => !rightKeys.has(key)));
+  assert.equal(joinedKeys.size, leftKeys.size + rightKeys.size);
+  assert.deepEqual([...joinedKeys].sort(), [...combinedKeys].sort());
+  assert.deepEqual(
+    repeated.placements.map(placementKey).sort(),
+    combined.placements.map(placementKey).sort(),
+  );
+  assert.equal(left.sampleCalls, left.placements.length);
+  assert.equal(right.sampleCalls, right.placements.length);
+  assert.equal(combined.sampleCalls, combined.placements.length);
+});
+
+test('one community favors 72/20/8 variants and scales cores above edges', () => {
+  const counts = new Map();
+  const reference = sampleGrassCommunity(12.3, -44.1, 0, 0);
+
+  for (let gridZ = 0; gridZ < 100; gridZ += 1) {
+    for (let gridX = 0; gridX < 100; gridX += 1) {
+      const sample = sampleGrassCommunity(12.3, -44.1, gridX, gridZ);
+
+      assert.equal(sample.communityX, reference.communityX);
+      assert.equal(sample.communityZ, reference.communityZ);
+      counts.set(sample.variantName, (counts.get(sample.variantName) ?? 0) + 1);
+    }
+  }
+
+  const primaryRatio = counts.get(reference.primaryVariantName) / 10000;
+  const secondaryRatio = counts.get(reference.secondaryVariantName) / 10000;
+  const otherRatio = 1 - primaryRatio - secondaryRatio;
+
+  assert.ok(primaryRatio >= 0.69 && primaryRatio <= 0.75);
+  assert.ok(secondaryRatio >= 0.17 && secondaryRatio <= 0.23);
+  assert.ok(otherRatio >= 0.05 && otherRatio <= 0.11);
+
+  const terrain = {
+    getHeightAt: () => 0,
+    getNormalAt: () => new THREE.Vector3(0, 1, 0),
+  };
+  const edge = createPlacement(terrain, 0, 0, 7, 9, {
+    influence: 0,
+    variantName: reference.primaryVariantName,
+  });
+  const core = createPlacement(terrain, 0, 0, 7, 9, {
+    influence: 1,
+    variantName: reference.primaryVariantName,
+  });
+  const edgeScale = new THREE.Vector3();
+  const coreScale = new THREE.Vector3();
+
+  edge.matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), edgeScale);
+  core.matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), coreScale);
+
+  assert.ok(coreScale.y > edgeScale.y);
+  assert.equal(edge.variantName, core.variantName);
+  assert.equal(edge.lodRoll, core.lodRoll);
+  assert.equal(edge.transitionRoll, core.transitionRoll);
 });
 
 test('spatial dither mixes adjacent LODs without duplicate instances', () => {
