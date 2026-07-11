@@ -43,10 +43,6 @@ const CHUNK_SIZE = 256;
 const SHADOW_PROXY_SEGMENTS = 64;
 export const TERRAIN_SHADOW_PROXY_LAYER = 2;
 const DEFAULT_LOD_SEGMENTS = [256, 128, 64];
-const INITIAL_CHUNK_RADIUS = 1;
-const LOAD_CHUNK_RADIUS = 2;
-const UNLOAD_CHUNK_RADIUS = 3;
-const CHUNK_UNLOADS_PER_FRAME = 2;
 const DEFAULT_CHUNK_BUILD_BUDGET_MS = 3;
 const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
@@ -114,8 +110,6 @@ export class Terrain {
     this.loadedChunks = new Map();
     this.pendingChunks = new Map();
     this.chunkRevisions = new Map();
-    this.loadChunkRadius = LOAD_CHUNK_RADIUS;
-    this.unloadChunkRadius = UNLOAD_CHUNK_RADIUS;
     this.lodSegments = [...DEFAULT_LOD_SEGMENTS];
     this.buildBudgetMs = options.buildBudgetMs ?? DEFAULT_CHUNK_BUILD_BUDGET_MS;
     this.minimumSegmentsForChunk = options.minimumSegmentsForChunk
@@ -147,25 +141,19 @@ export class Terrain {
     return new Terrain(data, width, height, textures, options);
   }
 
-  async prepareInitialChunk(centerPosition) {
+  async prepareFullMap(centerPosition) {
     const centerChunkX = this.getChunkCoord(centerPosition.x);
     const centerChunkZ = this.getChunkCoord(centerPosition.z);
-    const key = this.getChunkKey(centerChunkX, centerChunkZ);
 
     this.centerChunkX = centerChunkX;
     this.centerChunkZ = centerChunkZ;
-    this.requestChunkBuild(
-      centerChunkX,
-      centerChunkZ,
-      this.getDesiredChunkSegments(centerChunkX, centerChunkZ),
-      PRIORITY_MISSING_CENTER,
-    );
+    this.scheduleChunks(this.getAllChunkKeys());
 
     await new Promise((resolve) => {
       const advance = () => {
         this.processChunkBuilds();
 
-        if (this.loadedChunks.has(key)) {
+        if (this.loadedChunks.size === CHUNKS_PER_SIDE * CHUNKS_PER_SIDE) {
           resolve();
           return;
         }
@@ -177,25 +165,12 @@ export class Terrain {
     });
   }
 
-  update(centerPosition) {
-    const centerChunkX = this.getChunkCoord(centerPosition.x);
-    const centerChunkZ = this.getChunkCoord(centerPosition.z);
-    this.centerChunkX = centerChunkX;
-    this.centerChunkZ = centerChunkZ;
-    const loadRadius = this.loadedChunks.size === 0 ? INITIAL_CHUNK_RADIUS : this.loadChunkRadius;
-    const loadKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, loadRadius);
-    const keepKeys = this.getChunkKeysInRadius(centerChunkX, centerChunkZ, this.unloadChunkRadius);
-
-    this.scheduleChunks(loadKeys, centerChunkX, centerChunkZ);
+  update() {
     this.scheduleLoadedChunkLods();
-    this.reconcilePendingChunkLods(keepKeys);
-    this.unloadDistantChunks(keepKeys);
     this.processChunkBuilds();
   }
 
   setQualityPreset(preset) {
-    this.loadChunkRadius = preset.loadRadius ?? this.loadChunkRadius;
-    this.unloadChunkRadius = preset.unloadRadius ?? this.unloadChunkRadius;
     this.lodSegments = normalizeLodSegments(preset.lodSegments);
     this.buildBudgetMs = preset.buildBudgetMs ?? this.buildBudgetMs;
     this.shadowProxy.castShadow = preset.useShadowProxy ?? true;
@@ -249,12 +224,11 @@ export class Terrain {
     );
   }
 
-  getChunkKeysInRadius(centerChunkX, centerChunkZ, radius) {
+  getAllChunkKeys() {
     const keys = [];
 
-    for (let z = centerChunkZ - radius; z <= centerChunkZ + radius; z += 1) {
-      for (let x = centerChunkX - radius; x <= centerChunkX + radius; x += 1) {
-        if (x < 0 || x >= CHUNKS_PER_SIDE || z < 0 || z >= CHUNKS_PER_SIDE) continue;
+    for (let z = 0; z < CHUNKS_PER_SIDE; z += 1) {
+      for (let x = 0; x < CHUNKS_PER_SIDE; x += 1) {
         keys.push(this.getChunkKey(x, z));
       }
     }
@@ -262,8 +236,8 @@ export class Terrain {
     return keys;
   }
 
-  scheduleChunks(loadKeys, centerChunkX, centerChunkZ) {
-    for (const key of loadKeys) {
+  scheduleChunks(keys) {
+    for (const key of keys) {
       const { x, z } = this.parseChunkKey(key);
       const segments = this.getDesiredChunkSegments(x, z);
       const priority = this.getChunkBuildPriority(x, z, segments);
@@ -285,25 +259,6 @@ export class Terrain {
         record.chunkZ,
         segments,
         this.getChunkBuildPriority(record.chunkX, record.chunkZ, segments),
-      );
-    }
-  }
-
-  reconcilePendingChunkLods(keepKeys) {
-    const keepKeySet = new Set(keepKeys);
-
-    for (const task of [...this.pendingChunks.values()]) {
-      if (!keepKeySet.has(task.key)) continue;
-
-      const segments = this.getDesiredChunkSegments(task.chunkX, task.chunkZ);
-
-      if (segments === task.segments) continue;
-
-      this.requestChunkBuild(
-        task.chunkX,
-        task.chunkZ,
-        segments,
-        this.getChunkBuildPriority(task.chunkX, task.chunkZ, segments),
       );
     }
   }
@@ -605,32 +560,6 @@ export class Terrain {
     if (!task) return;
     if (task.result) disposeChunkRecord(task.result);
     this.pendingChunks.delete(key);
-  }
-
-  unloadDistantChunks(keepKeys) {
-    const keepKeySet = new Set(keepKeys);
-    const staleKeys = [];
-
-    for (const key of this.pendingChunks.keys()) {
-      if (!keepKeySet.has(key)) {
-        this.cancelPendingChunk(key);
-      }
-    }
-
-    for (const key of this.loadedChunks.keys()) {
-      if (!keepKeySet.has(key)) {
-        staleKeys.push(key);
-      }
-    }
-
-    for (let i = 0; i < Math.min(staleKeys.length, CHUNK_UNLOADS_PER_FRAME); i += 1) {
-      const key = staleKeys[i];
-      const record = this.loadedChunks.get(key);
-
-      this.group.remove(record.surface, record.skirt);
-      disposeChunkRecord(record);
-      this.loadedChunks.delete(key);
-    }
   }
 
   getChunkDistance(chunkX, chunkZ) {

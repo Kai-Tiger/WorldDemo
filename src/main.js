@@ -110,7 +110,7 @@ player.position.x = PLAYER_SPAWN_POSITION.x;
 player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
 applyRenderQuality(renderQuality, false);
-terrain.update(player.position);
+terrain.update();
 scene.add(player.group);
 const playerFillTarget = new THREE.Object3D();
 playerFillTarget.position.y = 1;
@@ -380,7 +380,7 @@ function animate(now) {
   } else {
     player.update(deltaTime, input, camera, terrain);
   }
-  terrain.update(player.position);
+  terrain.update();
   if (toggleTrees.checked) {
     if (treeManager.update(player.position)) {
       sunLight.shadow.needsUpdate = true;

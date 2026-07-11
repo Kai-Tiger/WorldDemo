@@ -85,6 +85,21 @@ test('quality presets keep the center at 256 and use preset values for rings', (
   assert.equal(terrain.buildBudgetMs, 5);
 });
 
+test('full terrain coverage is fixed and does not recenter around player movement', () => {
+  const terrain = createTerrain();
+  const keys = terrain.getAllChunkKeys();
+
+  terrain.centerChunkX = terrain.getChunkCoord(335);
+  terrain.centerChunkZ = terrain.getChunkCoord(-358);
+  const initialCenter = [terrain.centerChunkX, terrain.centerChunkZ];
+  terrain.update({ x: -900, z: 900 });
+
+  assert.equal(keys.length, 64);
+  assert.equal(keys[0], '0,0');
+  assert.equal(keys.at(-1), '7,7');
+  assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], initialCenter);
+});
+
 test('feature floors keep the existing water and the tree river network at full detail', () => {
   const terrain = createTerrain({ minimumSegmentsForChunk: undefined });
   const getSegmentsAt = (x, z) => terrain.getDesiredChunkSegments(
