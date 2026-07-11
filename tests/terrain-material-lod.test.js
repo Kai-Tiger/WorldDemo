@@ -19,11 +19,8 @@ function createTextures() {
     groundDirtNormal: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
-    dryGrassAlbedo: texture,
-    dryGrassNormal: texture,
     gravelAlbedo: texture,
     gravelNormal: texture,
-    blendSplat: texture,
     riverBank: texture,
     riverBed: texture,
   };
@@ -31,11 +28,9 @@ function createTextures() {
 
 function createOptions() {
   return {
-    mapWorldSize: 2048,
     alpineTextureWorldSize: 8,
     groundDirtTextureWorldSize: 7,
     forestFloorTextureWorldSize: 2,
-    dryGrassTextureWorldSize: 6.5,
     gravelTextureWorldSize: 4.5,
     riverBankTextureWorldSize: 6,
     riverBedTextureWorldSize: 5,
@@ -146,19 +141,19 @@ test('road layers reuse terrain textures between the base surface and snow/water
   }
 });
 
-test('Near restores the baked forest floor while lower material LODs keep branch-limited sampling', () => {
+test('every material LOD uses only forest floor on flat lowland terrain', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
-  const nearSource = materials.near.userData.terrainShaderSource.mapFragment;
-  const mediumSource = materials.medium.userData.terrainShaderSource.mapFragment;
-  const farSource = materials.far.userData.terrainShaderSource.mapFragment;
 
-  assert.match(nearSource, /uForestFloorBaseColorTexture/);
-  assert.match(nearSource, /uForestFloorNormalTexture/);
-  assert.doesNotMatch(nearSource, /terrainForestFloorWeight >=/);
-  assert.match(mediumSource, /terrainForestFloorWeight >=/);
-  assert.match(mediumSource, /uForestFloorNormalTexture/);
-  assert.match(farSource, /uForestFloorBaseColorTexture/);
-  assert.doesNotMatch(farSource, /uForestFloorNormalTexture/);
+  for (const material of Object.values(materials)) {
+    const source = material.userData.terrainShaderSource.mapFragment;
+    const groundStart = source.indexOf('if (terrainGroundMask > 0.38)');
+    const rockStart = source.indexOf('else if (terrainAlpineMask > 0.42)');
+    const groundSource = source.slice(groundStart, rockStart);
+
+    assert.match(groundSource, /uForestFloorBaseColorTexture/);
+    assert.doesNotMatch(groundSource, /uDryGrass|uGravel|uGroundDirt/);
+    assert.doesNotMatch(source, /terrainForestFloorWeight|terrainDryGrassWeight|terrainGravelWeight/);
+  }
 });
 
 test('forest-floor grading is local, texture-neutral and shared by every material LOD', () => {

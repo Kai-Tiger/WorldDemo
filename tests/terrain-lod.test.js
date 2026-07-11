@@ -22,11 +22,8 @@ function createTerrain(options = {}) {
     groundDirtNormal: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
-    dryGrassAlbedo: texture,
-    dryGrassNormal: texture,
     gravelAlbedo: texture,
     gravelNormal: texture,
-    blendSplat: texture,
     riverBank: texture,
     riverBed: texture,
   }, {

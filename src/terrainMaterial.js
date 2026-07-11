@@ -78,19 +78,14 @@ uniform sampler2D uGroundDirtAlbedoTexture;
 uniform sampler2D uGroundDirtNormalTexture;
 uniform sampler2D uForestFloorBaseColorTexture;
 uniform sampler2D uForestFloorNormalTexture;
-uniform sampler2D uDryGrassAlbedoTexture;
-uniform sampler2D uDryGrassNormalTexture;
 uniform sampler2D uGravelAlbedoTexture;
 uniform sampler2D uGravelNormalTexture;
-uniform sampler2D uBlendSplatTexture;
 uniform sampler2D uRiverBankTexture;
 uniform sampler2D uRiverBedTexture;
 
-uniform float uMapWorldSize;
 uniform float uAlpineTextureWorldSize;
 uniform float uGroundDirtTextureWorldSize;
 uniform float uForestFloorTextureWorldSize;
-uniform float uDryGrassTextureWorldSize;
 uniform float uGravelTextureWorldSize;
 uniform float uRiverBankTextureWorldSize;
 uniform float uRiverBedTextureWorldSize;
@@ -200,7 +195,7 @@ function createTerrainMapFragment(level) {
   const normalDeclarations = sampleNormal
     ? 'vec3 terrainSurfaceNormal = terrainBaseNormal;'
     : 'vec3 terrainSurfaceNormal = terrainBaseNormal;';
-  const groundBranches = createGroundBranches({ sampleNormal, useBakedForestFloor: isNear });
+  const groundBranches = createGroundBranches({ sampleNormal });
   const roadOverlay = createRoadOverlay({ sampleNormal });
 
   return `
@@ -209,34 +204,12 @@ function createTerrainMapFragment(level) {
 // Compute all cheap masks before entering any texture-heavy material branch.
 vec3 terrainBaseNormal = normalize(vTerrainWorldNormal);
 float terrainHeight = vTerrainWorldPosition.y;
-vec2 terrainMapUv = vTerrainWorldPosition.xz / uMapWorldSize + 0.5;
-float terrainSplat = texture2D(uBlendSplatTexture, terrainMapUv).r;
 float terrainNoisyHeight = terrainHeight + (vTerrainMacro.x - 0.5) * 30.0;
 float terrainFlatMask = smoothstep(0.56, 0.92, terrainBaseNormal.y);
 float terrainLowlandMask = 1.0 - smoothstep(55.0, 90.0, terrainNoisyHeight);
 float terrainGroundMask = smoothstep(0.08, 0.82, vTerrainGroundMask)
   * terrainFlatMask
   * terrainLowlandMask;
-float terrainMoisture = clamp(
-  0.12
-    + terrainSplat * 0.5
-    + (1.0 - smoothstep(65.0, 175.0, terrainNoisyHeight)) * 0.18
-    + vTerrainWaterSystemMask.y * 0.7
-    + vTerrainWaterSystemMask.z * 0.8,
-  0.0,
-  1.0
-);
-float terrainForestFloorWeight = terrainGroundMask
-  * smoothstep(0.28, 0.78, terrainMoisture)
-  * mix(0.4, 1.0, vTerrainMacro.x);
-float terrainDryGrassWeight = terrainGroundMask
-  * (1.0 - smoothstep(0.38, 0.76, terrainMoisture))
-  * smoothstep(18.0, 82.0, terrainNoisyHeight)
-  * mix(0.45, 1.0, 1.0 - terrainSplat);
-float terrainGravelWeight = terrainGroundMask
-  * (1.0 - smoothstep(118.0, 166.0, terrainNoisyHeight))
-  * mix(0.2, 0.82, 1.0 - terrainSplat)
-  * mix(0.65, 1.0, vTerrainMacro.x);
 float terrainRockMask = max(
   1.0 - smoothstep(0.48, 0.72, terrainBaseNormal.y),
   smoothstep(188.0, 258.0, terrainNoisyHeight)
@@ -278,7 +251,6 @@ float terrainWaterBedMask = max(
 
 vec2 terrainDirtUv = vTerrainWorldPosition.xz / uGroundDirtTextureWorldSize;
 vec2 terrainForestFloorUv = vTerrainWorldPosition.xz / uForestFloorTextureWorldSize;
-vec2 terrainDryGrassUv = vTerrainWorldPosition.xz / uDryGrassTextureWorldSize + vec2(-11.4, 6.2);
 vec2 terrainGravelUv = vTerrainWorldPosition.xz / uGravelTextureWorldSize + vec2(4.7, 12.8);
 vec2 terrainAlpineUv = vTerrainWorldPosition.xz / uAlpineTextureWorldSize;
 vec2 terrainSnowUv = vTerrainWorldPosition.xz / (uAlpineTextureWorldSize * 1.35)
@@ -418,7 +390,7 @@ if (terrainRoadMask > 0.01) {
 }`;
 }
 
-function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
+function createGroundBranches({ sampleNormal }) {
   const normal = (texture, uv, strength) => sampleNormal
     ? `terrainSurfaceNormal = normalize(mix(
     terrainBaseNormal,
@@ -427,8 +399,7 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
   ));`
     : '';
 
-  if (useBakedForestFloor) {
-    return `if (terrainGroundMask > 0.38) {
+  return `if (terrainGroundMask > 0.38) {
   terrainBaseColor = sampleTerrainLayer(
     uForestFloorBaseColorTexture,
     terrainForestFloorUv,
@@ -440,36 +411,6 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
   ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.55')}
   terrainRoughness = 0.92;
   terrainOcclusion = 0.96;
-}`;
-  }
-
-  return `if (terrainGroundMask > 0.38) {
-  terrainGroundMacroWeight = 1.0;
-  if (terrainForestFloorWeight >= terrainDryGrassWeight && terrainForestFloorWeight >= terrainGravelWeight) {
-    terrainBaseColor = gradeTerrainForestFloor(
-      sampleTerrainLayer(uForestFloorBaseColorTexture, terrainForestFloorUv, 1.0)
-    ) * mix(1.0, 1.06, vTerrainMacro.x);
-    ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.42')}
-    terrainRoughness = 0.94;
-    terrainOcclusion = 0.96;
-  } else if (terrainDryGrassWeight >= terrainGravelWeight) {
-    terrainBaseColor = sampleTerrainLayer(uDryGrassAlbedoTexture, terrainDryGrassUv, 2.0)
-      * vec3(0.7, 0.74, 0.66);
-    ${normal('uDryGrassNormalTexture', 'terrainDryGrassUv', '0.52')}
-    terrainRoughness = 0.88;
-    terrainOcclusion = 0.97;
-  } else if (terrainGravelWeight > 0.18) {
-    terrainBaseColor = sampleTerrainLayer(uGravelAlbedoTexture, terrainGravelUv, 3.0)
-      * vec3(0.64, 0.69, 0.71);
-    ${normal('uGravelNormalTexture', 'terrainGravelUv', '0.58')}
-    terrainRoughness = 0.9;
-    terrainOcclusion = 0.9;
-  } else {
-    terrainBaseColor = sampleTerrainLayer(uGroundDirtAlbedoTexture, terrainDirtUv, 4.0)
-      * vec3(0.64, 0.67, 0.64);
-    ${normal('uGroundDirtNormalTexture', 'terrainDirtUv', '0.48')}
-    terrainRoughness = 0.9;
-  }
 }`;
 }
 
@@ -488,18 +429,13 @@ function createTerrainUniforms(textures, options) {
     uGroundDirtNormalTexture: { value: textures.groundDirtNormal },
     uForestFloorBaseColorTexture: { value: textures.forestFloorBaseColor },
     uForestFloorNormalTexture: { value: textures.forestFloorNormal },
-    uDryGrassAlbedoTexture: { value: textures.dryGrassAlbedo },
-    uDryGrassNormalTexture: { value: textures.dryGrassNormal },
     uGravelAlbedoTexture: { value: textures.gravelAlbedo },
     uGravelNormalTexture: { value: textures.gravelNormal },
-    uBlendSplatTexture: { value: textures.blendSplat },
     uRiverBankTexture: { value: textures.riverBank },
     uRiverBedTexture: { value: textures.riverBed },
-    uMapWorldSize: { value: options.mapWorldSize },
     uAlpineTextureWorldSize: { value: options.alpineTextureWorldSize },
     uGroundDirtTextureWorldSize: { value: options.groundDirtTextureWorldSize },
     uForestFloorTextureWorldSize: { value: options.forestFloorTextureWorldSize },
-    uDryGrassTextureWorldSize: { value: options.dryGrassTextureWorldSize },
     uGravelTextureWorldSize: { value: options.gravelTextureWorldSize },
     uRiverBankTextureWorldSize: { value: options.riverBankTextureWorldSize },
     uRiverBedTextureWorldSize: { value: options.riverBedTextureWorldSize },

@@ -32,11 +32,8 @@ const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const GROUND_DIRT_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
 const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
 const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
-const DRY_GRASS_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_albedo.png';
-const DRY_GRASS_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/dry_grass_normal.png';
 const GRAVEL_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/gravel_albedo.png';
 const GRAVEL_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/gravel_normal.png';
-const BLEND_SPLAT_TEXTURE_PATH = '/assets/terrain/materials/blend_mask_splat.png';
 const OPTIMIZED_TERRAIN_TEXTURE_PATH = '/assets/terrain/materials/optimized';
 const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
@@ -65,7 +62,6 @@ const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const GROUND_DIRT_TEXTURE_WORLD_SIZE = 16;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
-const DRY_GRASS_TEXTURE_WORLD_SIZE = 20;
 const GRAVEL_TEXTURE_WORLD_SIZE = 12;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
@@ -94,11 +90,9 @@ export class Terrain {
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
     this.materials = createTerrainMaterials(textures, {
-      mapWorldSize: MAP_SIZE,
       alpineTextureWorldSize: ALPINE_TEXTURE_WORLD_SIZE,
       groundDirtTextureWorldSize: GROUND_DIRT_TEXTURE_WORLD_SIZE,
       forestFloorTextureWorldSize: FOREST_FLOOR_TEXTURE_WORLD_SIZE,
-      dryGrassTextureWorldSize: DRY_GRASS_TEXTURE_WORLD_SIZE,
       gravelTextureWorldSize: GRAVEL_TEXTURE_WORLD_SIZE,
       riverBankTextureWorldSize: RIVER_BANK_TEXTURE_WORLD_SIZE,
       riverBedTextureWorldSize: RIVER_BED_TEXTURE_WORLD_SIZE,
@@ -1170,11 +1164,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     groundDirtNormal,
     forestFloorBaseColor,
     forestFloorNormal,
-    dryGrassAlbedo,
-    dryGrassNormal,
     gravelAlbedo,
     gravelNormal,
-    blendSplat,
     riverBank,
     riverBed,
   ] = await Promise.all([
@@ -1185,11 +1176,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     materialTextureLoader.loadAsync(optimizedPath('ground_dirt_normal', GROUND_DIRT_NORMAL_TEXTURE_PATH)),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_basecolor_${tier}.jpg`),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_normal_${tier}.jpg`),
-    materialTextureLoader.loadAsync(optimizedPath('dry_grass_albedo', DRY_GRASS_ALBEDO_TEXTURE_PATH)),
-    materialTextureLoader.loadAsync(optimizedPath('dry_grass_normal', DRY_GRASS_NORMAL_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('gravel_albedo', GRAVEL_ALBEDO_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('gravel_normal', GRAVEL_NORMAL_TEXTURE_PATH)),
-    materialTextureLoader.loadAsync(optimizedPath('blend_mask_splat', BLEND_SPLAT_TEXTURE_PATH)),
     standardTextureLoader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(RIVER_BED_TEXTURE_PATH),
   ]);
@@ -1199,7 +1187,6 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     snow,
     groundDirtAlbedo,
     forestFloorBaseColor,
-    dryGrassAlbedo,
     gravelAlbedo,
     riverBank,
     riverBed,
@@ -1214,18 +1201,13 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     rockNormal,
     groundDirtNormal,
     forestFloorNormal,
-    dryGrassNormal,
     gravelNormal,
-    blendSplat,
   ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.colorSpace = THREE.NoColorSpace;
     texture.anisotropy = anisotropy;
   }
-
-  blendSplat.wrapS = THREE.ClampToEdgeWrapping;
-  blendSplat.wrapT = THREE.ClampToEdgeWrapping;
 
   return {
     rock,
@@ -1235,11 +1217,8 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
     groundDirtNormal,
     forestFloorBaseColor,
     forestFloorNormal,
-    dryGrassAlbedo,
-    dryGrassNormal,
     gravelAlbedo,
     gravelNormal,
-    blendSplat,
     riverBank,
     riverBed,
   };
