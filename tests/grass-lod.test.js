@@ -6,6 +6,7 @@ import {
   LOD_DENSITIES,
   createGrassVariants,
   createPlacement,
+  flipGrassTextureVertically,
   hash2,
   normalizeRibbonGrassGeometry,
   sampleGrassCommunity,
@@ -755,6 +756,19 @@ test('runtime grass loading uses tiered KTX2 maps and Meshopt GLB LODs', async (
   assert.match(source, /GLTFLoader/);
   assert.match(source, /MeshoptDecoder/);
   assert.match(source, /\[0, 1, 2\]/);
+});
+
+test('grass textures flip their vertical sampling coordinate', () => {
+  const texture = new THREE.Texture();
+  const uv = new THREE.Vector2(0.25, 0.2);
+
+  flipGrassTextureVertically(texture);
+  uv.applyMatrix3(texture.matrix);
+
+  assert.equal(texture.offset.y, 1);
+  assert.equal(texture.repeat.y, -1);
+  assert.ok(Math.abs(uv.x - 0.25) < 0.000001);
+  assert.ok(Math.abs(uv.y - 0.8) < 0.000001);
 });
 
 function createModelRoot(geometry = new THREE.PlaneGeometry(1, 1)) {

@@ -116,11 +116,18 @@ async function loadRibbonGrassTextures(compressedTextureLoader, textureTier) {
     texture.wrapT = THREE.ClampToEdgeWrapping;
     texture.colorSpace = colorSpace;
     texture.anisotropy = 8;
+    flipGrassTextureVertically(texture);
 
     return [key, texture];
   }));
 
   return Object.fromEntries(entries);
+}
+
+export function flipGrassTextureVertically(texture) {
+  texture.offset.y = 1;
+  texture.repeat.y = -1;
+  texture.updateMatrix();
 }
 
 async function loadRibbonGrassModels() {
