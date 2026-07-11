@@ -14,6 +14,7 @@ function createTextures() {
   return {
     rock: texture,
     rockNormal: texture,
+    snow: texture,
     groundDirtAlbedo: texture,
     groundDirtNormal: texture,
     forestFloorBaseColor: texture,
@@ -81,7 +82,8 @@ function createChunkTask(segments) {
 }
 
 test('terrain material factory creates shared Near, Medium and Far variants with locked budgets', () => {
-  const materials = createTerrainMaterials(createTextures(), createOptions());
+  const textures = createTextures();
+  const materials = createTerrainMaterials(textures, createOptions());
 
   assert.ok(materials.near instanceof THREE.MeshStandardMaterial);
   assert.ok(materials.medium instanceof THREE.MeshStandardMaterial);
@@ -97,6 +99,9 @@ test('terrain material factory creates shared Near, Medium and Far variants with
   assert.equal(materials.near.userData.terrainReceivesShadow, true);
   assert.equal(materials.medium.userData.terrainReceivesShadow, true);
   assert.equal(materials.far.userData.terrainReceivesShadow, false);
+  assert.equal(materials.near.userData.terrainUniforms.uSnowTexture.value, textures.snow);
+  assert.equal(materials.medium.userData.terrainUniforms.uSnowTexture.value, textures.snow);
+  assert.equal(materials.far.userData.terrainUniforms.uSnowTexture.value, textures.snow);
 });
 
 test('all material variants compute masks before sampling branches and preserve water masks', () => {
@@ -142,7 +147,7 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
     const gradeEnd = fragmentParameters.indexOf('\n}', gradeStart);
     const gradeSource = fragmentParameters.slice(gradeStart, gradeEnd);
     const groundStart = mapFragment.indexOf('if (terrainGroundMask > 0.38)');
-    const rockStart = mapFragment.indexOf('else if (terrainRockMask > 0.42)');
+    const rockStart = mapFragment.indexOf('else if (terrainAlpineMask > 0.42)');
     const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
 
     assert.ok(gradeStart >= 0);
@@ -157,14 +162,55 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
   }
 });
 
+test('every material LOD uses one world-space snow sample over an alpine rock base', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
+    const alpineStart = mapFragment.indexOf('else if (terrainAlpineMask > 0.42)');
+    const fallbackDirtStart = mapFragment.indexOf('} else {', alpineStart);
+    const macroStart = mapFragment.indexOf('terrainBaseColor *= mix(');
+    const snowOverlayStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
+    const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
+
+    assert.match(fragmentParameters, /uniform sampler2D uSnowTexture;/);
+    assert.match(mapFragment, /float terrainSnowLineHeight = terrainHeight/);
+    assert.match(mapFragment, /1\.0 - smoothstep\(55\.0, 90\.0, terrainNoisyHeight\)/);
+    assert.match(mapFragment, /smoothstep\(55\.0, 130\.0, terrainSnowLineHeight\)/);
+    assert.match(mapFragment, /smoothstep\(0\.30, 0\.78, terrainBaseNormal\.y\)/);
+    assert.match(mapFragment, /smoothstep\(45\.0, 80\.0, terrainNoisyHeight\)/);
+    assert.match(mapFragment, /uAlpineTextureWorldSize \* 1\.35/);
+    assert.equal((mapFragment.match(/texture2D\(uSnowTexture, terrainSnowUv\)/g) ?? []).length, 1);
+    assert.doesNotMatch(mapFragment, /sampleTerrainLayer\(uSnowTexture/);
+    assert.ok(alpineStart >= 0);
+    assert.ok(fallbackDirtStart > alpineStart);
+    assert.ok(macroStart > fallbackDirtStart);
+    assert.ok(snowOverlayStart > macroStart);
+    assert.ok(waterOverrideStart > snowOverlayStart);
+    assert.doesNotMatch(
+      mapFragment.slice(alpineStart, fallbackDirtStart),
+      /terrainGroundMacroWeight = 1\.0;/,
+    );
+  }
+});
+
+test('snowline coverage keeps low terrain and cliffs bare while covering high gentle slopes', () => {
+  assert.equal(getSnowlineCoverage(35, 0.9), 0);
+  assert.ok(getSnowlineCoverage(90, 0.9) >= 0.4);
+  assert.ok(getSnowlineCoverage(90, 0.9) <= 0.55);
+  assert.equal(getSnowlineCoverage(140, 0.9), 1);
+  assert.equal(getSnowlineCoverage(140, 0.25), 0);
+  assert.ok(getSnowlineCoverage(140, 0.5) >= 0.2);
+  assert.ok(getSnowlineCoverage(140, 0.5) <= 0.35);
+});
+
 test('terrain macro midtone lift only affects supported ground layers before water overrides', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
   for (const material of Object.values(materials)) {
     const source = material.userData.terrainShaderSource.mapFragment;
-    const rockStart = source.indexOf('else if (terrainRockMask > 0.42)');
-    const snowStart = source.indexOf('else if (terrainSnowMask > 0.5)');
-    const fallbackDirtStart = source.indexOf('} else {', snowStart);
+    const alpineStart = source.indexOf('else if (terrainAlpineMask > 0.42)');
+    const fallbackDirtStart = source.indexOf('} else {', alpineStart);
     const macroStart = source.indexOf('terrainBaseColor *= mix(');
     const waterOverrideStart = source.indexOf('// River, lake, snowmelt and plunge masks');
 
@@ -177,16 +223,28 @@ test('terrain macro midtone lift only affects supported ground layers before wat
       /terrainGroundMacroWeight \* \(1\.0 - max\(terrainWaterBankMask, terrainWaterBedMask\)\)/,
     );
     assert.doesNotMatch(source, /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
-    assert.ok(rockStart >= 0);
-    assert.ok(snowStart > rockStart);
-    assert.ok(fallbackDirtStart > snowStart);
-    assert.doesNotMatch(source.slice(rockStart, snowStart), /terrainGroundMacroWeight = 1\.0;/);
-    assert.doesNotMatch(source.slice(snowStart, fallbackDirtStart), /terrainGroundMacroWeight = 1\.0;/);
+    assert.ok(alpineStart >= 0);
+    assert.ok(fallbackDirtStart > alpineStart);
+    assert.doesNotMatch(source.slice(alpineStart, fallbackDirtStart), /terrainGroundMacroWeight = 1\.0;/);
     assert.ok(macroStart > fallbackDirtStart);
     assert.ok(waterOverrideStart > macroStart);
     assert.doesNotMatch(source.slice(waterOverrideStart), /mix\(0\.96, 1\.05, vTerrainMacro\.w\)/);
   }
 });
+
+function getSnowlineCoverage(height, normalY, macroX = 0.5, macroZ = 0.5) {
+  const snowLineHeight = height + (macroX - 0.5) * 24 + (macroZ - 0.5) * 8;
+  const elevation = smoothstep(55, 130, snowLineHeight);
+  const slope = smoothstep(0.3, 0.78, normalY);
+
+  return smoothstep(0.12, 0.88, elevation * slope + (macroZ - 0.5) * 0.22);
+}
+
+function smoothstep(edge0, edge1, value) {
+  const amount = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
+
+  return amount * amount * (3 - 2 * amount);
+}
 
 test('material selection follows chunk geometry resolution', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());

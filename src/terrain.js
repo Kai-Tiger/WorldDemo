@@ -21,6 +21,7 @@ import { MAP_SIZE } from './vegetationConfig.js';
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
+const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const GROUND_DIRT_ALBEDO_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_albedo.png';
 const GROUND_DIRT_NORMAL_TEXTURE_PATH = '/assets/terrain/materials/ground_dirt_normal.png';
 const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
@@ -1217,6 +1218,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   const [
     rock,
     rockNormal,
+    snow,
     groundDirtAlbedo,
     groundDirtNormal,
     forestFloorBaseColor,
@@ -1231,6 +1233,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   ] = await Promise.all([
     standardTextureLoader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
+    standardTextureLoader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
     materialTextureLoader.loadAsync(optimizedPath('ground_dirt_albedo', GROUND_DIRT_ALBEDO_TEXTURE_PATH)),
     materialTextureLoader.loadAsync(optimizedPath('ground_dirt_normal', GROUND_DIRT_NORMAL_TEXTURE_PATH)),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_basecolor_${tier}.jpg`),
@@ -1246,6 +1249,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
 
   for (const texture of [
     rock,
+    snow,
     groundDirtAlbedo,
     forestFloorBaseColor,
     dryGrassAlbedo,
@@ -1279,6 +1283,7 @@ async function loadTerrainTextures(compressedTextureLoader, textureTier, texture
   return {
     rock,
     rockNormal,
+    snow,
     groundDirtAlbedo,
     groundDirtNormal,
     forestFloorBaseColor,
