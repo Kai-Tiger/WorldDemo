@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import * as THREE from 'three';
 import {
+  getGtaoExcludedRoots,
   getPhysicalRenderSize,
   getPhysicalTexelSize,
   getPostProcessingPassOrder,
+  renderWithGtaoExclusions,
 } from '../src/postProcessing.js';
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 
@@ -36,6 +39,31 @@ test('color-grade texel size follows scaled composer physical dimensions', () =>
   assert.deepEqual(getPhysicalTexelSize(100, 80, 1.25), { x: 1 / 125, y: 1 / 100 });
   assert.deepEqual(getPhysicalTexelSize(100, 80, 1.25 * 0.75), { x: 1 / 93, y: 1 / 75 });
   assert.deepEqual(getPhysicalRenderSize(100, 80, 1.25 * 0.75), { width: 93, height: 75 });
+});
+
+test('GTAO temporarily hides only explicitly excluded roots and always restores visibility', () => {
+  const scene = new THREE.Scene();
+  const water = new THREE.Group();
+  const foam = new THREE.Group();
+  const grass = new THREE.Group();
+
+  water.userData.excludeFromGtao = true;
+  foam.userData.excludeFromGtao = true;
+  foam.visible = false;
+  scene.add(water, foam, grass);
+
+  const excludedRoots = getGtaoExcludedRoots(scene);
+
+  assert.deepEqual(excludedRoots, [water, foam]);
+  assert.throws(() => renderWithGtaoExclusions(excludedRoots, () => {
+    assert.equal(water.visible, false);
+    assert.equal(foam.visible, false);
+    assert.equal(grass.visible, true);
+    throw new Error('render failed');
+  }), /render failed/);
+  assert.equal(water.visible, true);
+  assert.equal(foam.visible, false);
+  assert.equal(grass.visible, true);
 });
 
 test('quality presets lock resolution, AA, AO, streaming and shadow budgets', () => {

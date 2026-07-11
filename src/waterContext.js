@@ -125,6 +125,7 @@ export function createWaterRenderController({
 
   probeCamera.position.set(300, 36, -400);
   reflector.name = 'AlpineLakePlanarReflectionCapture';
+  reflector.userData.excludeFromGtao = true;
   reflector.position.set(300, 31.015, -400);
   reflector.rotation.x = -Math.PI * 0.5;
   reflector.renderOrder = WATER_RENDER_ORDER.wetBank - 1;

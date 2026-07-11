@@ -246,6 +246,8 @@ function createGtaoPass(scene, camera, settings) {
     samples: denoiseSamples,
   });
   const resizeGtao = pass.setSize.bind(pass);
+  const renderGtao = pass.render.bind(pass);
+  const excludedRoots = getGtaoExcludedRoots(scene);
 
   pass.setSize = (width, height) => {
     resizeGtao(
@@ -253,10 +255,35 @@ function createGtaoPass(scene, camera, settings) {
       Math.max(1, Math.floor(height * resolutionScale)),
     );
   };
+  pass.render = (...args) => renderWithGtaoExclusions(
+    excludedRoots,
+    () => renderGtao(...args),
+  );
   pass.output = GTAOPass.OUTPUT.Default;
   pass.blendIntensity = settings.gtaoIntensity ?? 0.32;
 
   return pass;
+}
+
+export function getGtaoExcludedRoots(scene) {
+  const excludedRoots = [];
+
+  scene.traverse((object) => {
+    if (object.userData.excludeFromGtao === true) excludedRoots.push(object);
+  });
+
+  return excludedRoots;
+}
+
+export function renderWithGtaoExclusions(excludedRoots, render) {
+  const visibility = excludedRoots.map((root) => root.visible);
+
+  try {
+    excludedRoots.forEach((root) => { root.visible = false; });
+    return render();
+  } finally {
+    excludedRoots.forEach((root, index) => { root.visible = visibility[index]; });
+  }
 }
 
 function clampResolutionScale(scale, quality) {

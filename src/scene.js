@@ -50,6 +50,10 @@ export async function createScene(renderer, quality) {
   scene.add(waterSystem.group);
 
   const smallLakes = createSmallLakes(terrain);
+
+  water.userData.excludeFromGtao = true;
+  waterSystem.group.userData.excludeFromGtao = true;
+  smallLakes.userData.excludeFromGtao = true;
   scene.add(smallLakes);
 
   const clouds = Clouds.create();
