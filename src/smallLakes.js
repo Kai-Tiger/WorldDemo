@@ -243,8 +243,8 @@ function createLakeGeometry(lake, waterLevel, lr) {
       if (ring === 0) {
         indices.push(0, next, curr);
       } else {
-        indices.push(currInner, curr, nextInner);
-        indices.push(nextInner, curr, next);
+        indices.push(currInner, nextInner, curr);
+        indices.push(nextInner, next, curr);
       }
     }
   }

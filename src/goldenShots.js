@@ -24,6 +24,11 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 365, z: -322, y: 88 },
     target: { x: 300, z: -400, y: 38 },
   },
+  'terminal-lake-overhead': {
+    player: { x: 720, z: -340 },
+    camera: { x: 690, z: -340, y: 55 },
+    target: { x: 690, z: -340, y: -1.235 },
+  },
 });
 
 export function getGoldenShotFromLocation(location = window.location) {
