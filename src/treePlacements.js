@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
+import { isInMountainTrailTreeExclusion } from './mountainTrailNetwork.js';
 import { hash2, sampleTerrainSurface } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
@@ -321,6 +322,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
                   !isInRiverGrassExclusion(x, z, RIVER_BUFFER)
                   && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER)
                   && !isInSmallLakeExclusion(x, z)
+                  && !isInMountainTrailTreeExclusion(x, z)
                 ) {
                   if (!isTooClose(x, z, occupied)) {
                     markOccupied(x, z, occupied);

@@ -20,6 +20,7 @@ attribute float riverUnderwaterMask;
 attribute vec2 riverBedCoord;
 attribute vec4 waterSystemMask;
 attribute float smallLakesMask;
+attribute float mountainTrailMask;
 
 varying vec2 vTerrainRiverBedCoord;
 varying vec3 vTerrainWorldPosition;
@@ -30,6 +31,7 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
+varying float vTerrainMountainTrailMask;
 varying vec4 vTerrainMacro;
 
 float terrainVertexHash(vec2 value) {
@@ -59,6 +61,7 @@ vTerrainRiverBedMask = riverBedMask;
 vTerrainRiverUnderwaterMask = riverUnderwaterMask;
 vTerrainWaterSystemMask = waterSystemMask;
 vTerrainSmallLakesMask = smallLakesMask;
+vTerrainMountainTrailMask = mountainTrailMask;
 vTerrainMacro = vec4(
   terrainVertexNoise(terrainWorldPosition.xz * 0.012 + vec2(2.8, -7.1)),
   terrainVertexNoise(terrainWorldPosition.xz * 0.0065 + vec2(-8.0, 4.0)),
@@ -90,6 +93,7 @@ varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
+varying float vTerrainMountainTrailMask;
 varying vec4 vTerrainMacro;
 
 float terrainHash(vec2 value) {
@@ -426,6 +430,32 @@ if (terrainSnowCoverage > 0.01) {
   terrainOcclusion = mix(terrainOcclusion, 1.0, terrainSnowCoverage);
 }
 
+float terrainMountainTrailMask = smoothstep(0.05, 0.95, vTerrainMountainTrailMask);
+if (terrainMountainTrailMask > 0.01) {
+  float terrainTrailLuminance = dot(terrainBaseColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 terrainTrailColor = mix(
+    vec3(terrainTrailLuminance),
+    terrainBaseColor,
+    0.72
+  ) * vec3(0.91, 0.89, 0.85);
+  terrainBaseColor = mix(
+    terrainBaseColor,
+    terrainTrailColor,
+    terrainMountainTrailMask * 0.62
+  );
+  terrainSurfaceNormal = normalize(mix(
+    terrainSurfaceNormal,
+    terrainBaseNormal,
+    terrainMountainTrailMask * 0.26
+  ));
+  terrainRoughness = mix(
+    terrainRoughness,
+    min(1.0, terrainRoughness + 0.04),
+    terrainMountainTrailMask
+  );
+  terrainOcclusion = mix(terrainOcclusion, 0.98, terrainMountainTrailMask);
+}
+
 // River, lake, snowmelt and plunge masks stay active in every material LOD.
 if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
   vec3 terrainBankColor = terrainBaseColor;
@@ -595,7 +625,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v8-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v9-${level}`;
 
   return material;
 }

@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { isInRiverGrassExclusion } from './riverChannel.js';
 import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
+import { isInMountainTrailGrassExclusion } from './mountainTrailNetwork.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
   MAP_SIZE,
@@ -536,12 +537,14 @@ export function generatePlacementsInRect(terrain, minX, minZ, maxX, maxZ, densit
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(x, z)) continue;
+      if (isInMountainTrailGrassExclusion(x, z)) continue;
 
       const clustered = getClusteredOffset(x, z, gridX, gridZ, patches);
 
       if (isInRiverGrassExclusion(clustered.x, clustered.z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(clustered.x, clustered.z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(clustered.x, clustered.z)) continue;
+      if (isInMountainTrailGrassExclusion(clustered.x, clustered.z)) continue;
 
       const clusteredInfluence = getPatchInfluenceAt(clustered.x, clustered.z, patches);
       placements.push(createPlacement(terrain, clustered.x, clustered.z, gridX, gridZ, clusteredInfluence));
@@ -979,6 +982,7 @@ function createGrassPlacements(terrain) {
       if (isInRiverGrassExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInWaterSystemVegetationExclusion(x, z, RIVER_BUFFER)) continue;
       if (isInSmallLakeExclusion(x, z)) continue;
+      if (isInMountainTrailGrassExclusion(x, z)) continue;
 
       const clusteredInfluence = getPatchInfluenceAt(clusteredOffset.x, clusteredOffset.z, patches);
       placements.push(createPlacement(terrain, x, z, gridX, gridZ, clusteredInfluence));

@@ -299,7 +299,8 @@ export class Player {
     );
     const nextGroundHeight = Math.min(nextCenterHeight, nextFrontHeight);
 
-    return nextGroundHeight < currentGroundHeight - LEDGE_DROP_THRESHOLD;
+    return nextGroundHeight < currentGroundHeight - LEDGE_DROP_THRESHOLD
+      && !this.canStandAt(terrain, nextX, nextZ);
   }
 
   updateVerticalMotion(deltaTime, groundHeight) {

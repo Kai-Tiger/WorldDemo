@@ -15,9 +15,10 @@ import {
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
 import {
-  applyNaturalMountainPassTerrain,
-  getNaturalMountainPassMinimumSegmentsForBounds,
-} from './naturalMountainPass.js';
+  applyMountainTrailTerrain,
+  getMountainTrailMaterialMask,
+  getMountainTrailMinimumSegmentsForBounds,
+} from './mountainTrailNetwork.js';
 import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
@@ -918,6 +919,7 @@ export class Terrain {
     const riverFrame = getRiverMaterialFrame(sample.baseHeight, worldX, worldZ);
     const waterSystemFrame = getWaterSystemMaterialFrame(sample.baseHeight, worldX, worldZ);
     const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
+    const mountainTrailMask = getMountainTrailMaterialMask(worldX, worldZ);
     const worldSpaceWaterBedMask = Math.max(
       smallLakesMask,
       waterSystemFrame.riverNetworkBedMask,
@@ -948,6 +950,7 @@ export class Terrain {
     arrays.waterSystemMasks[waterMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
     arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
     arrays.smallLakeMasks[vertexIndex] = worldSpaceWaterBedMask;
+    arrays.mountainTrailMasks[vertexIndex] = mountainTrailMask;
   }
 
   sampleSurfaceAt(x, z, target = {}, surfaceHeightCache = null) {
@@ -1005,8 +1008,8 @@ export class Terrain {
   }
 
   getSurfaceHeightFromBase(baseHeight, x, z) {
-    const mountainPassHeight = applyNaturalMountainPassTerrain(baseHeight, x, z);
-    const waterSystemHeight = applyWaterSystemTerrain(mountainPassHeight, x, z);
+    const mountainTrailHeight = applyMountainTrailTerrain(baseHeight, x, z);
+    const waterSystemHeight = applyWaterSystemTerrain(mountainTrailHeight, x, z);
     const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
     return applyRiverChannel(smallLakesHeight, x, z);
@@ -1266,6 +1269,7 @@ function createChunkArrays(segments) {
     riverBedCoords: new Float32Array(vertexCount * 2),
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
+    mountainTrailMasks: new Float32Array(vertexCount),
     indices: new Uint32Array(segments * segments * 6),
   };
 }
@@ -1334,6 +1338,7 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
+  geometry.setAttribute('mountainTrailMask', new THREE.BufferAttribute(arrays.mountainTrailMasks, 1));
   geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
   geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
   return geometry;
@@ -1483,10 +1488,10 @@ function disposeChunkRecord(record) {
 function disableRaycast() {}
 
 function getConservativeMinimumChunkSegments(bounds) {
-  const mountainPassMinimum = getNaturalMountainPassMinimumSegmentsForBounds(bounds);
+  const mountainTrailMinimum = getMountainTrailMinimumSegmentsForBounds(bounds);
   const waterMinimum = getWaterSystemMinimumSegmentsForBounds(bounds);
 
-  return Math.max(mountainPassMinimum, waterMinimum);
+  return Math.max(mountainTrailMinimum, waterMinimum);
 }
 
 function getCurrentTime() {

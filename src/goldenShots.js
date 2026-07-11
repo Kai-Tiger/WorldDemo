@@ -29,6 +29,21 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 454, z: -407, heightOffset: 6 },
     target: { x: 414, z: -372, y: 14 },
   },
+  'mountain-east': {
+    player: { x: 245, z: -135 },
+    camera: { x: 286, z: -178, y: 181 },
+    target: { x: 163, z: -78, y: 218 },
+  },
+  'mountain-west-loop': {
+    player: { x: -460, z: -380 },
+    camera: { x: -405, z: -454, y: 278 },
+    target: { x: -555, z: -350, y: 263 },
+  },
+  'mountain-south-loop': {
+    player: { x: -105, z: -635 },
+    camera: { x: 40, z: -820, y: 360 },
+    target: { x: -153, z: -665, y: 250 },
+  },
   'river-tree-j1': {
     player: { x: 45, z: -370 },
     camera: { x: 55, z: -390, y: 68 },

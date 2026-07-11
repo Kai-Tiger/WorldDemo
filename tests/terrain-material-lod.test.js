@@ -65,6 +65,7 @@ function createChunkTask(segments) {
       riverBedCoords: new Float32Array(vertexCount * 2),
       waterSystemMasks: new Float32Array(vertexCount * 4),
       smallLakeMasks: new Float32Array(vertexCount),
+      mountainTrailMasks: new Float32Array(vertexCount),
       indices: new Uint32Array(segments * segments * 6),
     },
   };
@@ -125,6 +126,7 @@ test('terrain materials omit road attributes and gravel sampling', () => {
     const baseSurfaceStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
     const baseSurfaceEnd = mapFragment.indexOf('terrainBaseColor *= mix(');
     const snowStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
+    const mountainTrailStart = mapFragment.indexOf('float terrainMountainTrailMask');
     const waterStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
     const baseSurfaceSource = mapFragment.slice(baseSurfaceStart, baseSurfaceEnd);
 
@@ -133,13 +135,18 @@ test('terrain materials omit road attributes and gravel sampling', () => {
     assert.doesNotMatch(fragmentParameters, /road|gravel/i);
     assert.doesNotMatch(mapFragment, /road|gravel/i);
     assert.doesNotMatch(baseSurfaceSource, /GroundDirt|groundDirt/);
+    assert.match(vertexParameters, /attribute float mountainTrailMask;/);
+    assert.match(vertexAssignments, /vTerrainMountainTrailMask = mountainTrailMask;/);
+    assert.match(fragmentParameters, /varying float vTerrainMountainTrailMask;/);
+    assert.match(mapFragment, /terrainMountainTrailMask \* 0\.62/);
     assert.equal(
       Object.keys(material.userData.terrainUniforms).some((name) => /road|gravel/i.test(name)),
       false,
     );
     assert.ok(baseSurfaceStart >= 0);
     assert.ok(snowStart > baseSurfaceEnd);
-    assert.ok(waterStart > snowStart);
+    assert.ok(mountainTrailStart > snowStart);
+    assert.ok(waterStart > mountainTrailStart);
   }
 });
 
@@ -267,7 +274,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v8-${level}`);
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v9-${level}`);
   }
 });
 
@@ -398,6 +405,9 @@ test('Terrain assigns the same material and shadow behavior to every geometry LO
   assert.equal(near.surface.geometry.getAttribute('roadFrame'), undefined);
   assert.equal(medium.surface.geometry.getAttribute('roadFrame'), undefined);
   assert.equal(far.surface.geometry.getAttribute('roadFrame'), undefined);
+  assert.equal(near.surface.geometry.getAttribute('mountainTrailMask').itemSize, 1);
+  assert.equal(medium.surface.geometry.getAttribute('mountainTrailMask').itemSize, 1);
+  assert.equal(far.surface.geometry.getAttribute('mountainTrailMask').itemSize, 1);
   assert.equal(near.surface.receiveShadow, true);
   assert.equal(medium.surface.receiveShadow, true);
   assert.equal(far.surface.receiveShadow, true);
