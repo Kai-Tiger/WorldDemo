@@ -158,6 +158,20 @@ test('source and lake-entry ends fade while steep reaches transition out', () =>
   assert.ok(moderateFade.getX(moderateMiddle) < 1);
 });
 
+test('the alpine inlet fades only after overlapping the lake surface', () => {
+  const lake = RIVER_NETWORK.nodeById.get('alpine-lake');
+  const inlet = RIVER_NETWORK.reachById.get('j4-alpine-lake');
+  const endpoint = inlet.samples.at(-1);
+  const lakeCenter = lake.center ?? lake.position;
+  const endpointRadius = Math.hypot(
+    endpoint.point.x - lakeCenter[0],
+    endpoint.point.z - lakeCenter[1],
+  );
+  const fadeLength = Math.max(7, endpoint.width * 2);
+
+  assert.ok(endpointRadius <= lake.radius - fadeLength);
+});
+
 test('four trimmed confluences use non-overlapping upward Y patches', () => {
   const { geometry, stats } = result;
   const position = geometry.getAttribute('position');
