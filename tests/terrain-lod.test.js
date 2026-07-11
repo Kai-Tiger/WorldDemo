@@ -87,15 +87,19 @@ test('quality presets keep the center at 256 and use preset values for rings', (
 
 test('feature floors keep the existing water and the tree river network at full detail', () => {
   const terrain = createTerrain({ minimumSegmentsForChunk: undefined });
+  const getSegmentsAt = (x, z) => terrain.getDesiredChunkSegments(
+    terrain.getChunkCoord(x),
+    terrain.getChunkCoord(z),
+  );
 
   terrain.setQualityPreset({ lodSegments: [256, 128, 64] });
-  terrain.centerChunkX = 3;
-  terrain.centerChunkZ = 3;
+  terrain.centerChunkX = terrain.getChunkCoord(0);
+  terrain.centerChunkZ = terrain.getChunkCoord(0);
 
-  assert.equal(terrain.getDesiredChunkSegments(3, 0), 256);
-  assert.equal(terrain.getDesiredChunkSegments(5, 0), 128);
-  assert.equal(terrain.getDesiredChunkSegments(1, 1), 256);
-  assert.equal(terrain.getDesiredChunkSegments(0, 5), 64);
+  assert.equal(getSegmentsAt(128, -640), 256);
+  assert.equal(getSegmentsAt(640, -640), 128);
+  assert.equal(getSegmentsAt(-384, -384), 256);
+  assert.equal(getSegmentsAt(-640, 640), 64);
 });
 
 test('build priorities order center recovery before visible, upgrades, and downgrades', () => {
