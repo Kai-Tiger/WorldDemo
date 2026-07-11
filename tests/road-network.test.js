@@ -37,6 +37,28 @@ test('road material frames distinguish the two authored surfaces', () => {
   });
 });
 
+test('road material mask fades monotonically across multiple terrain vertices', () => {
+  const route = ROAD_ROUTES.find(({ id }) => id === 'mountain-access-trail');
+  const curve = new THREE.CatmullRomCurve3(
+    route.points.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+    false,
+    'centripetal',
+  );
+  const point = curve.getPointAt(0.5);
+  const tangent = curve.getTangentAt(0.5).normalize();
+  const sampleMask = (offset) => getRoadMaterialFrame(
+    point.x - tangent.z * offset,
+    point.z + tangent.x * offset,
+  ).trailMask;
+  const center = sampleMask(0);
+  const feather = sampleMask(route.width * 0.5);
+  const outside = sampleMask(route.width * 0.5 + 1.6);
+
+  assert.ok(center > 0.95);
+  assert.ok(feather > 0 && feather < center);
+  assert.equal(outside, 0);
+});
+
 test('road vegetation exclusion follows the route and supports edge buffers', () => {
   assert.equal(isInRoadVegetationExclusion(539, -342), true);
   assert.equal(isInRoadVegetationExclusion(539, -337), false);

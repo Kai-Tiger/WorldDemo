@@ -18,8 +18,6 @@ function createTerrain(options = {}) {
   return new Terrain(heightData, size, size, {
     rock: texture,
     rockNormal: texture,
-    groundDirtAlbedo: texture,
-    groundDirtNormal: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
     gravelAlbedo: texture,

@@ -15,8 +15,6 @@ function createTextures() {
     rock: texture,
     rockNormal: texture,
     snow: texture,
-    groundDirtAlbedo: texture,
-    groundDirtNormal: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
     gravelAlbedo: texture,
@@ -29,7 +27,6 @@ function createTextures() {
 function createOptions() {
   return {
     alpineTextureWorldSize: 8,
-    groundDirtTextureWorldSize: 7,
     forestFloorTextureWorldSize: 2,
     gravelTextureWorldSize: 4.5,
     riverBankTextureWorldSize: 6,
@@ -119,12 +116,12 @@ test('all material variants compute masks before sampling branches and preserve 
   }
 });
 
-test('road layers reuse terrain textures between the base surface and snow/water overrides', () => {
+test('road layers use only gravel between the base surface and snow/water overrides', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
   for (const material of Object.values(materials)) {
     const { vertexParameters, fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
-    const baseSurfaceStart = mapFragment.indexOf('if (terrainGroundMask >= 0.62)');
+    const baseSurfaceStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
     const baseSurfaceEnd = mapFragment.indexOf('terrainBaseColor *= mix(');
     const roadStart = mapFragment.indexOf('float terrainRoadBreakup');
     const snowStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
@@ -135,9 +132,13 @@ test('road layers reuse terrain textures between the base surface and snow/water
     assert.match(vertexParameters, /attribute vec4 roadFrame;/);
     assert.match(fragmentParameters, /varying vec4 vTerrainRoadFrame;/);
     assert.doesNotMatch(fragmentParameters, /uRoadTexture/);
-    assert.doesNotMatch(baseSurfaceSource, /uGroundDirtAlbedoTexture|uGravelAlbedoTexture/);
-    assert.match(roadSource, /uGroundDirtAlbedoTexture/);
+    assert.doesNotMatch(baseSurfaceSource, /uGravelAlbedoTexture/);
+    assert.doesNotMatch(`${fragmentParameters}\n${mapFragment}`, /GroundDirt|groundDirt/);
     assert.match(roadSource, /uGravelAlbedoTexture/);
+    assert.match(fragmentParameters, /uGravelNormalTexture/);
+    assert.doesNotMatch(roadSource, /terrainRoadDirt/);
+    assert.match(roadSource, /clamp\(vTerrainRoadFrame\.x \* terrainRoadBreakup, 0\.0, 1\.0\)/);
+    assert.match(roadSource, /clamp\(vTerrainRoadFrame\.y \* terrainRoadBreakup, 0\.0, 1\.0\)/);
     assert.match(mapFragment, /abs\(abs\(vTerrainRoadFrame\.w\) - 0\.45\)/);
     assert.ok(baseSurfaceStart >= 0);
     assert.ok(roadStart > baseSurfaceEnd);
@@ -151,8 +152,8 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
 
   for (const material of Object.values(materials)) {
     const source = material.userData.terrainShaderSource.mapFragment;
-    const groundStart = source.indexOf('if (terrainGroundMask >= 0.62)');
-    const transitionStart = source.indexOf('else if (terrainGroundMask > 0.18)', groundStart);
+    const groundStart = source.indexOf('if (terrainGrassBlendMask >= 0.74)');
+    const transitionStart = source.indexOf('else if (terrainGrassBlendMask > 0.10)', groundStart);
     const rockStart = source.indexOf('\nelse {', transitionStart);
     const baseSurfaceEnd = source.indexOf('terrainBaseColor *= mix(');
     const grassSource = source.slice(groundStart, transitionStart);
@@ -160,10 +161,12 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
     const rockSource = source.slice(rockStart, baseSurfaceEnd);
     const naturalSurfaceSource = source.slice(groundStart, baseSurfaceEnd);
 
-    assert.match(source, /float terrainGrassBlend = smoothstep\(0\.18, 0\.62, terrainGroundMask\);/);
+    assert.match(source, /float terrainGrassBlendMask = clamp\(/);
+    assert.match(source, /terrainGroundMask \+ \(vTerrainMacro\.z - 0\.5\) \* 0\.10/);
+    assert.match(source, /float terrainGrassBlend = smoothstep\(0\.10, 0\.74, terrainGrassBlendMask\);/);
     assert.match(grassSource, /uForestFloorBaseColorTexture/);
     assert.doesNotMatch(grassSource, /sampleTerrainRock|uRockTexture/);
-    assert.doesNotMatch(grassSource, /uDryGrass|uGravel|uGroundDirt/);
+    assert.doesNotMatch(grassSource, /uDryGrass|uGravel|GroundDirt/);
     assert.match(transitionSource, /vec3 terrainGrassColor/);
     assert.match(transitionSource, /vec3 terrainRockColor/);
     assert.match(transitionSource, /sampleTerrainForestFloorColor\(/);
@@ -178,7 +181,7 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
     assert.doesNotMatch(rockSource, /sampleTerrainForestFloor|uForestFloor/);
     assert.doesNotMatch(
       naturalSurfaceSource,
-      /uGroundDirtAlbedoTexture|uGroundDirtNormalTexture/,
+      /GroundDirt|groundDirt/,
     );
     assert.doesNotMatch(source, /terrainRockMask|terrainAlpineMask/);
     assert.doesNotMatch(source, /terrainForestFloorWeight|terrainDryGrassWeight|terrainGravelWeight/);
@@ -197,7 +200,7 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
     const gradeStart = fragmentParameters.indexOf('vec3 gradeTerrainForestFloor');
     const gradeEnd = fragmentParameters.indexOf('\n}', gradeStart);
     const gradeSource = fragmentParameters.slice(gradeStart, gradeEnd);
-    const groundStart = mapFragment.indexOf('if (terrainGroundMask >= 0.62)');
+    const groundStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
     const baseSurfaceEnd = mapFragment.indexOf('terrainBaseColor *= mix(');
     const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
 
@@ -218,8 +221,8 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
 
   for (const [level, material] of Object.entries(materials)) {
     const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
-    const groundStart = mapFragment.indexOf('if (terrainGroundMask >= 0.62)');
-    const transitionStart = mapFragment.indexOf('else if (terrainGroundMask > 0.18)', groundStart);
+    const groundStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
+    const transitionStart = mapFragment.indexOf('else if (terrainGrassBlendMask > 0.10)', groundStart);
     const groundSource = mapFragment.slice(groundStart, transitionStart);
     const derivativeStart = mapFragment.indexOf('vec2 terrainForestFloorUvDx = dFdx');
     const cellSource = getShaderFunction(fragmentParameters, 'sampleTerrainForestFloorCell');
@@ -268,7 +271,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v6-${level}`);
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v7-${level}`);
   }
 });
 
@@ -277,8 +280,8 @@ test('every material LOD uses one world-space snow sample over the grass-or-rock
 
   for (const material of Object.values(materials)) {
     const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
-    const groundStart = mapFragment.indexOf('if (terrainGroundMask >= 0.62)');
-    const transitionStart = mapFragment.indexOf('else if (terrainGroundMask > 0.18)', groundStart);
+    const groundStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
+    const transitionStart = mapFragment.indexOf('else if (terrainGrassBlendMask > 0.10)', groundStart);
     const rockStart = mapFragment.indexOf('\nelse {', transitionStart);
     const macroStart = mapFragment.indexOf('terrainBaseColor *= mix(');
     const snowOverlayStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
@@ -299,7 +302,7 @@ test('every material LOD uses one world-space snow sample over the grass-or-rock
     assert.ok(macroStart > rockStart);
     assert.ok(snowOverlayStart > macroStart);
     assert.ok(waterOverrideStart > snowOverlayStart);
-    assert.doesNotMatch(rockSource, /uGroundDirt|terrainGroundMacroWeight = 1\.0;/);
+    assert.doesNotMatch(rockSource, /GroundDirt|terrainGroundMacroWeight = 1\.0;/);
   }
 });
 
@@ -318,8 +321,8 @@ test('terrain macro midtone lift affects grass but not the rock fallback or wate
 
   for (const material of Object.values(materials)) {
     const source = material.userData.terrainShaderSource.mapFragment;
-    const groundStart = source.indexOf('if (terrainGroundMask >= 0.62)');
-    const transitionStart = source.indexOf('else if (terrainGroundMask > 0.18)', groundStart);
+    const groundStart = source.indexOf('if (terrainGrassBlendMask >= 0.74)');
+    const transitionStart = source.indexOf('else if (terrainGrassBlendMask > 0.10)', groundStart);
     const rockStart = source.indexOf('\nelse {', transitionStart);
     const macroStart = source.indexOf('terrainBaseColor *= mix(');
     const waterOverrideStart = source.indexOf('// River, lake, snowmelt and plunge masks');

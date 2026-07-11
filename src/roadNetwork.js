@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 const SAMPLE_SPACING = 1;
 const END_FADE_DISTANCE = 7;
-const ROAD_EDGE_FADE = 0.7;
+const ROAD_EDGE_FADE = 1.2;
 const ROAD_WIDTH_VARIATION = 0.08;
 const ROAD_MINIMUM_SEGMENTS = 256;
 
@@ -80,7 +80,7 @@ export function getRoadMaterialFrame(x, z, target = {}) {
     if (!frame) continue;
 
     const edgeMask = 1 - smoothstep(
-      frame.halfWidth * 0.7,
+      frame.halfWidth * 0.45,
       frame.halfWidth + ROAD_EDGE_FADE,
       frame.distance,
     );
