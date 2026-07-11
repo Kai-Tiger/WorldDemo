@@ -23,6 +23,15 @@ import {
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
+import {
+  LOWLAND_LAKES,
+  LOWLAND_STREAM_NETWORK,
+  applyLowlandWaterTerrain,
+  createLowlandLakeGeometry,
+  getLowlandMaterialFrame,
+  getLowlandTerminalInletFade,
+  isInLowlandVegetationExclusion,
+} from './lowlandLandforms.js';
 
 export const LAKE_CENTER = new THREE.Vector2(300, -400);
 export const LAKE_WATER_LEVEL = 31;
@@ -91,6 +100,7 @@ export function applyWaterSystemTerrain(baseHeight, x, z) {
   let height = applyWaterSystemMacroTerrain(baseHeight, x, z);
 
   height = applyRiverNetworkTerrain(height, x, z);
+  height = applyLowlandWaterTerrain(height, x, z);
 
   return height;
 }
@@ -108,13 +118,17 @@ export function applyWaterSystemMacroTerrain(baseHeight, x, z) {
 
 export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   const riverNetwork = getRiverNetworkMaterialFrame(x, z);
+  const lowland = getLowlandMaterialFrame(x, z);
+  const networkBedMask = Math.max(riverNetwork.bedMask, lowland.bedMask);
+  const networkWetMask = Math.max(riverNetwork.wetMask, lowland.wetMask);
 
   if (!isNearWaterSystem(x, z)) {
     return {
       ...createEmptyWaterSystemMaterialFrame(),
-      wetShoreMask: riverNetwork.wetMask,
-      snowmeltWetMask: Math.max(riverNetwork.wetMask, riverNetwork.bedMask),
-      riverNetworkBedMask: riverNetwork.bedMask,
+      lakeBedMask: lowland.lakeBedMask,
+      wetShoreMask: networkWetMask,
+      snowmeltWetMask: Math.max(networkWetMask, networkBedMask),
+      riverNetworkBedMask: networkBedMask,
     };
   }
 
@@ -130,23 +144,24 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
     lakeInnerShoreMask * 0.68,
     lakeOuterShoreMask,
     outletMask * 0.65,
-    riverNetwork.wetMask,
+    networkWetMask,
     plungeMask * 0.8,
   );
 
   return {
-    lakeBedMask: THREE.MathUtils.clamp(lakeBedMask, 0, 1),
+    lakeBedMask: THREE.MathUtils.clamp(Math.max(lakeBedMask, lowland.lakeBedMask), 0, 1),
     wetShoreMask: THREE.MathUtils.clamp(wetShoreMask, 0, 1),
-    snowmeltWetMask: Math.max(riverNetwork.wetMask, riverNetwork.bedMask),
+    snowmeltWetMask: Math.max(networkWetMask, networkBedMask),
     outletMask: THREE.MathUtils.clamp(outletMask, 0, 1),
     plungeMask: THREE.MathUtils.clamp(plungeMask, 0, 1),
     lakeDistance: lake.radius,
-    riverNetworkBedMask: riverNetwork.bedMask,
+    riverNetworkBedMask: networkBedMask,
   };
 }
 
 export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
   if (isInRiverNetworkVegetationExclusion(x, z, buffer)) return true;
+  if (isInLowlandVegetationExclusion(x, z, buffer)) return true;
   if (!isNearWaterSystem(x, z, buffer + 12)) return false;
 
   const lake = getLakeFrame(x, z);
@@ -198,6 +213,7 @@ export function createWaterSystem(terrain) {
   const waterfall = createWaterfallGroup(terrain);
   const waterfallLipFoam = createWaterfallLipFoam(terrain);
   const confluence = createConfluenceFoam();
+  const lowlands = createLowlandWaterFeatures(terrain);
   const group = new THREE.Group();
 
   group.name = 'WaterSystem';
@@ -209,6 +225,7 @@ export function createWaterSystem(terrain) {
     waterfall,
     waterfallLipFoam,
     confluence,
+    lowlands.group,
   );
 
   return {
@@ -221,6 +238,7 @@ export function createWaterSystem(terrain) {
     waterfall,
     waterfallLipFoam,
     confluence,
+    lowlands,
   };
 }
 
@@ -328,6 +346,60 @@ function createRiverNetworkWaterSurface() {
   water.userData.riverNetworkStats = stats;
 
   return water;
+}
+
+function createLowlandWaterFeatures(terrain) {
+  const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
+
+  fadeLowlandStreamInsideTerminalLake(geometry);
+
+  const stream = new THREE.Mesh(geometry, createStreamMaterial({
+    shallow: WATER_SHALLOW_COLOR,
+    deep: WATER_DEEP_COLOR,
+    foam: WATER_FOAM_COLOR,
+    speed: 0.28,
+    alpha: 0.4,
+    foamStrength: 0.2,
+    mode: 'network',
+  }));
+  const lakeMaterial = createLakeSurfaceMaterial();
+  const lakes = LOWLAND_LAKES.map((lake) => {
+    const mesh = new THREE.Mesh(
+      createLowlandLakeGeometry(lake, terrain),
+      lakeMaterial,
+    );
+
+    mesh.name = `LowlandLake_${lake.id}`;
+    mesh.renderOrder = WATER_RENDER_ORDER.surface;
+    mesh.userData.waterReflectionModeCap = 1;
+    return mesh;
+  });
+  const group = new THREE.Group();
+
+  stream.name = 'LowlandStreamSurface';
+  stream.renderOrder = WATER_RENDER_ORDER.surface;
+  stream.userData.waterReflectionModeCap = 1;
+  stream.userData.riverNetworkStats = stats;
+  group.name = 'LowlandWaterFeatures';
+  group.add(stream, ...lakes);
+
+  return { group, stream, lakes };
+}
+
+function fadeLowlandStreamInsideTerminalLake(geometry) {
+  const positions = geometry.getAttribute('position');
+  const waterFades = geometry.getAttribute('waterFade');
+
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    const inletFade = getLowlandTerminalInletFade(
+      positions.getX(vertex),
+      positions.getZ(vertex),
+    );
+
+    waterFades.setX(vertex, waterFades.getX(vertex) * inletFade);
+  }
+
+  waterFades.needsUpdate = true;
 }
 
 function createCirqueTarn(terrain) {

@@ -64,6 +64,21 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 690, z: -340, y: 55 },
     target: { x: 690, z: -340, y: -1.235 },
   },
+  'lowland-creek': {
+    player: { x: 748, z: -286 },
+    camera: { x: 790, z: -236, y: 14 },
+    target: { x: 735, z: -308, y: -0.7 },
+  },
+  'lowland-lake': {
+    player: { x: 858, z: -278 },
+    camera: { x: 874, z: -226, y: 18 },
+    target: { x: 820, z: -260, y: -0.2 },
+  },
+  'lowland-hills': {
+    player: { x: -555, z: 505 },
+    camera: { x: -505, z: 430, y: 31 },
+    target: { x: -650, z: 510, y: 8 },
+  },
 });
 
 export function getGoldenShotFromLocation(location = window.location) {

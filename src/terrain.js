@@ -20,6 +20,11 @@ import {
   getMountainTrailMinimumSegmentsForBounds,
 } from './mountainTrailNetwork.js';
 import {
+  applyLowlandHillsTerrain,
+  applyLowlandMacroTerrain,
+  getLowlandMinimumSegmentsForBounds,
+} from './lowlandLandforms.js';
+import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
 } from './terrainMaterial.js';
@@ -1008,7 +1013,8 @@ export class Terrain {
   }
 
   getSurfaceHeightFromBase(baseHeight, x, z) {
-    const mountainTrailHeight = applyMountainTrailTerrain(baseHeight, x, z);
+    const lowlandHeight = applyLowlandHillsTerrain(baseHeight, x, z);
+    const mountainTrailHeight = applyMountainTrailTerrain(lowlandHeight, x, z);
     const waterSystemHeight = applyWaterSystemTerrain(mountainTrailHeight, x, z);
     const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
 
@@ -1021,7 +1027,8 @@ export class Terrain {
 
   getShadowProxyHeightAt(x, z) {
     const baseHeight = this.getBaseHeightAt(x, z);
-    const waterHeight = applyWaterSystemMacroTerrain(baseHeight, x, z);
+    const lowlandHeight = applyLowlandMacroTerrain(baseHeight, x, z);
+    const waterHeight = applyWaterSystemMacroTerrain(lowlandHeight, x, z);
 
     return applySmallLakesTerrain(waterHeight, x, z);
   }
@@ -1490,8 +1497,9 @@ function disableRaycast() {}
 function getConservativeMinimumChunkSegments(bounds) {
   const mountainTrailMinimum = getMountainTrailMinimumSegmentsForBounds(bounds);
   const waterMinimum = getWaterSystemMinimumSegmentsForBounds(bounds);
+  const lowlandMinimum = getLowlandMinimumSegmentsForBounds(bounds);
 
-  return Math.max(mountainTrailMinimum, waterMinimum);
+  return Math.max(mountainTrailMinimum, waterMinimum, lowlandMinimum);
 }
 
 function getCurrentTime() {
