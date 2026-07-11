@@ -8,8 +8,8 @@ export const TERRAIN_MATERIAL_LOD = Object.freeze({
 
 const TERRAIN_TEXTURE_BUDGETS = Object.freeze({
   [TERRAIN_MATERIAL_LOD.NEAR]: Object.freeze({ typical: 8, maximum: 14 }),
-  [TERRAIN_MATERIAL_LOD.MEDIUM]: Object.freeze({ typical: 5, maximum: 8 }),
-  [TERRAIN_MATERIAL_LOD.FAR]: Object.freeze({ typical: 3, maximum: 4 }),
+  [TERRAIN_MATERIAL_LOD.MEDIUM]: Object.freeze({ typical: 5, maximum: 9 }),
+  [TERRAIN_MATERIAL_LOD.FAR]: Object.freeze({ typical: 3, maximum: 5 }),
 });
 
 const TERRAIN_VERTEX_PARAMETERS = `
@@ -341,10 +341,22 @@ function createTerrainMapFragment(level) {
     0.5
   ));`
     : '';
+  const rockTransitionNormal = isNear
+    ? `normalize(mix(
+    terrainBaseNormal,
+    sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
+    0.5
+  ))`
+    : 'terrainBaseNormal';
   const normalDeclarations = sampleNormal
     ? 'vec3 terrainSurfaceNormal = terrainBaseNormal;'
     : 'vec3 terrainSurfaceNormal = terrainBaseNormal;';
   const groundBranches = createGroundBranches({ sampleNormal });
+  const groundTransition = createGroundTransition({
+    sampleNormal,
+    rockColor,
+    rockTransitionNormal,
+  });
   const roadOverlay = createRoadOverlay({ sampleNormal });
 
   return `
@@ -359,15 +371,7 @@ float terrainLowlandMask = 1.0 - smoothstep(55.0, 90.0, terrainNoisyHeight);
 float terrainGroundMask = smoothstep(0.08, 0.82, vTerrainGroundMask)
   * terrainFlatMask
   * terrainLowlandMask;
-float terrainRockMask = max(
-  1.0 - smoothstep(0.48, 0.72, terrainBaseNormal.y),
-  smoothstep(188.0, 258.0, terrainNoisyHeight)
-    * (1.0 - smoothstep(0.74, 0.92, terrainBaseNormal.y))
-);
-float terrainAlpineMask = max(
-  terrainRockMask,
-  smoothstep(45.0, 80.0, terrainNoisyHeight)
-);
+float terrainGrassBlend = smoothstep(0.18, 0.62, terrainGroundMask);
 float terrainSnowLineHeight = terrainHeight
   + (vTerrainMacro.x - 0.5) * 24.0
   + (vTerrainMacro.z - 0.5) * 8.0;
@@ -413,16 +417,12 @@ float terrainOcclusion = 1.0;
 float terrainGroundMacroWeight = 0.0;
 
 ${groundBranches}
-else if (terrainAlpineMask > 0.42) {
+${groundTransition}
+else {
   terrainBaseColor = ${rockColor} * vec3(0.66, 0.71, 0.73);
   ${rockNormal}
   terrainRoughness = 0.76;
   terrainOcclusion = 0.96;
-} else {
-  terrainBaseColor = sampleTerrainLayer(uGroundDirtAlbedoTexture, terrainAlpineUv * 0.88, 5.0)
-    * vec3(0.62, 0.67, 0.68);
-  terrainGroundMacroWeight = 1.0;
-  terrainRoughness = 0.9;
 }
 
 terrainBaseColor *= mix(
@@ -555,7 +555,7 @@ function createGroundBranches({ sampleNormal }) {
   ));`
     : '';
 
-  return `if (terrainGroundMask > 0.38) {
+  return `if (terrainGroundMask >= 0.62) {
   terrainBaseColor = sampleTerrainForestFloorColor(
     uForestFloorBaseColorTexture,
     terrainForestFloorUv,
@@ -567,6 +567,43 @@ function createGroundBranches({ sampleNormal }) {
   terrainGroundMacroWeight = 1.0;
   ${forestFloorNormal}
   terrainRoughness = 0.92;
+  terrainOcclusion = 0.96;
+}`;
+}
+
+function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal }) {
+  const grassNormal = sampleNormal
+    ? `vec3 terrainGrassNormal = normalize(mix(
+    terrainBaseNormal,
+    sampleTerrainForestFloorNormal(
+      uForestFloorNormalTexture,
+      terrainForestFloorUv,
+      terrainForestFloorUvDx,
+      terrainForestFloorUvDy
+    ),
+    0.55
+  ));`
+    : 'vec3 terrainGrassNormal = terrainBaseNormal;';
+
+  return `else if (terrainGroundMask > 0.18) {
+  vec3 terrainGrassColor = sampleTerrainForestFloorColor(
+    uForestFloorBaseColorTexture,
+    terrainForestFloorUv,
+    terrainForestFloorUvDx,
+    terrainForestFloorUvDy
+  );
+  terrainGrassColor = gradeTerrainForestFloor(terrainGrassColor)
+    * mix(1.0, 1.06, vTerrainMacro.x);
+  vec3 terrainRockColor = ${rockColor} * vec3(0.66, 0.71, 0.73);
+  terrainBaseColor = mix(terrainRockColor, terrainGrassColor, terrainGrassBlend);
+  ${grassNormal}
+  terrainSurfaceNormal = normalize(mix(
+    ${rockTransitionNormal},
+    terrainGrassNormal,
+    terrainGrassBlend
+  ));
+  terrainGroundMacroWeight = terrainGrassBlend;
+  terrainRoughness = mix(0.76, 0.92, terrainGrassBlend);
   terrainOcclusion = 0.96;
 }`;
 }
