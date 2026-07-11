@@ -671,9 +671,12 @@ test('only the near grass material keeps sway uniforms', () => {
   const lods = variants.get(VARIANT_NAME).lods;
 
   assert.ok(lods[0][0].material.userData.grassUniforms);
+  assert.equal(lods[0][0].material.color.getHex(), 0xa5c77f);
   assert.equal(lods[0][0].material.userData.ribbonGrassMaps.translucency, texture);
   assert.equal(lods[1][0].material.userData.grassUniforms, null);
+  assert.equal(lods[1][0].material.color.getHex(), 0xa5c77f);
   assert.equal(lods[2][0].material.userData.grassUniforms, null);
+  assert.equal(lods[2][0].material.color.getHex(), 0x82a66a);
   assert.equal(lods[2][0].material.isMeshLambertMaterial, true);
   assert.equal(lods[2][0].material.map, texture);
   assert.equal(lods[2][0].material.alphaMap, texture);

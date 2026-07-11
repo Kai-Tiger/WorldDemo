@@ -111,6 +111,13 @@ mat2 terrainRotation(float angle) {
   float cosine = cos(angle);
   return mat2(cosine, -sine, sine, cosine);
 }
+
+vec3 gradeTerrainForestFloor(vec3 baseColor) {
+  float luminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 desaturated = mix(vec3(luminance), baseColor, 0.66);
+  vec3 earthTint = desaturated * vec3(1.12, 0.98, 0.90);
+  return earthTint * 1.24 + vec3(0.009, 0.008, 0.005);
+}
 `;
 
 const NEAR_SAMPLING_FUNCTIONS = `
@@ -280,7 +287,7 @@ else if (terrainRockMask > 0.42) {
 
 terrainBaseColor *= mix(
   1.0,
-  mix(0.90, 1.06, vTerrainMacro.w),
+  mix(0.96, 1.05, vTerrainMacro.w),
   terrainGroundMacroWeight * (1.0 - max(terrainWaterBankMask, terrainWaterBedMask))
 );
 
@@ -328,7 +335,9 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
     uForestFloorBaseColorTexture,
     terrainForestFloorUv,
     1.0
-  ) * mix(0.98, 1.08, vTerrainMacro.x);
+  );
+  terrainBaseColor = gradeTerrainForestFloor(terrainBaseColor)
+    * mix(1.0, 1.06, vTerrainMacro.x);
   terrainGroundMacroWeight = 1.0;
   ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.55')}
   terrainRoughness = 0.92;
@@ -339,8 +348,9 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
   return `if (terrainGroundMask > 0.38) {
   terrainGroundMacroWeight = 1.0;
   if (terrainForestFloorWeight >= terrainDryGrassWeight && terrainForestFloorWeight >= terrainGravelWeight) {
-    terrainBaseColor = sampleTerrainLayer(uForestFloorBaseColorTexture, terrainForestFloorUv, 1.0)
-      * mix(0.98, 1.08, vTerrainMacro.x);
+    terrainBaseColor = gradeTerrainForestFloor(
+      sampleTerrainLayer(uForestFloorBaseColorTexture, terrainForestFloorUv, 1.0)
+    ) * mix(1.0, 1.06, vTerrainMacro.x);
     ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.42')}
     terrainRoughness = 0.94;
     terrainOcclusion = 0.96;

@@ -54,8 +54,8 @@ const GRASS_COLOR_GRADE = {
   saturation: 0.82,
   highlightCompression: 0.28,
 };
-const GRASS_NEAR_TINT = 0xb2c879;
-const GRASS_FAR_TINT = 0x8aaa5a;
+const GRASS_NEAR_TINT = 0xa5c77f;
+const GRASS_FAR_TINT = 0x82a66a;
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
 const RIBBON_GRASS_OPTIMIZED_TEXTURE_PATH = 'optimized/ktx2';
 const RIBBON_GRASS_OPTIMIZED_MODEL_PATH = 'optimized/models';

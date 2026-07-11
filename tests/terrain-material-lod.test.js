@@ -133,6 +133,30 @@ test('Near restores the baked forest floor while lower material LODs keep branch
   assert.doesNotMatch(farSource, /uForestFloorNormalTexture/);
 });
 
+test('forest-floor grading is local, texture-neutral and shared by every material LOD', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
+    const gradeStart = fragmentParameters.indexOf('vec3 gradeTerrainForestFloor');
+    const gradeEnd = fragmentParameters.indexOf('\n}', gradeStart);
+    const gradeSource = fragmentParameters.slice(gradeStart, gradeEnd);
+    const groundStart = mapFragment.indexOf('if (terrainGroundMask > 0.38)');
+    const rockStart = mapFragment.indexOf('else if (terrainRockMask > 0.42)');
+    const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
+
+    assert.ok(gradeStart >= 0);
+    assert.match(gradeSource, /mix\(vec3\(luminance\), baseColor, 0\.66\)/);
+    assert.match(gradeSource, /vec3\(1\.12, 0\.98, 0\.90\)/);
+    assert.match(gradeSource, /earthTint \* 1\.24 \+ vec3\(0\.009, 0\.008, 0\.005\)/);
+    assert.doesNotMatch(gradeSource, /texture2D|sampleTerrainLayer/);
+    assert.equal((mapFragment.match(/gradeTerrainForestFloor\(/g) ?? []).length, 1);
+    assert.match(mapFragment.slice(groundStart, rockStart), /uForestFloorBaseColorTexture/);
+    assert.match(mapFragment.slice(groundStart, rockStart), /gradeTerrainForestFloor/);
+    assert.doesNotMatch(mapFragment.slice(waterOverrideStart), /gradeTerrainForestFloor/);
+  }
+});
+
 test('terrain macro midtone lift only affects supported ground layers before water overrides', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
@@ -145,14 +169,14 @@ test('terrain macro midtone lift only affects supported ground layers before wat
     const waterOverrideStart = source.indexOf('// River, lake, snowmelt and plunge masks');
 
     assert.match(source, /float terrainGroundMacroWeight = 0\.0;/);
-    assert.match(source, /mix\(0\.98, 1\.08, vTerrainMacro\.x\)/);
-    assert.match(source, /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
+    assert.match(source, /mix\(1\.0, 1\.06, vTerrainMacro\.x\)/);
+    assert.match(source, /mix\(0\.96, 1\.05, vTerrainMacro\.w\)/);
     assert.match(source, /terrainGroundMacroWeight = 1\.0;/);
     assert.match(
       source,
       /terrainGroundMacroWeight \* \(1\.0 - max\(terrainWaterBankMask, terrainWaterBedMask\)\)/,
     );
-    assert.doesNotMatch(source, /mix\(0\.(?:78|94|96), 1\.(?:02|08|12), vTerrainMacro\.[wx]\)/);
+    assert.doesNotMatch(source, /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
     assert.ok(rockStart >= 0);
     assert.ok(snowStart > rockStart);
     assert.ok(fallbackDirtStart > snowStart);
@@ -160,7 +184,7 @@ test('terrain macro midtone lift only affects supported ground layers before wat
     assert.doesNotMatch(source.slice(snowStart, fallbackDirtStart), /terrainGroundMacroWeight = 1\.0;/);
     assert.ok(macroStart > fallbackDirtStart);
     assert.ok(waterOverrideStart > macroStart);
-    assert.doesNotMatch(source.slice(waterOverrideStart), /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
+    assert.doesNotMatch(source.slice(waterOverrideStart), /mix\(0\.96, 1\.05, vTerrainMacro\.w\)/);
   }
 });
 
