@@ -284,6 +284,20 @@ export function normalizeRibbonGrassGeometry(geometry) {
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
+
+  const position = geometry.getAttribute('position');
+  const height = Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001);
+  const heightRatios = new Float32Array(position.count);
+
+  for (let index = 0; index < position.count; index += 1) {
+    heightRatios[index] = THREE.MathUtils.clamp(
+      (position.getY(index) - geometry.boundingBox.min.y) / height,
+      0,
+      1,
+    );
+  }
+
+  geometry.setAttribute('aGrassHeightRatio', new THREE.BufferAttribute(heightRatios, 1));
 }
 
 function ensureAoUv(geometry) {
@@ -298,14 +312,8 @@ export function createGrassSwayMaterial(sourceMaterial, geometry, options = {}) 
   const material = sourceMaterial.clone();
   material.userData.ribbonGrassMaps = options.ribbonGrassMaps
     ?? sourceMaterial.userData.ribbonGrassMaps;
-  const height = geometry?.boundingBox
-    ? Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 0.001)
-    : 1;
-  const baseY = geometry?.boundingBox ? geometry.boundingBox.min.y : 0;
   const uniforms = {
     uGrassTime: { value: 0 },
-    uGrassBaseY: { value: baseY },
-    uGrassHeight: { value: height },
     uGrassWindDirection: { value: WIND_DIRECTION },
     uGrassSwayStrength: { value: SWAY_STRENGTH * GRASS_SWAY_MOTION_SCALE },
     uGrassPlayerPosition: { value: new THREE.Vector2(PLAYER_SPAWN_POSITION.x, PLAYER_SPAWN_POSITION.z) },
@@ -320,24 +328,32 @@ export function createGrassSwayMaterial(sourceMaterial, geometry, options = {}) 
         '#include <common>',
         `#include <common>
 uniform float uGrassTime;
-uniform float uGrassBaseY;
-uniform float uGrassHeight;
 uniform vec2 uGrassWindDirection;
 uniform float uGrassSwayStrength;
 uniform vec2 uGrassPlayerPosition;
+attribute float aGrassHeightRatio;
 varying float vGrassHeightRatio;`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-float grassHeightRatio = clamp((position.y - uGrassBaseY) / uGrassHeight, 0.0, 1.0);
+float grassHeightRatio = clamp(aGrassHeightRatio, 0.0, 1.0);
 vGrassHeightRatio = grassHeightRatio;
 float grassTipMask = smoothstep(0.08, 1.0, grassHeightRatio) * grassHeightRatio;
 vec3 grassInstanceWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+mat3 grassInstanceTransform = mat3(modelMatrix);
 #ifdef USE_INSTANCING
 grassInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+grassInstanceTransform = mat3(modelMatrix) * mat3(instanceMatrix);
 #endif
-vec2 grassSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
+vec3 grassWorldWindDirection = vec3(uGrassWindDirection.x, 0.0, uGrassWindDirection.y);
+vec2 grassLocalWindDirection = vec2(
+  dot(grassWorldWindDirection, normalize(grassInstanceTransform[0])),
+  dot(grassWorldWindDirection, normalize(grassInstanceTransform[2]))
+);
+grassLocalWindDirection /= max(length(grassLocalWindDirection), 0.001);
+vec2 grassWorldSideDirection = vec2(-uGrassWindDirection.y, uGrassWindDirection.x);
+vec2 grassLocalSideDirection = vec2(-grassLocalWindDirection.y, grassLocalWindDirection.x);
 float grassPlayerDistance = distance(grassInstanceWorld.xz, uGrassPlayerPosition);
 float grassPlayerSwayMask = 1.0 - smoothstep(${(GRASS_PLAYER_SWAY_RADIUS - 0.25).toFixed(2)}, ${GRASS_PLAYER_SWAY_RADIUS.toFixed(2)}, grassPlayerDistance);
 float grassWindSwayMask = (1.0 - smoothstep(14.0, ${GRASS_WIND_SWAY_RADIUS.toFixed(1)}, grassPlayerDistance)) * 0.34;
@@ -348,15 +364,15 @@ vec2 grassLocalOffset = grassInstanceWorld.xz - grassWindRegion;
 float grassRegionalPhase = dot(grassWindRegion, uGrassWindDirection) * 0.08;
 float grassLocalPhase = dot(grassLocalOffset, uGrassWindDirection) * 0.05 * grassNearDetailMask;
 float grassWave = sin(grassRegionalPhase + grassLocalPhase + uGrassTime * 0.38 + position.y * 1.15);
-float grassFlutter = sin(dot(grassWindRegion, grassSideDirection) * 0.1 + uGrassTime * 0.45 + position.y * 1.7) * grassNearDetailMask;
+float grassFlutter = sin(dot(grassWindRegion, grassWorldSideDirection) * 0.1 + uGrassTime * 0.45 + position.y * 1.7) * grassNearDetailMask;
 transformed.xz += (
-  uGrassWindDirection * grassWave
-  + grassSideDirection * grassFlutter * 0.05
+  grassLocalWindDirection * grassWave
+  + grassLocalSideDirection * grassFlutter * 0.05
 ) * uGrassSwayStrength * grassTipMask * grassSwayMask;`,
       );
     applyGrassColorGrade(shader, options.grade || GRASS_COLOR_GRADE, true, material.userData.ribbonGrassMaps, options.translucencyStrength || 0.14);
   };
-  material.customProgramCacheKey = () => `ribbon-grass-sway-${options.translucencyStrength || 0.14}`;
+  material.customProgramCacheKey = () => `ribbon-grass-sway-height-attribute-world-wind-v2-${options.translucencyStrength || 0.14}`;
 
   return material;
 }

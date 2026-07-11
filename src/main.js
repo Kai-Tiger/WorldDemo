@@ -438,7 +438,7 @@ function animate(now) {
   }
   terrain.update();
   if (toggleTrees.checked) {
-    if (treeManager.update(player.position)) {
+    if (treeManager.update(player.position, visualTime)) {
       sunLight.shadow.needsUpdate = true;
     }
   }

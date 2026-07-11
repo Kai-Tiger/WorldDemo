@@ -296,8 +296,29 @@ test('converted GLB grass is restored to the authored model scale', () => {
   normalizeRibbonGrassGeometry(geometry);
 
   const height = geometry.boundingBox.max.y - geometry.boundingBox.min.y;
+  const positions = geometry.getAttribute('position');
+  const heightRatios = geometry.getAttribute('aGrassHeightRatio');
+  let minimumHeightRatio = 1;
+  let maximumHeightRatio = 0;
+
+  for (let index = 0; index < heightRatios.count; index += 1) {
+    const heightRatio = heightRatios.getX(index);
+
+    minimumHeightRatio = Math.min(minimumHeightRatio, heightRatio);
+    maximumHeightRatio = Math.max(maximumHeightRatio, heightRatio);
+    assert.ok(heightRatio >= 0 && heightRatio <= 1);
+
+    if (Math.abs(positions.getY(index) - geometry.boundingBox.min.y) < 0.000001) {
+      assert.equal(heightRatio, 0);
+    }
+  }
+
   assert.equal(geometry.boundingBox.min.y, 0);
   assert.ok(Math.abs(height - 0.7303635) < 0.000001);
+  assert.equal(heightRatios.itemSize, 1);
+  assert.equal(heightRatios.count, positions.count);
+  assert.equal(minimumHeightRatio, 0);
+  assert.equal(maximumHeightRatio, 1);
 
   geometry.dispose();
 });
@@ -684,13 +705,51 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.equal(lods[2][0].material.alphaTest, 0.12);
   assert.notEqual(lods[2][0].geometry, lods[1][0].geometry);
 
+  const nearShader = {
+    uniforms: {},
+    vertexShader: '#include <common>\n#include <begin_vertex>',
+    fragmentShader: '#include <common>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
+  };
   const midShader = {
     uniforms: {},
     fragmentShader: '#include <common>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
   };
+
+  lods[0][0].material.onBeforeCompile(nearShader);
   lods[1][0].material.onBeforeCompile(midShader);
+  assert.match(nearShader.vertexShader, /attribute float aGrassHeightRatio;/);
+  assert.match(nearShader.vertexShader, /smoothstep\(0\.08, 1\.0, grassHeightRatio\) \* grassHeightRatio/);
+  assert.match(nearShader.vertexShader, /mat3\(modelMatrix\) \* mat3\(instanceMatrix\)/);
+  assert.match(nearShader.vertexShader, /dot\(grassWorldWindDirection, normalize\(grassInstanceTransform\[0\]\)\)/);
+  assert.match(nearShader.vertexShader, /grassLocalWindDirection \* grassWave/);
+  assert.doesNotMatch(nearShader.vertexShader, /uGrassBaseY|uGrassHeight/);
+  assert.match(lods[0][0].material.customProgramCacheKey(), /height-attribute-world-wind-v2/);
   assert.match(midShader.fragmentShader, /vAlphaMapUv\)\.r/);
   assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
+});
+
+test('instance-local sway conversion preserves one world wind direction across yaw', () => {
+  const worldWind = new THREE.Vector3(0.6, 0, 0.8).normalize();
+  const localX = new THREE.Vector3();
+  const localZ = new THREE.Vector3();
+
+  for (const yaw of [0, 0.37, Math.PI * 0.5, Math.PI, Math.PI * 1.73]) {
+    const instanceMatrix = new THREE.Matrix4().makeRotationY(yaw);
+    const elements = instanceMatrix.elements;
+
+    localX.set(elements[0], elements[1], elements[2]).normalize();
+    localZ.set(elements[8], elements[9], elements[10]).normalize();
+
+    const localWind = new THREE.Vector2(
+      worldWind.dot(localX),
+      worldWind.dot(localZ),
+    ).normalize();
+    const restoredWorldWind = new THREE.Vector3(localWind.x, 0, localWind.y)
+      .applyMatrix4(instanceMatrix)
+      .normalize();
+
+    assert.ok(restoredWorldWind.distanceTo(worldWind) < 0.000001);
+  }
 });
 
 test('far grass LOD is one Y-up cross-card geometry', () => {

@@ -4,6 +4,7 @@ import {
   buildTreeInstancedMeshes,
   createTreePlacementIterator,
   replaceSpawnAreaTrees,
+  updateTreeSwayUniforms,
 } from './treePlacements.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 
@@ -25,7 +26,9 @@ export class TreeManager {
     this.generationCursor = 0;
   }
 
-  update(cameraPosition) {
+  update(cameraPosition, elapsedTime = 0) {
+    updateTreeSwayUniforms(this.treeModels, cameraPosition, elapsedTime);
+
     const loadedChunks = this.terrain.getLoadedChunkBounds();
     const neededKeys = new Set(loadedChunks.map((chunk) => chunk.key));
 

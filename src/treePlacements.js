@@ -7,6 +7,8 @@ import { isInRoadVegetationExclusion } from './roadNetwork.js';
 import { hash2, sampleTerrainSurface } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import {
+  GRASS_WIND_X,
+  GRASS_WIND_Z,
   MAP_SIZE,
   SPAWN_TREE_COLOR_MULTIPLIER,
   SPAWN_TREE_EMISSIVE_INTENSITY_MULTIPLIER,
@@ -16,6 +18,12 @@ import {
   TREE_MODEL_PATHS,
   TREE_SHADOW_LIFT_COLOR,
   TREE_SHADOW_LIFT_INTENSITY,
+  TREE_SWAY_BOUNDS_PADDING,
+  TREE_SWAY_FADE_END,
+  TREE_SWAY_FADE_START,
+  TREE_SWAY_PRIMARY_FREQUENCY,
+  TREE_SWAY_SECONDARY_FREQUENCY,
+  TREE_SWAY_STRENGTH,
   TREE_MIN_SPACING,
   TREE_RIVER_BUFFER,
   TREE_DENSITY_LOWLAND,
@@ -40,6 +48,8 @@ const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
 const TREE_ALPHA_TEST = 0.38;
 const TREE_ENVIRONMENT_INTENSITY = 0.92;
+const TREE_WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
+const TREE_SWAY_PROGRAM_KEY = 'tree-canopy-sway-world-wind-v1';
 
 const loader = new GLTFLoader();
 
@@ -49,9 +59,7 @@ export async function loadTreeModels() {
 
   for (const path of paths) {
     const asset = await loader.loadAsync(path);
-    const meshes = extractMeshes(asset.scene, path === SPAWN_TREE_MODEL_PATH);
-
-    models.push({ meshes });
+    models.push(extractMeshes(asset.scene, path === SPAWN_TREE_MODEL_PATH));
   }
 
   return models;
@@ -60,7 +68,9 @@ export async function loadTreeModels() {
 function extractMeshes(scene, isSpawnTree = false) {
   scene.updateMatrixWorld(true);
 
-  const meshes = [];
+  const sources = [];
+  let modelMinY = Infinity;
+  let modelMaxY = -Infinity;
 
   scene.traverse((child) => {
     if (!child.isMesh) return;
@@ -70,16 +80,64 @@ function extractMeshes(scene, isSpawnTree = false) {
     geometry.applyMatrix4(child.matrixWorld);
     geometry.computeBoundingBox();
 
-    meshes.push({
+    modelMinY = Math.min(modelMinY, geometry.boundingBox.min.y);
+    modelMaxY = Math.max(modelMaxY, geometry.boundingBox.max.y);
+    sources.push({
       geometry,
-      material: createTreeMaterial(child.material, isSpawnTree),
+      sourceMaterial: child.material,
+      role: getTreeMeshRole(child.name, child.material?.name),
     });
   });
 
-  return meshes;
+  const modelBaseY = Number.isFinite(modelMinY) ? modelMinY : 0;
+  const modelHeight = Number.isFinite(modelMaxY)
+    ? Math.max(modelMaxY - modelBaseY, 0.001)
+    : 1;
+  const hasSway = sources.some((source) => source.role === 'canopy');
+  const swayUniforms = hasSway ? createTreeSwayUniforms(modelBaseY, modelHeight) : null;
+  const meshes = sources.map(({ geometry, sourceMaterial, role }) => {
+    const material = createTreeMaterial(
+      sourceMaterial,
+      isSpawnTree,
+      role === 'canopy' ? swayUniforms : null,
+    );
+
+    return {
+      geometry,
+      material,
+      role,
+      depthMaterial: role === 'canopy'
+        ? createTreeDepthMaterial(material, swayUniforms)
+        : null,
+    };
+  });
+
+  return { meshes, swayUniforms };
 }
 
-function createTreeMaterial(sourceMaterial, isSpawnTree) {
+export function getTreeMeshRole(meshName = '', materialName = '') {
+  const label = `${meshName} ${materialName}`;
+
+  if (/trunk/i.test(label)) return 'trunk';
+  if (/branch(?:es)?|lea(?:f|ves)/i.test(label)) return 'canopy';
+
+  return 'static';
+}
+
+export function createTreeSwayUniforms(modelBaseY, modelHeight) {
+  return {
+    uTreeTime: { value: 0 },
+    uTreeViewerPosition: {
+      value: new THREE.Vector2(PLAYER_SPAWN_POSITION.x, PLAYER_SPAWN_POSITION.z),
+    },
+    uTreeWindDirection: { value: TREE_WIND_DIRECTION },
+    uTreeBaseY: { value: modelBaseY },
+    uTreeHeight: { value: modelHeight },
+    uTreeSwayStrength: { value: TREE_SWAY_STRENGTH },
+  };
+}
+
+export function createTreeMaterial(sourceMaterial, isSpawnTree, swayUniforms = null) {
   const material = sourceMaterial.clone();
 
   material.transparent = false;
@@ -98,9 +156,100 @@ function createTreeMaterial(sourceMaterial, isSpawnTree) {
   if ('envMapIntensity' in material) {
     material.envMapIntensity = TREE_ENVIRONMENT_INTENSITY;
   }
+  if (swayUniforms) {
+    configureTreeSwayMaterial(material, swayUniforms, 'surface');
+  } else {
+    material.userData.treeSwayUniforms = null;
+  }
   material.needsUpdate = true;
 
   return material;
+}
+
+export function createTreeDepthMaterial(sourceMaterial, swayUniforms) {
+  const material = new THREE.MeshDepthMaterial({
+    depthPacking: THREE.RGBADepthPacking,
+    map: sourceMaterial.map,
+    alphaMap: sourceMaterial.alphaMap,
+    alphaTest: sourceMaterial.alphaTest,
+    side: sourceMaterial.side,
+  });
+
+  material.name = `${sourceMaterial.name || 'TreeCanopy'}Depth`;
+  configureTreeSwayMaterial(material, swayUniforms, 'depth');
+  return material;
+}
+
+function configureTreeSwayMaterial(material, uniforms, pass) {
+  material.userData.treeSwayUniforms = uniforms;
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = injectTreeSway(shader.vertexShader);
+  };
+  material.customProgramCacheKey = () => `${TREE_SWAY_PROGRAM_KEY}-${pass}`;
+  material.needsUpdate = true;
+}
+
+export function injectTreeSway(vertexShader) {
+  return vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+uniform float uTreeTime;
+uniform vec2 uTreeViewerPosition;
+uniform vec2 uTreeWindDirection;
+uniform float uTreeBaseY;
+uniform float uTreeHeight;
+uniform float uTreeSwayStrength;`,
+    )
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+float treeHeightRatio = clamp((position.y - uTreeBaseY) / uTreeHeight, 0.0, 1.0);
+float treeHeightMask = pow(smoothstep(0.18, 1.0, treeHeightRatio), 2.0);
+vec3 treeInstanceWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+mat3 treeInstanceTransform = mat3(modelMatrix);
+#ifdef USE_INSTANCING
+treeInstanceWorld = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+treeInstanceTransform = mat3(modelMatrix) * mat3(instanceMatrix);
+#endif
+vec3 treeWorldWindDirection = vec3(uTreeWindDirection.x, 0.0, uTreeWindDirection.y);
+vec2 treeLocalWindDirection = vec2(
+  dot(treeWorldWindDirection, normalize(treeInstanceTransform[0])),
+  dot(treeWorldWindDirection, normalize(treeInstanceTransform[2]))
+);
+treeLocalWindDirection /= max(length(treeLocalWindDirection), 0.001);
+vec2 treeWorldSideDirection = vec2(-uTreeWindDirection.y, uTreeWindDirection.x);
+vec2 treeLocalSideDirection = vec2(-treeLocalWindDirection.y, treeLocalWindDirection.x);
+float treeViewerDistance = distance(treeInstanceWorld.xz, uTreeViewerPosition);
+float treeDistanceMask = 1.0 - smoothstep(${TREE_SWAY_FADE_START.toFixed(1)}, ${TREE_SWAY_FADE_END.toFixed(1)}, treeViewerDistance);
+float treePrimaryWave = sin(
+  dot(treeInstanceWorld.xz, uTreeWindDirection) * 0.035
+  + uTreeTime * ${TREE_SWAY_PRIMARY_FREQUENCY.toFixed(2)}
+);
+float treeSecondaryWave = sin(
+  dot(treeInstanceWorld.xz, treeWorldSideDirection) * 0.05
+  - uTreeTime * ${TREE_SWAY_SECONDARY_FREQUENCY.toFixed(2)}
+);
+transformed.xz += (
+  treeLocalWindDirection * treePrimaryWave * 0.78
+  + treeLocalSideDirection * treeSecondaryWave * 0.22
+) * uTreeHeight * uTreeSwayStrength * treeHeightMask * treeDistanceMask;`,
+    );
+}
+
+export function updateTreeSwayUniforms(treeModels, viewerPosition, elapsedTime) {
+  const updatedUniforms = new Set();
+
+  for (const model of treeModels ?? []) {
+    const uniforms = model.swayUniforms;
+
+    if (!uniforms || updatedUniforms.has(uniforms)) continue;
+
+    uniforms.uTreeTime.value = elapsedTime;
+    uniforms.uTreeViewerPosition.value.set(viewerPosition.x, viewerPosition.z);
+    updatedUniforms.add(uniforms);
+  }
 }
 
 export function getTreeDensity(height) {
@@ -218,6 +367,10 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
       instanced.name = `Tree${modelIdx}_Instances`;
       instanced.castShadow = true;
       instanced.receiveShadow = true;
+      instanced.userData.treeRole = mesh.role ?? 'static';
+      if (mesh.depthMaterial) {
+        instanced.customDepthMaterial = mesh.depthMaterial;
+      }
 
       for (let i = 0; i < modelPlacements.length; i += 1) {
         instanced.setMatrixAt(i, modelPlacements[i].matrix);
@@ -228,6 +381,10 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
       instanced.instanceColor.needsUpdate = true;
       instanced.computeBoundingBox();
       instanced.computeBoundingSphere();
+      if (mesh.depthMaterial) {
+        instanced.boundingBox.expandByScalar(TREE_SWAY_BOUNDS_PADDING);
+        instanced.boundingSphere.radius += TREE_SWAY_BOUNDS_PADDING;
+      }
       parent.add(instanced);
     }
   }

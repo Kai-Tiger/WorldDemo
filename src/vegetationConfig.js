@@ -127,6 +127,22 @@ export const TREE_SHADOW_LIFT_COLOR = 0x24351f;
 /** 树木暗部补光强度；逆光过黑时提高，发亮发平时降低  |  Tree shadow lift intensity; raise for dark backlight, lower if trees look flat */
 export const TREE_SHADOW_LIFT_INTENSITY = 0.12;
 
+// --- 风动 (Wind sway) ---
+
+/** 树冠最大摆幅占模型高度的比例  |  Maximum canopy sway as a fraction of model height */
+export const TREE_SWAY_STRENGTH = 0.006;
+
+/** 树冠主、次摆动频率  |  Primary and secondary canopy sway frequencies */
+export const TREE_SWAY_PRIMARY_FREQUENCY = 0.28;
+export const TREE_SWAY_SECONDARY_FREQUENCY = 0.43;
+
+/** 树冠摆动距离淡出范围（米）  |  Canopy sway distance fade range (m) */
+export const TREE_SWAY_FADE_START = 80;
+export const TREE_SWAY_FADE_END = 180;
+
+/** 树冠风动包围体安全边距（米）  |  Canopy sway bounding-volume padding (m) */
+export const TREE_SWAY_BOUNDS_PADDING = 0.35;
+
 // --- 放置 (Placement) ---
 
 /** 树与树之间的最小间距（米）  |  Min spacing between trees (m) */
