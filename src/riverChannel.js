@@ -157,6 +157,7 @@ export function createRiverWaterMesh(terrain) {
     getFlatWaterHeight,
     (_terrain, _x, _z, distance) => getWaterProfileHeight(waterProfile, distance),
     true,
+    getRiverWaterGeometryMaxDistance(),
   );
   const mesh = new THREE.Mesh(geometry, createRiverWaterMaterial());
 
@@ -164,6 +165,13 @@ export function createRiverWaterMesh(terrain) {
   mesh.renderOrder = WATER_RENDER_ORDER.surface;
 
   return mesh;
+}
+
+export function getRiverWaterGeometryMaxDistance() {
+  return Math.min(
+    channelLength,
+    terminalLakeEntryDistance + TERMINAL_LAKE_VISUAL_FADE_LENGTH,
+  );
 }
 
 export function createWetBankMesh(terrain, textures) {
@@ -242,8 +250,10 @@ function createChannelStripGeometry(
   getVertexHeight,
   getRowHeight = getWaterRowHeight,
   includeWaterDepth = false,
+  maxDistance = channelLength,
 ) {
-  const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
+  const geometryLength = Math.min(maxDistance, channelLength);
+  const longitudinalSegments = Math.max(1, Math.ceil(geometryLength / longitudinalStep));
   const verticesPerRow = lateralSegments + 1;
   const vertexCount = (longitudinalSegments + 1) * verticesPerRow;
   const positions = new Float32Array(vertexCount * 3);
@@ -257,10 +267,11 @@ function createChannelStripGeometry(
 
   for (let i = 0; i <= longitudinalSegments; i += 1) {
     const t = i / longitudinalSegments;
-    const center = channelCurve.getPointAt(t);
-    const tangent = channelCurve.getTangentAt(t).normalize();
+    const distance = t * geometryLength;
+    const pathT = distance / channelLength;
+    const center = channelCurve.getPointAt(pathT);
+    const tangent = channelCurve.getTangentAt(pathT).normalize();
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
-    const distance = t * channelLength;
     const rowHeight = getRowHeight(terrain, center.x, center.z, distance);
 
     for (let j = 0; j <= lateralSegments; j += 1) {
@@ -281,7 +292,7 @@ function createChannelStripGeometry(
         depthOffset += 1;
       }
 
-      uvs[uvOffset] = (t * channelLength) / 8;
+      uvs[uvOffset] = distance / 8;
       uvs[uvOffset + 1] = lateralT;
       uvOffset += 2;
     }
