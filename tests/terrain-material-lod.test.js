@@ -133,6 +133,37 @@ test('Near restores the baked forest floor while lower material LODs keep branch
   assert.doesNotMatch(farSource, /uForestFloorNormalTexture/);
 });
 
+test('terrain macro midtone lift only affects supported ground layers before water overrides', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const source = material.userData.terrainShaderSource.mapFragment;
+    const rockStart = source.indexOf('else if (terrainRockMask > 0.42)');
+    const snowStart = source.indexOf('else if (terrainSnowMask > 0.5)');
+    const fallbackDirtStart = source.indexOf('} else {', snowStart);
+    const macroStart = source.indexOf('terrainBaseColor *= mix(');
+    const waterOverrideStart = source.indexOf('// River, lake, snowmelt and plunge masks');
+
+    assert.match(source, /float terrainGroundMacroWeight = 0\.0;/);
+    assert.match(source, /mix\(0\.98, 1\.08, vTerrainMacro\.x\)/);
+    assert.match(source, /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
+    assert.match(source, /terrainGroundMacroWeight = 1\.0;/);
+    assert.match(
+      source,
+      /terrainGroundMacroWeight \* \(1\.0 - max\(terrainWaterBankMask, terrainWaterBedMask\)\)/,
+    );
+    assert.doesNotMatch(source, /mix\(0\.(?:78|94|96), 1\.(?:02|08|12), vTerrainMacro\.[wx]\)/);
+    assert.ok(rockStart >= 0);
+    assert.ok(snowStart > rockStart);
+    assert.ok(fallbackDirtStart > snowStart);
+    assert.doesNotMatch(source.slice(rockStart, snowStart), /terrainGroundMacroWeight = 1\.0;/);
+    assert.doesNotMatch(source.slice(snowStart, fallbackDirtStart), /terrainGroundMacroWeight = 1\.0;/);
+    assert.ok(macroStart > fallbackDirtStart);
+    assert.ok(waterOverrideStart > macroStart);
+    assert.doesNotMatch(source.slice(waterOverrideStart), /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
+  }
+});
+
 test('material selection follows chunk geometry resolution', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 

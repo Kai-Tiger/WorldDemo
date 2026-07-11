@@ -260,6 +260,7 @@ ${normalDeclarations}
 vec3 terrainBaseColor;
 float terrainRoughness = 0.9;
 float terrainOcclusion = 1.0;
+float terrainGroundMacroWeight = 0.0;
 
 ${groundBranches}
 else if (terrainRockMask > 0.42) {
@@ -273,8 +274,15 @@ else if (terrainRockMask > 0.42) {
 } else {
   terrainBaseColor = sampleTerrainLayer(uGroundDirtAlbedoTexture, terrainAlpineUv * 0.88, 5.0)
     * vec3(0.62, 0.67, 0.68);
+  terrainGroundMacroWeight = 1.0;
   terrainRoughness = 0.9;
 }
+
+terrainBaseColor *= mix(
+  1.0,
+  mix(0.90, 1.06, vTerrainMacro.w),
+  terrainGroundMacroWeight * (1.0 - max(terrainWaterBankMask, terrainWaterBedMask))
+);
 
 // River, lake, snowmelt and plunge masks stay active in every material LOD.
 if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
@@ -301,7 +309,6 @@ if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
   terrainRoughness = mix(terrainRoughness, 0.36, max(terrainWaterBankMask, terrainWaterBedMask));
 }
 
-terrainBaseColor *= mix(0.78, 1.02, vTerrainMacro.w);
 diffuseColor.rgb *= terrainBaseColor;
 `;
 }
@@ -321,7 +328,8 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
     uForestFloorBaseColorTexture,
     terrainForestFloorUv,
     1.0
-  ) * mix(0.96, 1.12, vTerrainMacro.x);
+  ) * mix(0.98, 1.08, vTerrainMacro.x);
+  terrainGroundMacroWeight = 1.0;
   ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.55')}
   terrainRoughness = 0.92;
   terrainOcclusion = 0.96;
@@ -329,9 +337,10 @@ function createGroundBranches({ sampleNormal, useBakedForestFloor }) {
   }
 
   return `if (terrainGroundMask > 0.38) {
+  terrainGroundMacroWeight = 1.0;
   if (terrainForestFloorWeight >= terrainDryGrassWeight && terrainForestFloorWeight >= terrainGravelWeight) {
     terrainBaseColor = sampleTerrainLayer(uForestFloorBaseColorTexture, terrainForestFloorUv, 1.0)
-      * mix(0.94, 1.08, vTerrainMacro.x);
+      * mix(0.98, 1.08, vTerrainMacro.x);
     ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.42')}
     terrainRoughness = 0.94;
     terrainOcclusion = 0.96;
