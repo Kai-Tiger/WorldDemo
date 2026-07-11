@@ -1048,15 +1048,47 @@ export function createLakeSurfaceMaterial() {
         return getDualWaveNormal(windUv, worldUv, uTime, strength);
       }
 
-      float getSunGlint(vec2 worldPosition, vec2 sunDir, float broadNoise, float detailNoise) {
-        vec2 sideDir = vec2(-sunDir.y, sunDir.x);
-        float bandPhase = dot(worldPosition, sunDir) * 0.34 - uTime * 1.8;
-        float sidePhase = dot(worldPosition, sideDir) * 2.2 + uTime * 0.24;
-        float bands = smoothstep(0.58, 0.94, 0.5 + sin(bandPhase) * sin(sidePhase) * 0.5);
-        float flecks = smoothstep(0.58, 0.88, detailNoise);
-        float breakup = smoothstep(0.3, 0.76, broadNoise);
+      float getSunSparkle(
+        vec2 worldPosition,
+        vec3 surfaceNormal,
+        vec3 lightDirection,
+        vec3 viewDirection,
+        float detailNoise,
+        float windMask
+      ) {
+        vec2 microUv = worldPosition * 1.35 + vec2(uTime * 0.18, -uTime * 0.12);
+        vec2 microSlope = (
+          vec2(noise(microUv), noise(microUv + vec2(19.17, 7.31))) - 0.5
+        ) * mix(1.0, 1.35, windMask);
+        vec3 microNormal = normalize(vec3(
+          surfaceNormal.x + microSlope.x,
+          surfaceNormal.y,
+          surfaceNormal.z + microSlope.y
+        ));
+        vec3 halfDirection = normalize(lightDirection + viewDirection);
+        float NoL = max(dot(microNormal, lightDirection), 0.0);
+        float NoV = max(dot(microNormal, viewDirection), 0.001);
+        float NoH = max(dot(microNormal, halfDirection), 0.0);
+        float VoH = max(dot(viewDirection, halfDirection), 0.0);
+        float roughness = mix(0.075, 0.1, windMask);
+        float alpha2 = roughness * roughness;
+        float denominator = NoH * NoH * (alpha2 - 1.0) + 1.0;
+        float distribution = alpha2 / (3.14159265 * denominator * denominator + 0.0001);
+        float geometryK = (roughness + 1.0) * (roughness + 1.0) * 0.125;
+        float geometry = (NoV / (NoV * (1.0 - geometryK) + geometryK))
+          * (NoL / (NoL * (1.0 - geometryK) + geometryK));
+        float fresnel = 0.0204 + 0.9796 * pow(1.0 - VoH, 5.0);
+        float sunBrdf = distribution * geometry * fresnel / max(4.0 * NoV * NoL, 0.02);
+        float cells = noise(worldPosition * 2.4 + vec2(-uTime * 0.28, uTime * 0.09));
+        float coverageField = detailNoise * 0.62 + cells * 0.38;
+        float coverageWidth = max(fwidth(coverageField), 0.015);
+        float coverage = smoothstep(
+          0.72 - coverageWidth,
+          0.72 + coverageWidth,
+          coverageField
+        );
 
-        return bands * max(flecks, 0.28) * breakup;
+        return min(sunBrdf * NoL, 0.85) * coverage;
       }
 
       void main() {
@@ -1071,7 +1103,7 @@ export function createLakeSurfaceMaterial() {
           smoothstep(0.025, 0.72, vLakeDepth),
           uDepthShorelineEnabled
         );
-        float depthMask = smoothstep(0.65, 9.5, vLakeDepth);
+        float depthOpacity = 1.0 - exp(-max(vLakeDepth, 0.0) * 0.85);
         float basinCenter = smoothstep(0.12, 0.82, vLakeEdge);
         float deepMask = max(smoothstep(2.2, 12.0, vLakeDepth), basinCenter * 0.72);
         float shallowMask = 1.0 - smoothstep(0.8, 3.8, vLakeDepth);
@@ -1102,33 +1134,31 @@ export function createLakeSurfaceMaterial() {
         float caustics = smoothstep(0.74, 0.96, causticRidges);
         color += vec3(0.74, 0.96, 1.0) * caustics * shallowMask * vLakeBedVisibility * 0.13;
 
+        vec3 lightDir = normalize(uSunDirection);
+        vec3 reflectionDirection = reflect(-viewDir, normal);
         vec3 skyReflection = getTieredWaterReflection(
           mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y)),
           vWorldPosition,
           normal,
           viewDir
         );
-        color = mix(color, skyReflection, 0.12 + reflectionMask * 0.3);
+        float sunCone = smoothstep(0.975, 0.9985, max(dot(reflectionDirection, lightDir), 0.0));
+        float reflectionPeak = max(max(skyReflection.r, skyReflection.g), skyReflection.b);
+        float sunPeakScale = min(1.0, 0.9 / max(reflectionPeak, 0.001));
+        skyReflection *= mix(1.0, sunPeakScale, sunCone);
+        color = mix(color, skyReflection, 0.025 + reflectionMask * 0.2);
         float bankReflection = (1.0 - basinCenter) * edgeAlpha * smoothstep(0.32, 0.86, broadNoise);
         color = mix(color, uBankReflectionColor, bankReflection * 0.18);
 
-        vec3 lightDir = normalize(uSunDirection);
-        vec3 halfDir = normalize(lightDir + viewDir);
-        float spec = pow(max(dot(normal, halfDir), 0.0), 120.0);
-        float broadSpec = pow(max(dot(normal, halfDir), 0.0), 38.0);
-        float sparkle = smoothstep(0.54, 0.9, detailNoise);
-        vec3 reflectedSun = reflect(-lightDir, normal);
-        float mirrorFacing = max(dot(reflectedSun, viewDir), 0.0);
-        float sharpGlint = pow(mirrorFacing, 96.0);
-        float broadGlint = pow(mirrorFacing, 20.0);
-        vec2 sunDir2 = normalize(lightDir.xz + vec2(0.001, -0.001));
-        float sunGlint = getSunGlint(p, sunDir2, broadNoise, detailNoise) * edgeAlpha * basinCenter;
-        float sunGlintMask = smoothstep(0.08, 0.72, mirrorFacing) * (0.55 + reflectionMask * 0.45);
-        color += uSunReflectionColor * (
-          spec * sparkle * (0.4 + windMask * 0.28)
-          + broadSpec * reflectionMask * (0.055 + windMask * 0.055)
-          + sunGlint * sunGlintMask * (sharpGlint * 1.35 + broadGlint * 0.16) * (0.78 + windMask * 0.5)
-        );
+        float sunSparkle = getSunSparkle(
+          p,
+          normal,
+          lightDir,
+          viewDir,
+          detailNoise,
+          windMask
+        ) * edgeAlpha * basinCenter;
+        color += uSunReflectionColor * sunSparkle * mix(1.35, 1.85, windMask);
 
         float foamEdge = vLakeEdge + edgeNoise * 0.04;
         float foamStart = smoothstep(0.035, 0.095, foamEdge);
@@ -1142,7 +1172,7 @@ export function createLakeSurfaceMaterial() {
         float shoreFoam = shoreBand * shallowFoamSupport * foamBreakup * max(foamCells * 0.72, foamThreads * 0.36);
         color = mix(color, uFoamColor, shoreFoam * 0.56);
 
-        float alpha = edgeAlpha * mix(0.12, 0.48, max(depthMask, basinCenter * 0.74));
+        float alpha = edgeAlpha * mix(0.12, 1.0, max(depthOpacity, basinCenter * 0.4));
         alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
         alpha = max(alpha, shoreFoam * 0.28);
 
