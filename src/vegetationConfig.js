@@ -68,8 +68,32 @@ export const GRASS_COMMUNITY_SECONDARY_RATIO = 0.20;
 
 // --- 风动 (Wind sway) ---
 
-/** 风吹摆动强度  |  Wind sway magnitude */
-export const GRASS_SWAY_STRENGTH = 0.035;
+/** 草尖近身最大摆幅（米）  |  Maximum close-range grass-tip displacement (m) */
+export const GRASS_SWAY_STRENGTH = 0.028;
+
+/** 玩家附近完整摆动半径（米）  |  Full-sway radius around the player (m) */
+export const GRASS_SWAY_PLAYER_RADIUS = 2;
+
+/** 区域风动淡出范围（米）  |  Regional wind-sway fade range (m) */
+export const GRASS_SWAY_FADE_START = 14;
+export const GRASS_SWAY_FADE_END = 20;
+
+/** 区域风动相对强度（0-1）  |  Regional wind-sway strength multiplier (0-1) */
+export const GRASS_SWAY_REGIONAL_STRENGTH = 0.55;
+
+/** 同步摆动区域尺寸（米）  |  Coherent wind-region size (m) */
+export const GRASS_SWAY_REGION_SIZE = 12;
+
+/** 近景细节摆动淡出范围（米）  |  Near-detail sway fade range (m) */
+export const GRASS_SWAY_DETAIL_FADE_START = 4;
+export const GRASS_SWAY_DETAIL_FADE_END = 12;
+
+/** 主摆动与叶尖颤动频率  |  Primary sway and tip-flutter frequencies */
+export const GRASS_SWAY_PRIMARY_FREQUENCY = 0.38;
+export const GRASS_SWAY_FLUTTER_FREQUENCY = 0.45;
+
+/** 叶尖侧向颤动相对强度  |  Relative lateral tip-flutter strength */
+export const GRASS_SWAY_FLUTTER_STRENGTH = 0.05;
 
 /** 风向 X 分量  |  Wind direction X */
 export const GRASS_WIND_X = 0.82;

@@ -21,6 +21,12 @@ import {
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 import {
   GRASS_CANDIDATE_JITTER,
+  GRASS_SWAY_FADE_END,
+  GRASS_SWAY_FADE_START,
+  GRASS_SWAY_FLUTTER_FREQUENCY,
+  GRASS_SWAY_PLAYER_RADIUS,
+  GRASS_SWAY_PRIMARY_FREQUENCY,
+  GRASS_SWAY_REGIONAL_STRENGTH,
   GRASS_SWAY_STRENGTH,
 } from '../src/vegetationConfig.js';
 
@@ -725,13 +731,28 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.match(nearShader.vertexShader, /mat3\(modelMatrix\) \* mat3\(instanceMatrix\)/);
   assert.match(nearShader.vertexShader, /dot\(grassWorldWindDirection, normalize\(grassInstanceTransform\[0\]\)\)/);
   assert.match(nearShader.vertexShader, /grassLocalWindDirection \* grassWave/);
-  assert.match(nearShader.vertexShader, /grassPlayerDistance\)\) \* 0\.55/);
+  assert.match(
+    nearShader.vertexShader,
+    new RegExp(`smoothstep\\(${GRASS_SWAY_FADE_START.toFixed(1)}, ${GRASS_SWAY_FADE_END.toFixed(1)}, grassPlayerDistance\\)\\) \\* ${GRASS_SWAY_REGIONAL_STRENGTH.toFixed(2)}`),
+  );
+  assert.match(
+    nearShader.vertexShader,
+    new RegExp(`uGrassTime \\* ${GRASS_SWAY_PRIMARY_FREQUENCY.toFixed(2)}`),
+  );
+  assert.match(
+    nearShader.vertexShader,
+    new RegExp(`uGrassTime \\* ${GRASS_SWAY_FLUTTER_FREQUENCY.toFixed(2)}`),
+  );
+  assert.match(
+    nearShader.vertexShader,
+    new RegExp(`smoothstep\\(${(GRASS_SWAY_PLAYER_RADIUS - 0.25).toFixed(2)}, ${GRASS_SWAY_PLAYER_RADIUS.toFixed(2)}, grassPlayerDistance\\)`),
+  );
   assert.doesNotMatch(nearShader.vertexShader, /uGrassBaseY|uGrassHeight/);
   assert.equal(
     lods[0][0].material.userData.grassUniforms.uGrassSwayStrength.value,
-    GRASS_SWAY_STRENGTH * 0.8,
+    GRASS_SWAY_STRENGTH,
   );
-  assert.match(lods[0][0].material.customProgramCacheKey(), /height-attribute-world-wind-v3/);
+  assert.match(lods[0][0].material.customProgramCacheKey(), /ribbon-grass-sway-config-v4/);
   assert.match(midShader.fragmentShader, /vAlphaMapUv\)\.r/);
   assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
 });
