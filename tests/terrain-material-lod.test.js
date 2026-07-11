@@ -180,6 +180,65 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
   }
 });
 
+test('forest-floor color and normal share four-cell world-space bombing with stable gradients', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const [level, material] of Object.entries(materials)) {
+    const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
+    const groundStart = mapFragment.indexOf('if (terrainGroundMask > 0.38)');
+    const rockStart = mapFragment.indexOf('else if (terrainAlpineMask > 0.42)');
+    const groundSource = mapFragment.slice(groundStart, rockStart);
+    const derivativeStart = mapFragment.indexOf('vec2 terrainForestFloorUvDx = dFdx');
+    const cellSource = getShaderFunction(fragmentParameters, 'sampleTerrainForestFloorCell');
+    const colorSource = getShaderFunction(fragmentParameters, 'sampleTerrainForestFloorColor');
+    const slopeCellSource = getShaderFunction(
+      fragmentParameters,
+      'sampleTerrainForestFloorSlopeCell',
+    );
+    const normalSource = getShaderFunction(fragmentParameters, 'sampleTerrainForestFloorNormal');
+
+    assert.equal(
+      (colorSource.match(/sampleTerrainForestFloorCell\(/g) ?? []).length,
+      4,
+    );
+    assert.equal(
+      (normalSource.match(/sampleTerrainForestFloorSlopeCell\(/g) ?? []).length,
+      4,
+    );
+    assert.match(colorSource, /cell \+ vec2\(1\.0, 0\.0\)/);
+    assert.match(colorSource, /cell \+ vec2\(0\.0, 1\.0\)/);
+    assert.match(colorSource, /cell \+ vec2\(1\.0, 1\.0\)/);
+    assert.match(cellSource, /texture2DGradEXT\(terrainTexture, uv, uvDx, uvDy\)/);
+    assert.doesNotMatch(cellSource, /texture2D\(/);
+    assert.equal((slopeCellSource.match(/sampleTerrainForestFloorCell\(/g) ?? []).length, 1);
+    assert.doesNotMatch(slopeCellSource, /texture2D(?:GradEXT)?\(/);
+    assert.match(
+      slopeCellSource,
+      /vec2 terrainSlope = -tangentNormal\.xy \/ max\(tangentNormal\.z, 0\.08\)/,
+    );
+    assert.match(slopeCellSource, /terrainRotateQuarterInverse\(terrainSlope, turn\)/);
+    assert.match(normalSource, /vec3\(-terrainSlope\.x, -terrainSlope\.y, 1\.0\)/);
+    assert.match(colorSource, /terrainForestFloorCellWeights/);
+    assert.match(normalSource, /terrainForestFloorCellWeights/);
+    assert.ok(derivativeStart >= 0);
+    assert.ok(derivativeStart < groundStart);
+    assert.equal((mapFragment.match(/sampleTerrainForestFloorColor\(/g) ?? []).length, 1);
+    assert.match(groundSource, /sampleTerrainForestFloorColor/);
+    assert.doesNotMatch(
+      groundSource,
+      /sampleTerrainLayer\(\s*uForestFloorBaseColorTexture/,
+    );
+
+    if (level === TERRAIN_MATERIAL_LOD.FAR) {
+      assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 0);
+    } else {
+      assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 1);
+    }
+
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v6-${level}`);
+  }
+});
+
 test('every material LOD uses one world-space snow sample over an alpine rock base', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
@@ -256,6 +315,24 @@ function getSnowlineCoverage(height, normalY, macroX = 0.5, macroZ = 0.5) {
   const slope = smoothstep(0.3, 0.78, normalY);
 
   return smoothstep(0.12, 0.88, elevation * slope + (macroZ - 0.5) * 0.22);
+}
+
+function getShaderFunction(source, name) {
+  const nameStart = source.indexOf(`${name}(`);
+  const bodyStart = source.indexOf('{', nameStart);
+  let depth = 0;
+
+  assert.ok(nameStart >= 0, `Missing shader function ${name}`);
+  assert.ok(bodyStart >= 0, `Missing shader function body ${name}`);
+
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] !== '}') continue;
+    depth -= 1;
+    if (depth === 0) return source.slice(nameStart, index + 1);
+  }
+
+  assert.fail(`Unclosed shader function ${name}`);
 }
 
 function smoothstep(edge0, edge1, value) {

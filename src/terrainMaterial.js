@@ -112,6 +112,155 @@ mat2 terrainRotation(float angle) {
   return mat2(cosine, -sine, sine, cosine);
 }
 
+vec2 terrainRotateQuarter(vec2 value, float turn) {
+  if (turn < 0.5) return value;
+  if (turn < 1.5) return vec2(-value.y, value.x);
+  if (turn < 2.5) return -value;
+  return vec2(value.y, -value.x);
+}
+
+vec2 terrainRotateQuarterInverse(vec2 value, float turn) {
+  if (turn < 0.5) return value;
+  if (turn < 1.5) return vec2(value.y, -value.x);
+  if (turn < 2.5) return -value;
+  return vec2(-value.y, value.x);
+}
+
+float terrainForestFloorCellTurn(vec2 cell) {
+  return floor(terrainHash(cell + vec2(31.3, 11.7)) * 4.0);
+}
+
+vec2 terrainForestFloorCellOffset(vec2 cell) {
+  return vec2(
+    terrainHash(cell + vec2(5.2, 1.7)),
+    terrainHash(cell + vec2(8.3, 2.8))
+  ) * 19.0;
+}
+
+vec4 terrainForestFloorCellWeights(vec2 baseUv) {
+  vec2 blend = smoothstep(vec2(0.18), vec2(0.82), fract(baseUv));
+  vec4 weights = vec4(
+    (1.0 - blend.x) * (1.0 - blend.y),
+    blend.x * (1.0 - blend.y),
+    (1.0 - blend.x) * blend.y,
+    blend.x * blend.y
+  );
+  weights *= weights;
+  return weights / max(dot(weights, vec4(1.0)), 0.0001);
+}
+
+vec4 sampleTerrainForestFloorCell(
+  sampler2D terrainTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy,
+  vec2 cell
+) {
+  float turn = terrainForestFloorCellTurn(cell);
+  vec2 uv = terrainRotateQuarter(baseUv, turn) + terrainForestFloorCellOffset(cell);
+  vec2 uvDx = terrainRotateQuarter(baseUvDx, turn);
+  vec2 uvDy = terrainRotateQuarter(baseUvDy, turn);
+  return texture2DGradEXT(terrainTexture, uv, uvDx, uvDy);
+}
+
+vec3 sampleTerrainForestFloorColor(
+  sampler2D terrainTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy
+) {
+  vec2 cell = floor(baseUv);
+  vec4 weights = terrainForestFloorCellWeights(baseUv);
+  vec3 a = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell
+  ).rgb;
+  vec3 b = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 0.0)
+  ).rgb;
+  vec3 c = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(0.0, 1.0)
+  ).rgb;
+  vec3 d = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 1.0)
+  ).rgb;
+  return a * weights.x + b * weights.y + c * weights.z + d * weights.w;
+}
+
+vec2 sampleTerrainForestFloorSlopeCell(
+  sampler2D normalTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy,
+  vec2 cell
+) {
+  float turn = terrainForestFloorCellTurn(cell);
+  vec3 tangentNormal = sampleTerrainForestFloorCell(
+    normalTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell
+  ).rgb * 2.0 - 1.0;
+  vec2 terrainSlope = -tangentNormal.xy / max(tangentNormal.z, 0.08);
+  return terrainRotateQuarterInverse(terrainSlope, turn);
+}
+
+vec3 sampleTerrainForestFloorNormal(
+  sampler2D normalTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy
+) {
+  vec2 cell = floor(baseUv);
+  vec4 weights = terrainForestFloorCellWeights(baseUv);
+  vec2 terrainSlope = sampleTerrainForestFloorSlopeCell(
+    normalTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell
+  ) * weights.x;
+  terrainSlope += sampleTerrainForestFloorSlopeCell(
+    normalTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 0.0)
+  ) * weights.y;
+  terrainSlope += sampleTerrainForestFloorSlopeCell(
+    normalTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(0.0, 1.0)
+  ) * weights.z;
+  terrainSlope += sampleTerrainForestFloorSlopeCell(
+    normalTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 1.0)
+  ) * weights.w;
+  vec3 tangentNormal = normalize(vec3(-terrainSlope.x, -terrainSlope.y, 1.0));
+  return normalize(vec3(tangentNormal.x, tangentNormal.z, tangentNormal.y));
+}
+
 vec3 gradeTerrainForestFloor(vec3 baseColor) {
   float luminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
   vec3 desaturated = mix(vec3(luminance), baseColor, 0.66);
@@ -251,6 +400,8 @@ float terrainWaterBedMask = max(
 
 vec2 terrainDirtUv = vTerrainWorldPosition.xz / uGroundDirtTextureWorldSize;
 vec2 terrainForestFloorUv = vTerrainWorldPosition.xz / uForestFloorTextureWorldSize;
+vec2 terrainForestFloorUvDx = dFdx(terrainForestFloorUv);
+vec2 terrainForestFloorUvDy = dFdy(terrainForestFloorUv);
 vec2 terrainGravelUv = vTerrainWorldPosition.xz / uGravelTextureWorldSize + vec2(4.7, 12.8);
 vec2 terrainAlpineUv = vTerrainWorldPosition.xz / uAlpineTextureWorldSize;
 vec2 terrainSnowUv = vTerrainWorldPosition.xz / (uAlpineTextureWorldSize * 1.35)
@@ -391,24 +542,30 @@ if (terrainRoadMask > 0.01) {
 }
 
 function createGroundBranches({ sampleNormal }) {
-  const normal = (texture, uv, strength) => sampleNormal
+  const forestFloorNormal = sampleNormal
     ? `terrainSurfaceNormal = normalize(mix(
     terrainBaseNormal,
-    sampleTerrainNormal(${texture}, ${uv}),
-    ${strength}
+    sampleTerrainForestFloorNormal(
+      uForestFloorNormalTexture,
+      terrainForestFloorUv,
+      terrainForestFloorUvDx,
+      terrainForestFloorUvDy
+    ),
+    0.55
   ));`
     : '';
 
   return `if (terrainGroundMask > 0.38) {
-  terrainBaseColor = sampleTerrainLayer(
+  terrainBaseColor = sampleTerrainForestFloorColor(
     uForestFloorBaseColorTexture,
     terrainForestFloorUv,
-    1.0
+    terrainForestFloorUvDx,
+    terrainForestFloorUvDy
   );
   terrainBaseColor = gradeTerrainForestFloor(terrainBaseColor)
     * mix(1.0, 1.06, vTerrainMacro.x);
   terrainGroundMacroWeight = 1.0;
-  ${normal('uForestFloorNormalTexture', 'terrainForestFloorUv', '0.55')}
+  ${forestFloorNormal}
   terrainRoughness = 0.92;
   terrainOcclusion = 0.96;
 }`;
@@ -488,7 +645,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v5-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v6-${level}`;
 
   return material;
 }
