@@ -8,7 +8,9 @@ import {
   RIVER_BANK_TEXTURE_WORLD_SIZE,
 } from './riverChannel.js';
 import {
+  applyWaterSystemMacroTerrain,
   applyWaterSystemTerrain,
+  getWaterSystemMinimumSegmentsForBounds,
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
 import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
@@ -57,17 +59,6 @@ const PRIORITY_NEW_VISIBLE = 20;
 const PRIORITY_NEAR_UPGRADE = 40;
 const PRIORITY_EDITOR_REBUILD = 5;
 const PRIORITY_DOWNGRADE = 100;
-const WATER_FEATURE_MIN_SEGMENTS = 128;
-const NARROW_WATER_FEATURE_BOUNDS = [
-  { minX: 140, maxX: 320, minZ: -640, maxZ: -418 },
-  { minX: 330, maxX: 420, minZ: -432, maxZ: -400 },
-  { minX: 410, maxX: 705, minZ: -440, maxZ: -320 },
-];
-const WIDE_WATER_FEATURE_BOUNDS = [
-  { minX: 235, maxX: 365, minZ: -465, maxZ: -335 },
-  { minX: 625, maxX: 710, minZ: -650, maxZ: -560 },
-  { minX: 655, maxX: 725, minZ: -375, maxZ: -305 },
-];
 const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
@@ -978,6 +969,10 @@ export class Terrain {
     const riverFrame = getRiverMaterialFrame(sample.baseHeight, worldX, worldZ);
     const waterSystemFrame = getWaterSystemMaterialFrame(sample.baseHeight, worldX, worldZ);
     const smallLakesMask = getSmallLakesMaterialMask(worldX, worldZ);
+    const worldSpaceWaterBedMask = Math.max(
+      smallLakesMask,
+      waterSystemFrame.riverNetworkBedMask,
+    );
     const roadFrame = getRoadMaterialFrame(worldX, worldZ, this.roadMaterialScratch);
     const positionOffset = vertexIndex * 3;
     const uvOffset = vertexIndex * 2;
@@ -994,7 +989,10 @@ export class Terrain {
     arrays.uvs[uvOffset + 1] = (worldZ + HALF_MAP_SIZE) / MAP_SIZE;
     arrays.groundMasks[vertexIndex] = sample.groundMask;
     arrays.riverMasks[vertexIndex] = riverFrame.riverMask;
-    arrays.riverBedMasks[vertexIndex] = Math.max(riverFrame.riverBedMask, smallLakesMask);
+    arrays.riverBedMasks[vertexIndex] = Math.max(
+      riverFrame.riverBedMask,
+      worldSpaceWaterBedMask,
+    );
     arrays.riverUnderwaterMasks[vertexIndex] = riverFrame.riverUnderwaterMask;
     arrays.riverBedCoords[uvOffset] = riverFrame.riverDistance;
     arrays.riverBedCoords[uvOffset + 1] = riverFrame.riverLateral;
@@ -1002,7 +1000,7 @@ export class Terrain {
     arrays.waterSystemMasks[waterMaskOffset + 1] = waterSystemFrame.wetShoreMask;
     arrays.waterSystemMasks[waterMaskOffset + 2] = waterSystemFrame.snowmeltWetMask;
     arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
-    arrays.smallLakeMasks[vertexIndex] = smallLakesMask;
+    arrays.smallLakeMasks[vertexIndex] = worldSpaceWaterBedMask;
     arrays.roadFrames[roadFrameOffset] = roadFrame.trailMask;
     arrays.roadFrames[roadFrameOffset + 1] = roadFrame.cartMask;
     arrays.roadFrames[roadFrameOffset + 2] = roadFrame.trailLateral;
@@ -1073,6 +1071,13 @@ export class Terrain {
 
   getHeightAt(x, z) {
     return this.getSurfaceHeightFromBase(this.getBaseHeightAt(x, z), x, z);
+  }
+
+  getShadowProxyHeightAt(x, z) {
+    const baseHeight = this.getBaseHeightAt(x, z);
+    const waterHeight = applyWaterSystemMacroTerrain(baseHeight, x, z);
+
+    return applySmallLakesTerrain(waterHeight, x, z);
   }
 
   getBaseHeightAt(x, z) {
@@ -1515,7 +1520,7 @@ function createTerrainShadowProxy(terrain) {
       const worldZ = -HALF_MAP_SIZE + z * vertexStep;
 
       positions[positionOffset] = worldX;
-      positions[positionOffset + 1] = terrain.getHeightAt(worldX, worldZ);
+      positions[positionOffset + 1] = terrain.getShadowProxyHeightAt(worldX, worldZ);
       positions[positionOffset + 2] = worldZ;
       positionOffset += 3;
     }
@@ -1573,23 +1578,9 @@ function disableRaycast() {}
 
 function getConservativeMinimumChunkSegments(bounds) {
   const roadMinimum = getRoadMinimumSegmentsForBounds(bounds);
+  const waterMinimum = getWaterSystemMinimumSegmentsForBounds(bounds);
 
-  if (roadMinimum > 0) return roadMinimum;
-  if (NARROW_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
-    return CHUNK_SIZE;
-  }
-  if (WIDE_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
-    return WATER_FEATURE_MIN_SEGMENTS;
-  }
-
-  return 0;
-}
-
-function boundsIntersect(a, b) {
-  return a.maxX >= b.minX
-    && a.minX <= b.maxX
-    && a.maxZ >= b.minZ
-    && a.minZ <= b.maxZ;
+  return Math.max(roadMinimum, waterMinimum);
 }
 
 function getCurrentTime() {

@@ -345,6 +345,11 @@ if (max(terrainWaterBankMask, terrainWaterBedMask) > 0.01) {
   }
   terrainBaseColor = mix(terrainBaseColor, terrainBankColor, clamp(terrainWaterBankMask, 0.0, 1.0));
   terrainBaseColor = mix(terrainBaseColor, terrainBedColor, clamp(terrainWaterBedMask, 0.0, 1.0));
+  terrainBaseColor *= mix(
+    vec3(1.0),
+    vec3(0.62, 0.70, 0.74),
+    terrainSnowmeltWetMask * 0.34
+  );
   terrainRoughness = mix(terrainRoughness, 0.36, max(terrainWaterBankMask, terrainWaterBedMask));
 }
 

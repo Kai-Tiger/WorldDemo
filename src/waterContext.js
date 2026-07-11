@@ -207,13 +207,21 @@ export function createWaterRenderController({
       root.traverse((object) => {
         const uniforms = object.material?.uniforms;
         if (!uniforms?.uWaterReflectionMode) return;
+        const objectMode = Math.min(
+          mode,
+          object.userData.waterReflectionModeCap ?? mode,
+        );
 
         uniforms.uWaterEnvironmentMap.value = environmentTexture;
         uniforms.uWaterReflectionProbe.value = probeTarget.texture;
         uniforms.uWaterPlanarReflection.value = reflector.getRenderTarget().texture;
         uniforms.uWaterPlanarTextureMatrix.value = textureMatrix;
-        uniforms.uWaterReflectionMode.value = mode;
-        uniforms.uWaterReflectionStrength.value = mode === 0 ? 0.42 : mode === 1 ? 0.58 : 0.7;
+        uniforms.uWaterReflectionMode.value = objectMode;
+        uniforms.uWaterReflectionStrength.value = objectMode === 0
+          ? 0.42
+          : objectMode === 1
+            ? 0.58
+            : 0.7;
         uniforms.uDepthShorelineEnabled.value = quality?.depthShoreline ? 1 : 0;
       });
     }

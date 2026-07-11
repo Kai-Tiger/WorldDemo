@@ -34,6 +34,21 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 454, z: -407, heightOffset: 6 },
     target: { x: 414, z: -372, y: 14 },
   },
+  'river-tree-j1': {
+    player: { x: 45, z: -370 },
+    camera: { x: 55, z: -390, y: 68 },
+    target: { x: 16, z: -352, y: 50.6 },
+  },
+  'river-tree-tarn': {
+    player: { x: 108, z: -535 },
+    camera: { x: 132, z: -505, y: 91 },
+    target: { x: 76, z: -552, y: 49.5 },
+  },
+  'river-tree-inlet': {
+    player: { x: 310, z: -472 },
+    camera: { x: 310, z: -500, y: 52 },
+    target: { x: 278, z: -458, y: 31.6 },
+  },
   'terminal-lake-overhead': {
     player: { x: 720, z: -340 },
     camera: { x: 690, z: -340, y: 55 },

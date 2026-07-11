@@ -55,6 +55,19 @@ test('smoothed pixel samples are cached and a brush invalidates the local cache'
   assert.ok(pixelReads > initialReads);
 });
 
+test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () => {
+  const terrain = createTerrain();
+  const baseAtJunction = terrain.getBaseHeightAt(16, -352);
+  const visibleJunction = terrain.getHeightAt(16, -352);
+  const proxyJunction = terrain.getShadowProxyHeightAt(16, -352);
+  const lakeBase = terrain.getBaseHeightAt(300, -400);
+  const proxyLake = terrain.getShadowProxyHeightAt(300, -400);
+
+  assert.ok(visibleJunction < baseAtJunction - 20);
+  assert.ok(Math.abs(proxyJunction - baseAtJunction) < 1e-6);
+  assert.ok(proxyLake < lakeBase - 20);
+});
+
 test('quality presets keep the center at 256 and use preset values for rings', () => {
   const terrain = createTerrain();
 
@@ -72,7 +85,7 @@ test('quality presets keep the center at 256 and use preset values for rings', (
   assert.equal(terrain.buildBudgetMs, 5);
 });
 
-test('feature floors keep narrow water at 256 and wide water at 128', () => {
+test('feature floors keep the existing water and the tree river network at full detail', () => {
   const terrain = createTerrain({ minimumSegmentsForChunk: undefined });
 
   terrain.setQualityPreset({ lodSegments: [256, 128, 64] });
@@ -81,6 +94,7 @@ test('feature floors keep narrow water at 256 and wide water at 128', () => {
 
   assert.equal(terrain.getDesiredChunkSegments(3, 0), 256);
   assert.equal(terrain.getDesiredChunkSegments(5, 0), 128);
+  assert.equal(terrain.getDesiredChunkSegments(1, 1), 256);
   assert.equal(terrain.getDesiredChunkSegments(0, 5), 64);
 });
 

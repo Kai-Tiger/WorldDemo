@@ -15,6 +15,14 @@ import {
   WATER_RENDER_ORDER,
   createWaterUniforms,
 } from './waterContext.js';
+import {
+  RIVER_NETWORK,
+  applyRiverNetworkTerrain,
+  getNearestRiverReach,
+  getRiverNetworkFeatureBounds,
+  isInRiverNetworkVegetationExclusion,
+} from './hydrology/riverNetwork.js';
+import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
 
 export const LAKE_CENTER = new THREE.Vector2(300, -400);
 export const LAKE_WATER_LEVEL = 31;
@@ -33,6 +41,18 @@ const WATER_SYSTEM_MIN_X = 130;
 const WATER_SYSTEM_MAX_X = 435;
 const WATER_SYSTEM_MIN_Z = -640;
 const WATER_SYSTEM_MAX_Z = -330;
+const WATER_FEATURE_MIN_SEGMENTS = 128;
+const NARROW_WATER_FEATURE_BOUNDS = [
+  { minX: 140, maxX: 320, minZ: -640, maxZ: -418 },
+  { minX: 330, maxX: 420, minZ: -432, maxZ: -400 },
+  { minX: 410, maxX: 705, minZ: -440, maxZ: -320 },
+];
+const WIDE_WATER_FEATURE_BOUNDS = [
+  { minX: 235, maxX: 365, minZ: -465, maxZ: -335 },
+  { minX: 625, maxX: 710, minZ: -650, maxZ: -560 },
+  { minX: 655, maxX: 725, minZ: -375, maxZ: -305 },
+];
+const RIVER_NETWORK_FEATURE_BOUNDS = getRiverNetworkFeatureBounds();
 
 const OUTLET_POINTS = [
   new THREE.Vector3(340, 0, -410),
@@ -64,78 +84,69 @@ const PLUNGE_OUTFLOW_LENGTH = 24;
 const PLUNGE_OUTFLOW_START_WIDTH = 8.5;
 const PLUNGE_OUTFLOW_END_WIDTH = 4.2;
 
-const SNOWMELT_PATHS = [
-  [
-    new THREE.Vector3(188, 0, -610),
-    new THREE.Vector3(205, 0, -570),
-    new THREE.Vector3(226, 0, -528),
-    new THREE.Vector3(244, 0, -490),
-    new THREE.Vector3(260, 0, -456),
-    new THREE.Vector3(267.3, 0, -441.9),
-  ],
-  [
-    new THREE.Vector3(286, 0, -628),
-    new THREE.Vector3(294, 0, -586),
-    new THREE.Vector3(301, 0, -542),
-    new THREE.Vector3(307, 0, -501),
-    new THREE.Vector3(310, 0, -462),
-    new THREE.Vector3(309.1, 0, -448.3),
-  ],
-  [
-    new THREE.Vector3(148, 0, -558),
-    new THREE.Vector3(176, 0, -530),
-    new THREE.Vector3(204, 0, -498),
-    new THREE.Vector3(230, 0, -466),
-    new THREE.Vector3(254, 0, -437),
-    new THREE.Vector3(265.9, 0, -428.3),
-  ],
-];
-const SNOWMELT_WIDTH = 2.1;
-const SNOWMELT_INFLUENCE = 6.6;
-const SNOWMELT_CARVE_DEPTH = 0.72;
-const SNOWMELT_SURFACE_OFFSET = 0.38;
 const outletCurve = new THREE.CatmullRomCurve3(OUTLET_POINTS, false, 'centripetal');
 const outletSamples = createPathSamples(outletCurve, 100);
-const snowmeltCurves = SNOWMELT_PATHS.map((points) => new THREE.CatmullRomCurve3(points, false, 'centripetal'));
-const snowmeltSamples = snowmeltCurves.map((curve) => createPathSamples(curve, 90));
 
 export function applyWaterSystemTerrain(baseHeight, x, z) {
+  let height = applyWaterSystemMacroTerrain(baseHeight, x, z);
+
+  height = applyRiverNetworkTerrain(height, x, z);
+
+  return height;
+}
+
+export function applyWaterSystemMacroTerrain(baseHeight, x, z) {
   if (!isNearWaterSystem(x, z)) return baseHeight;
 
   let height = applyLakeBasin(baseHeight, x, z);
+
   height = applyOutletChannel(height, x, z);
-  height = applySnowmeltChannels(height, x, z);
   height = applyPlungePool(height, x, z);
 
   return height;
 }
 
 export function getWaterSystemMaterialFrame(baseHeight, x, z) {
-  if (!isNearWaterSystem(x, z)) return createEmptyWaterSystemMaterialFrame();
+  const riverNetwork = getRiverNetworkMaterialFrame(x, z);
+
+  if (!isNearWaterSystem(x, z)) {
+    return {
+      ...createEmptyWaterSystemMaterialFrame(),
+      wetShoreMask: riverNetwork.wetMask,
+      snowmeltWetMask: Math.max(riverNetwork.wetMask, riverNetwork.bedMask),
+      riverNetworkBedMask: riverNetwork.bedMask,
+    };
+  }
 
   const lake = getLakeFrame(x, z);
   const outlet = getPathFrame(outletSamples, x, z);
-  const snowmelt = getClosestSnowmeltFrame(x, z);
   const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
   const lakeBedMask = lake.inside * (1 - smoothstep(lake.lakeRadius - 1.2, lake.lakeRadius + 0.4, lake.radius));
   const lakeInnerShoreMask = lake.inside * smoothstep(lake.lakeRadius - 8, lake.lakeRadius - 1.4, lake.radius);
   const lakeOuterShoreMask = (1 - lake.inside) * (1 - smoothstep(lake.lakeRadius, lake.lakeRadius + LAKE_SHORE_WIDTH, lake.radius));
   const outletMask = outlet ? 1 - smoothstep(OUTLET_WIDTH * 0.5, OUTLET_INFLUENCE, Math.abs(outlet.lateral)) : 0;
-  const snowmeltMask = snowmelt ? 1 - smoothstep(SNOWMELT_WIDTH * 0.4, SNOWMELT_INFLUENCE, Math.abs(snowmelt.lateral)) : 0;
   const plungeMask = 1 - smoothstep(PLUNGE_RADIUS * 0.45, PLUNGE_RADIUS, plungeDistance);
-  const wetShoreMask = Math.max(lakeInnerShoreMask * 0.68, lakeOuterShoreMask, outletMask * 0.65, snowmeltMask * 0.8, plungeMask * 0.8);
+  const wetShoreMask = Math.max(
+    lakeInnerShoreMask * 0.68,
+    lakeOuterShoreMask,
+    outletMask * 0.65,
+    riverNetwork.wetMask,
+    plungeMask * 0.8,
+  );
 
   return {
     lakeBedMask: THREE.MathUtils.clamp(lakeBedMask, 0, 1),
     wetShoreMask: THREE.MathUtils.clamp(wetShoreMask, 0, 1),
-    snowmeltWetMask: THREE.MathUtils.clamp(snowmeltMask, 0, 1),
+    snowmeltWetMask: Math.max(riverNetwork.wetMask, riverNetwork.bedMask),
     outletMask: THREE.MathUtils.clamp(outletMask, 0, 1),
     plungeMask: THREE.MathUtils.clamp(plungeMask, 0, 1),
     lakeDistance: lake.radius,
+    riverNetworkBedMask: riverNetwork.bedMask,
   };
 }
 
 export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
+  if (isInRiverNetworkVegetationExclusion(x, z, buffer)) return true;
   if (!isNearWaterSystem(x, z, buffer + 12)) return false;
 
   const lake = getLakeFrame(x, z);
@@ -144,12 +155,27 @@ export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
   const outlet = getPathFrame(outletSamples, x, z);
   if (outlet && Math.abs(outlet.lateral) <= OUTLET_WIDTH * 0.5 + buffer + 1.5) return true;
 
-  const snowmelt = getClosestSnowmeltFrame(x, z);
-  if (snowmelt && Math.abs(snowmelt.lateral) <= SNOWMELT_WIDTH * 0.5 + buffer + 1) return true;
-
   const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
 
   return plungeDistance <= PLUNGE_RADIUS + buffer;
+}
+
+export function getWaterSystemMinimumSegmentsForBounds(bounds) {
+  let minimum = 0;
+
+  if (NARROW_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
+    minimum = 256;
+  } else if (WIDE_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
+    minimum = WATER_FEATURE_MIN_SEGMENTS;
+  }
+
+  for (const feature of RIVER_NETWORK_FEATURE_BOUNDS) {
+    if (!boundsIntersect(bounds, feature)) continue;
+
+    minimum = Math.max(minimum, feature.type === 'reach' ? 256 : WATER_FEATURE_MIN_SEGMENTS);
+  }
+
+  return minimum;
 }
 
 function createEmptyWaterSystemMaterialFrame() {
@@ -160,26 +186,38 @@ function createEmptyWaterSystemMaterialFrame() {
     outletMask: 0,
     plungeMask: 0,
     lakeDistance: 0,
+    riverNetworkBedMask: 0,
   };
 }
 
 export function createWaterSystem(terrain) {
   const lake = createLakeWater(terrain);
   const outletStream = createOutletStream(terrain);
-  const snowmelt = createSnowmeltGroup(terrain);
+  const tributaries = createRiverNetworkWaterSurface();
+  const cirqueTarn = createCirqueTarn(terrain);
   const waterfall = createWaterfallGroup(terrain);
   const waterfallLipFoam = createWaterfallLipFoam(terrain);
   const confluence = createConfluenceFoam();
   const group = new THREE.Group();
 
   group.name = 'WaterSystem';
-  group.add(lake, outletStream, snowmelt, waterfall, waterfallLipFoam, confluence);
+  group.add(
+    lake,
+    outletStream,
+    tributaries,
+    cirqueTarn,
+    waterfall,
+    waterfallLipFoam,
+    confluence,
+  );
 
   return {
     group,
     lake,
     outletStream,
-    snowmelt,
+    tributaries,
+    snowmelt: tributaries,
+    cirqueTarn,
     waterfall,
     waterfallLipFoam,
     confluence,
@@ -249,24 +287,6 @@ function applyOutletChannel(height, x, z) {
   return Math.min(height, THREE.MathUtils.lerp(height, target, carveMask));
 }
 
-function applySnowmeltChannels(height, x, z) {
-  let nextHeight = height;
-
-  for (const samples of snowmeltSamples) {
-    const frame = getPathFrame(samples, x, z);
-
-    if (!frame) continue;
-
-    const lateralDistance = Math.abs(frame.lateral);
-    if (lateralDistance > SNOWMELT_INFLUENCE) continue;
-
-    const groove = 1 - smoothstep(0, SNOWMELT_WIDTH * 0.65, lateralDistance);
-    nextHeight -= groove * SNOWMELT_CARVE_DEPTH;
-  }
-
-  return nextHeight;
-}
-
 function applyPlungePool(height, x, z) {
   const distance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
 
@@ -288,6 +308,164 @@ function createLakeWater(terrain) {
   lake.add(surface);
 
   return lake;
+}
+
+function createRiverNetworkWaterSurface() {
+  const { geometry, stats } = createRiverNetworkWaterGeometry();
+  const water = new THREE.Mesh(geometry, createStreamMaterial({
+    shallow: WATER_SHALLOW_COLOR,
+    deep: WATER_DEEP_COLOR,
+    foam: WATER_FOAM_COLOR,
+    speed: 0.5,
+    alpha: 0.38,
+    foamStrength: 0.42,
+    mode: 'network',
+  }));
+
+  water.name = 'AlpineRiverNetworkSurface';
+  water.renderOrder = WATER_RENDER_ORDER.surface;
+  water.userData.waterReflectionModeCap = 1;
+  water.userData.riverNetworkStats = stats;
+
+  return water;
+}
+
+function createCirqueTarn(terrain) {
+  const tarn = RIVER_NETWORK.nodeById.get('cirque-tarn');
+  const water = new THREE.Mesh(
+    createCircularLakeGeometry(terrain, tarn),
+    createLakeSurfaceMaterial(),
+  );
+
+  water.name = 'CirqueTarnSurface';
+  water.renderOrder = WATER_RENDER_ORDER.surface;
+  water.userData.waterReflectionModeCap = 1;
+
+  return water;
+}
+
+function createCircularLakeGeometry(terrain, lake) {
+  const radialSegments = 64;
+  const ringCount = 10;
+  const vertexCount = 1 + radialSegments * ringCount;
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const lakeDepths = new Float32Array(vertexCount);
+  const lakeEdges = new Float32Array(vertexCount);
+  const lakeBedVisibilities = new Float32Array(vertexCount);
+  const indices = new Uint32Array(
+    radialSegments * 3 + (ringCount - 1) * radialSegments * 6,
+  );
+  const center = lake.center ?? lake.position;
+  let vertex = 0;
+  let indexOffset = 0;
+
+  writeCircularLakeVertex(
+    positions,
+    uvs,
+    lakeDepths,
+    lakeEdges,
+    lakeBedVisibilities,
+    vertex,
+    terrain,
+    lake,
+    center[0],
+    center[1],
+    1,
+  );
+  vertex += 1;
+
+  for (let ring = 1; ring <= ringCount; ring += 1) {
+    const radiusT = ring / ringCount;
+
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const angle = (segment / radialSegments) * Math.PI * 2;
+
+      writeCircularLakeVertex(
+        positions,
+        uvs,
+        lakeDepths,
+        lakeEdges,
+        lakeBedVisibilities,
+        vertex,
+        terrain,
+        lake,
+        center[0] + Math.cos(angle) * lake.radius * radiusT,
+        center[1] + Math.sin(angle) * lake.radius * radiusT,
+        1 - radiusT,
+      );
+      vertex += 1;
+    }
+  }
+
+  for (let segment = 0; segment < radialSegments; segment += 1) {
+    indices[indexOffset] = 0;
+    indices[indexOffset + 1] = 1 + ((segment + 1) % radialSegments);
+    indices[indexOffset + 2] = 1 + segment;
+    indexOffset += 3;
+  }
+
+  for (let ring = 1; ring < ringCount; ring += 1) {
+    const innerStart = 1 + (ring - 1) * radialSegments;
+    const outerStart = 1 + ring * radialSegments;
+
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const next = (segment + 1) % radialSegments;
+      const a = innerStart + segment;
+      const b = innerStart + next;
+      const c = outerStart + segment;
+      const d = outerStart + next;
+
+      indices[indexOffset] = a;
+      indices[indexOffset + 1] = b;
+      indices[indexOffset + 2] = d;
+      indices[indexOffset + 3] = a;
+      indices[indexOffset + 4] = d;
+      indices[indexOffset + 5] = c;
+      indexOffset += 6;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('lakeDepth', new THREE.BufferAttribute(lakeDepths, 1));
+  geometry.setAttribute('lakeEdge', new THREE.BufferAttribute(lakeEdges, 1));
+  geometry.setAttribute('lakeBedVisibility', new THREE.BufferAttribute(lakeBedVisibilities, 1));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+function writeCircularLakeVertex(
+  positions,
+  uvs,
+  lakeDepths,
+  lakeEdges,
+  lakeBedVisibilities,
+  vertex,
+  terrain,
+  lake,
+  x,
+  z,
+  edge,
+) {
+  const positionOffset = vertex * 3;
+  const uvOffset = vertex * 2;
+  const center = lake.center ?? lake.position;
+  const depth = Math.max(lake.waterLevel - terrain.getHeightAt(x, z), 0);
+
+  positions[positionOffset] = x;
+  positions[positionOffset + 1] = lake.waterLevel + 0.045;
+  positions[positionOffset + 2] = z;
+  uvs[uvOffset] = (x - center[0]) / (lake.radius * 2) + 0.5;
+  uvs[uvOffset + 1] = (z - center[1]) / (lake.radius * 2) + 0.5;
+  lakeDepths[vertex] = depth;
+  lakeEdges[vertex] = THREE.MathUtils.clamp(edge, 0, 1);
+  lakeBedVisibilities[vertex] = 1 - smoothstep(1.2, 6, depth);
 }
 
 function createLakeGeometry(terrain) {
@@ -444,30 +622,6 @@ function createOutletStream(terrain) {
   stream.renderOrder = WATER_RENDER_ORDER.surface;
 
   return stream;
-}
-
-function createSnowmeltGroup(terrain) {
-  const group = new THREE.Group();
-  group.name = 'SnowmeltSystem';
-
-  for (let i = 0; i < snowmeltCurves.length; i += 1) {
-    const geometry = createPathStripGeometry(
-      snowmeltCurves[i],
-      terrain,
-      SNOWMELT_WIDTH,
-      72,
-      5,
-      (x, z) => terrain.getHeightAt(x, z) + SNOWMELT_SURFACE_OFFSET,
-      (x, z, t) => getSnowmeltWaterFade(x, z, t),
-    );
-    const mesh = new THREE.Mesh(geometry, createSnowmeltMaterial());
-
-    mesh.name = `SnowmeltRunoff_${i + 1}`;
-    mesh.renderOrder = WATER_RENDER_ORDER.surface;
-    group.add(mesh);
-  }
-
-  return group;
 }
 
 function getOutletSurfaceHeight(terrain, x, z) {
@@ -799,15 +953,6 @@ function createWaterfallLipFoamGeometry(terrain) {
   return geometry;
 }
 
-function getSnowmeltWaterFade(x, z, t) {
-  const lake = getLakeFrame(x, z);
-  const shoreFade = smoothstep(0.5, 9, lake.radius - lake.lakeRadius);
-  const startFade = smoothstep(0.02, 0.1, t);
-  const endpointFade = 1 - smoothstep(0.92, 1, t);
-
-  return Math.min(shoreFade, startFade, endpointFade);
-}
-
 export function createLakeSurfaceMaterial() {
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
@@ -1011,6 +1156,46 @@ export function createLakeSurfaceMaterial() {
 }
 
 function createStreamMaterial(options) {
+  const networkMode = options.mode === 'network';
+  const networkVertexAttributes = networkMode
+    ? `attribute float waterEdge;
+      attribute float junctionMask;
+      attribute float viewDistance;
+      varying float vWaterEdge;
+      varying float vJunctionMask;
+      varying float vViewDistance;`
+    : '';
+  const networkVertexAssignments = networkMode
+    ? `vWaterEdge = waterEdge;
+        vJunctionMask = junctionMask;
+        vViewDistance = viewDistance;`
+    : '';
+  const networkFragmentVaryings = networkMode
+    ? `varying float vWaterEdge;
+      varying float vJunctionMask;
+      varying float vViewDistance;`
+    : '';
+  const edgeExpression = networkMode
+    ? 'clamp(vWaterEdge * 0.5, 0.0, 0.5)'
+    : 'min(vUv.y, 1.0 - vUv.y)';
+  const lipExpression = networkMode
+    ? `float lipFade = 0.0;
+        float lipAlpha = 1.0;`
+    : `float lipFade = smoothstep(6.9, 8.0, vUv.x);
+        float lipAlpha = 1.0 - smoothstep(7.45, 8.0, vUv.x);`;
+  const junctionFoamExpression = networkMode
+    ? `vJunctionMask
+          * smoothstep(0.5, 0.84, fbm(vWorldPosition.xz * 0.42 - vec2(uTime * 0.16, 0.0)))
+          * 0.22`
+    : '0.0';
+  const viewDistanceFadeExpression = networkMode
+    ? `1.0 - smoothstep(
+          max(vViewDistance - 55.0, 0.0),
+          vViewDistance,
+          distance(uCameraPosition.xz, vWorldPosition.xz)
+        )`
+    : '1.0';
+
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     transparent: true,
@@ -1027,6 +1212,7 @@ function createStreamMaterial(options) {
     }),
     vertexShader: `
       attribute float waterFade;
+      ${networkVertexAttributes}
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
@@ -1036,6 +1222,7 @@ function createStreamMaterial(options) {
       void main() {
         vUv = uv;
         vWaterFade = waterFade;
+        ${networkVertexAssignments}
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
         ${WATER_FOG_VERTEX_GLSL}
@@ -1060,6 +1247,7 @@ function createStreamMaterial(options) {
       varying vec2 vUv;
       varying vec3 vWorldPosition;
       varying float vWaterFade;
+      ${networkFragmentVaryings}
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
       float hash(vec2 p) {
@@ -1099,17 +1287,18 @@ function createStreamMaterial(options) {
       }
 
       void main() {
-        float edge = min(vUv.y, 1.0 - vUv.y);
+        float edge = ${edgeExpression};
+        float viewDistanceFade = ${viewDistanceFadeExpression};
         float center = smoothstep(0.03, 0.45, edge);
         float localFlowSpeed = uFlowSpeed * mix(0.38, 1.0, center);
         vec2 flowUv = vec2(vUv.x - uTime * localFlowSpeed, vUv.y);
-        float lipFade = smoothstep(6.9, 8.0, vUv.x);
-        float lipAlpha = 1.0 - smoothstep(7.45, 8.0, vUv.x);
+        ${lipExpression}
         float streak = smoothstep(0.46, 0.88, fbm(flowUv * vec2(7.5, 26.0)));
         float foamBand = smoothstep(0.012, 0.04, edge) * (1.0 - smoothstep(0.06, 0.16, edge));
         float foamLarge = smoothstep(0.42, 0.78, fbm(flowUv * vec2(7.0, 34.0)));
         float foamFine = smoothstep(0.58, 0.88, noise(flowUv * vec2(24.0, 82.0) + vec2(-uTime * 0.11, 0.0)));
         float foamEdge = foamBand * max(foamLarge * 0.8, foamFine * 0.48) * vWaterFade;
+        float junctionFoam = ${junctionFoamExpression};
         vec3 color = mix(uShallowColor, uDeepColor, center);
         vec3 normal = getWaterNormal(flowUv, vWorldPosition.xz * 0.18, mix(0.58, 1.0, center));
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
@@ -1130,12 +1319,18 @@ function createStreamMaterial(options) {
         float spec = pow(max(dot(normal, halfDir), 0.0), 110.0);
         float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
         color += uSunReflectionColor * spec * sparkle * 0.46;
-        color = mix(color, uFoamColor, max(foamEdge * 0.72, streak * 0.1 * vWaterFade) * uFoamStrength);
+        color = mix(
+          color,
+          uFoamColor,
+          max(max(foamEdge * 0.72, streak * 0.1 * vWaterFade), junctionFoam)
+            * uFoamStrength
+        );
         color = mix(color, uFoamColor, lipFade * (0.28 + streak * 0.22));
         float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
         alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
         alpha = max(alpha, foamEdge * 0.38 * uFoamStrength);
-        alpha *= vWaterFade * mix(1.0, 0.42, lipFade) * lipAlpha;
+        alpha = max(alpha, junctionFoam * 0.24);
+        alpha *= vWaterFade * viewDistanceFade * mix(1.0, 0.42, lipFade) * lipAlpha;
 
         gl_FragColor = vec4(color, alpha);
         ${WATER_FOG_FRAGMENT_GLSL}
@@ -1143,17 +1338,6 @@ function createStreamMaterial(options) {
         #include <colorspace_fragment>
       }
     `,
-  });
-}
-
-function createSnowmeltMaterial() {
-  return createStreamMaterial({
-    shallow: WATER_SHALLOW_COLOR,
-    deep: WATER_DEEP_COLOR,
-    foam: WATER_FOAM_COLOR,
-    speed: 0.5,
-    alpha: 0.34,
-    foamStrength: 0.38,
   });
 }
 
@@ -1458,19 +1642,36 @@ function createPathSamples(curve, count) {
   return samples;
 }
 
-function getClosestSnowmeltFrame(x, z) {
-  let closest = null;
+function getRiverNetworkMaterialFrame(x, z) {
+  const frame = getNearestRiverReach(x, z, 16);
+  let bedMask = 0;
+  let wetMask = 0;
 
-  for (const samples of snowmeltSamples) {
-    const frame = getPathFrame(samples, x, z);
+  if (frame && frame.distance <= frame.influence) {
+    const wetOuter = Math.min(frame.influence, frame.halfWidth + 3);
 
-    if (!frame) continue;
-    if (!closest || Math.abs(frame.lateral) < Math.abs(closest.lateral)) {
-      closest = frame;
-    }
+    bedMask = 1 - smoothstep(frame.halfWidth * 0.58, frame.halfWidth, frame.distance);
+    wetMask = (1 - smoothstep(frame.halfWidth * 0.82, wetOuter, frame.distance)) * 0.72;
   }
 
-  return closest;
+  for (const lake of RIVER_NETWORK.lakeFeatures) {
+    if (lake.existing) continue;
+
+    const center = lake.center ?? lake.position;
+    const distance = Math.hypot(x - center[0], z - center[1]);
+    const lakeBed = 1 - smoothstep(lake.radius - 1, lake.radius + 0.35, distance);
+    const innerWet = smoothstep(lake.radius - 5, lake.radius - 0.8, distance)
+      * (1 - smoothstep(lake.radius - 0.8, lake.radius + 0.2, distance));
+    const outerWet = 1 - smoothstep(lake.radius, lake.radius + lake.shoreWidth, distance);
+
+    bedMask = Math.max(bedMask, lakeBed);
+    wetMask = Math.max(wetMask, innerWet * 0.72, outerWet);
+  }
+
+  return {
+    bedMask: THREE.MathUtils.clamp(bedMask, 0, 1),
+    wetMask: THREE.MathUtils.clamp(wetMask, 0, 1),
+  };
 }
 
 function getPathFrame(samples, x, z) {
@@ -1542,4 +1743,11 @@ function isNearWaterSystem(x, z, buffer = 0) {
     && x <= WATER_SYSTEM_MAX_X + buffer
     && z >= WATER_SYSTEM_MIN_Z - buffer
     && z <= WATER_SYSTEM_MAX_Z + buffer;
+}
+
+function boundsIntersect(a, b) {
+  return a.maxX >= b.minX
+    && a.minX <= b.maxX
+    && a.maxZ >= b.minZ
+    && a.minZ <= b.maxZ;
 }
