@@ -157,7 +157,7 @@ export class GrassZone {
     return true;
   }
 
-  startLODJob(playerX, playerZ, lodDistances, keepRatios, revision) {
+  startLODJob(playerX, playerZ, lodDistances, keepRatios, revision, fadeDistance = 0) {
     if (!this.hasPlacements || this.isDisposed || this._lodJob) return false;
 
     if (!this.initializePersistentMeshes(1)) return false;
@@ -170,7 +170,8 @@ export class GrassZone {
       cursor: 0,
       playerX,
       playerZ,
-      distanceSquares: lodDistances.map((distance) => distance * distance),
+      lodDistances: lodDistances.slice(),
+      fadeDistance,
       keepRatios: keepRatios.slice(),
       revision,
       counts,
@@ -191,7 +192,12 @@ export class GrassZone {
       const dx = elements[12] - job.playerX;
       const dz = elements[14] - job.playerZ;
       const distanceSq = dx * dx + dz * dz;
-      const lodLevel = getLODLevel(distanceSq, job.distanceSquares);
+      const lodLevel = getLODLevel(
+        distanceSq,
+        job.lodDistances,
+        job.fadeDistance,
+        getPlacementTransitionRoll(placement),
+      );
 
       if (lodLevel < 0 || getPlacementLODRoll(placement) >= job.keepRatios[lodLevel]) continue;
 
@@ -300,10 +306,44 @@ function getPlacementLODRoll(placement) {
   return placement.lodRoll;
 }
 
-function getLODLevel(distanceSq, distanceSquares) {
-  if (distanceSq <= distanceSquares[0]) return 0;
-  if (distanceSq <= distanceSquares[1]) return 1;
-  if (distanceSq <= distanceSquares[2]) return 2;
+function getPlacementTransitionRoll(placement) {
+  if (Number.isFinite(placement.transitionRoll)) return placement.transitionRoll;
+
+  const elements = placement.matrix.elements;
+  placement.transitionRoll = hash2(elements[12] * 0.41 + 29.7, elements[14] * 0.83 - 61.2);
+
+  return placement.transitionRoll;
+}
+
+function getLODLevel(distanceSq, lodDistances, fadeDistance, transitionRoll) {
+  for (let lodLevel = 0; lodLevel < lodDistances.length; lodLevel += 1) {
+    const boundary = lodDistances[lodLevel];
+    const boundarySq = boundary * boundary;
+
+    if (fadeDistance <= 0) {
+      if (distanceSq <= boundarySq) return lodLevel;
+      continue;
+    }
+
+    const fadeStart = Math.max(0, boundary - fadeDistance);
+    const fadeStartSq = fadeStart * fadeStart;
+
+    if (distanceSq <= fadeStartSq) return lodLevel;
+
+    if (distanceSq <= boundarySq) {
+      const distance = Math.sqrt(distanceSq);
+      const linearProgress = THREE.MathUtils.clamp(
+        (distance - fadeStart) / fadeDistance,
+        0,
+        1,
+      );
+      const progress = linearProgress * linearProgress * (3 - 2 * linearProgress);
+
+      if (transitionRoll >= progress) return lodLevel;
+
+      return lodLevel + 1 < lodDistances.length ? lodLevel + 1 : -1;
+    }
+  }
 
   return -1;
 }

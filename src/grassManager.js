@@ -22,6 +22,7 @@ const LOD_JOB_STEPS = 256;
 export const DEFAULT_GRASS_PRESET = Object.freeze({
   lodDistances: Object.freeze([20, 50, 120]),
   keepRatios: Object.freeze([1, 0.25, 0.05]),
+  fadeDistance: 8,
   updateBudgetMs: 1,
 });
 
@@ -268,6 +269,7 @@ export class GrassManager {
           this.grassPreset.lodDistances,
           this.grassPreset.keepRatios,
           this.presetRevision,
+          this.grassPreset.fadeDistance,
         );
 
         if (!started) {
@@ -332,8 +334,11 @@ export function normalizeGrassPreset(preset = DEFAULT_GRASS_PRESET) {
   const updateBudgetMs = Number.isFinite(source.updateBudgetMs) && source.updateBudgetMs > 0
     ? source.updateBudgetMs
     : DEFAULT_GRASS_PRESET.updateBudgetMs;
+  const fadeDistance = Number.isFinite(source.fadeDistance) && source.fadeDistance > 0
+    ? source.fadeDistance
+    : DEFAULT_GRASS_PRESET.fadeDistance;
 
-  return { lodDistances, keepRatios, updateBudgetMs };
+  return { lodDistances, keepRatios, fadeDistance, updateBudgetMs };
 }
 
 function normalizeArray(values, fallback, isValid) {
@@ -348,6 +353,7 @@ function normalizeArray(values, fallback, isValid) {
 
 function presetsEqual(a, b) {
   return a.updateBudgetMs === b.updateBudgetMs
+    && a.fadeDistance === b.fadeDistance
     && a.lodDistances.every((value, index) => value === b.lodDistances[index])
     && a.keepRatios.every((value, index) => value === b.keepRatios[index]);
 }

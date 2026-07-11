@@ -14,10 +14,12 @@ import {
   GrassManager,
   normalizeGrassPreset,
 } from '../src/grassManager.js';
+import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 
 const VARIANT_NAME = 'RibbonGrass_VarA';
 const DISTANCES = [10, 50, 100];
 const KEEP_ALL = [1, 0.4, 0.1];
+const FADE_DISTANCE = 4;
 
 function createVariants() {
   const geometry = new THREE.PlaneGeometry(1, 1);
@@ -39,11 +41,12 @@ function createVariants() {
   };
 }
 
-function createTestPlacement(x, lodRoll = 0) {
+function createTestPlacement(x, lodRoll = 0, transitionRoll = 0) {
   return {
     matrix: new THREE.Matrix4().makeTranslation(x, 0, 0),
     variantName: VARIANT_NAME,
     lodRoll,
+    transitionRoll,
   };
 }
 
@@ -58,7 +61,14 @@ function createZone(placements) {
 }
 
 function completeJob(zone, playerX, revision = 0, steps = 1000) {
-  assert.equal(zone.startLODJob(playerX, 0, DISTANCES, KEEP_ALL, revision), true);
+  assert.equal(zone.startLODJob(
+    playerX,
+    0,
+    DISTANCES,
+    KEEP_ALL,
+    revision,
+    FADE_DISTANCE,
+  ), true);
 
   while (!zone.processLODJob(steps)) {
     // Drain the deliberately incremental job.
@@ -69,7 +79,7 @@ function getMesh(zone, lodLevel) {
   return zone.lodMeshes[lodLevel].get(VARIANT_NAME).meshes[0];
 }
 
-test('createPlacement assigns a stable lodRoll with nested quality subsets', () => {
+test('createPlacement assigns independent stable rolls with nested quality subsets', () => {
   const terrain = {
     getHeightAt: () => 0,
     getNormalAt: () => new THREE.Vector3(0, 1, 0),
@@ -78,7 +88,10 @@ test('createPlacement assigns a stable lodRoll with nested quality subsets', () 
   const moved = createPlacement(terrain, 30, 40, 7, 9);
 
   assert.equal(first.lodRoll, moved.lodRoll);
+  assert.equal(first.transitionRoll, moved.transitionRoll);
   assert.ok(first.lodRoll >= 0 && first.lodRoll < 1);
+  assert.ok(first.transitionRoll >= 0 && first.transitionRoll < 1);
+  assert.notEqual(first.lodRoll, first.transitionRoll);
 
   const rolls = Array.from({ length: 128 }, (_value, index) => (
     createPlacement(terrain, index, index * 2, index, index * 3).lodRoll
@@ -93,6 +106,43 @@ test('createPlacement assigns a stable lodRoll with nested quality subsets', () 
       if (roll < balanced[lodLevel]) assert.ok(roll < quality[lodLevel]);
     }
   }
+});
+
+test('spatial dither mixes adjacent LODs without duplicate instances', () => {
+  const { zone } = createZone([
+    createTestPlacement(8, 0, 0.1),
+    createTestPlacement(8, 0, 0.9),
+  ]);
+
+  completeJob(zone, 0);
+
+  const counts = [0, 1, 2].map((lodLevel) => getMesh(zone, lodLevel).count);
+
+  assert.deepEqual(counts, [1, 1, 0]);
+  assert.equal(counts.reduce((total, count) => total + count, 0), 2);
+});
+
+test('the final dither band fades LOD2 to invisible', () => {
+  const { zone } = createZone([
+    createTestPlacement(98, 0, 0.1),
+    createTestPlacement(98, 0, 0.9),
+    createTestPlacement(100, 0, 0.999),
+    createTestPlacement(101, 0, 0),
+  ]);
+
+  completeJob(zone, 0);
+
+  const counts = [0, 1, 2].map((lodLevel) => getMesh(zone, lodLevel).count);
+
+  assert.deepEqual(counts, [0, 0, 1]);
+});
+
+test('quality presets expose the intended grass dither widths', () => {
+  assert.deepEqual([
+    RENDER_QUALITY_PRESETS.performance.grass.fadeDistance,
+    RENDER_QUALITY_PRESETS.balanced.grass.fadeDistance,
+    RENDER_QUALITY_PRESETS.quality.grass.fadeDistance,
+  ], [6, 8, 10]);
 });
 
 test('converted GLB grass is restored to the authored model scale', () => {
@@ -262,6 +312,7 @@ test('manager LOD queue deduplicates and round-robins without starvation', () =>
 test('an in-flight job finishes atomically and is queued once for a newer preset', () => {
   const manager = new GrassManager({}, new Map());
   const revisions = [];
+  const fadeDistances = [];
   const zone = {
     isDisposed: false,
     isGenerating: false,
@@ -270,11 +321,12 @@ test('an in-flight job finishes atomically and is queued once for a newer preset
     builtForPosition: null,
     builtForRevision: -1,
     steps: 0,
-    startLODJob(playerX, playerZ, _distances, _ratios, revision) {
+    startLODJob(playerX, playerZ, _distances, _ratios, revision, fadeDistance) {
       this.hasLODJob = true;
       this.steps = 0;
       this.target = { x: playerX, z: playerZ, revision };
       revisions.push(revision);
+      fadeDistances.push(fadeDistance);
       return true;
     },
     processLODJob() {
@@ -297,6 +349,7 @@ test('an in-flight job finishes atomically and is queued once for a newer preset
     grass: {
       lodDistances: [24, 65, 150],
       keepRatios: [1, 0.4, 0.1],
+      fadeDistance: 10,
       updateBudgetMs: 1.25,
     },
   });
@@ -308,6 +361,7 @@ test('an in-flight job finishes atomically and is queued once for a newer preset
   manager.processLODQueue(1, 1, Infinity);
 
   assert.deepEqual(revisions, [0, 1]);
+  assert.deepEqual(fadeDistances, [8, 10]);
   assert.equal(zone.builtForRevision, 1);
   assert.equal(manager.lodQueue.length, 0);
 });
@@ -363,16 +417,19 @@ test('shared grass uniforms update once and grass preset API accepts preset.gras
     grass: {
       lodDistances: [24, 65, 150],
       keepRatios: [1, 0.4, 0.1],
+      fadeDistance: 10,
       updateBudgetMs: 1.25,
     },
   }), {
     lodDistances: [24, 65, 150],
     keepRatios: [1, 0.4, 0.1],
+    fadeDistance: 10,
     updateBudgetMs: 1.25,
   });
   assert.deepEqual(normalizeGrassPreset({ keepRatios: [1, 0.5, 0.2] }), {
     lodDistances: [...DEFAULT_GRASS_PRESET.lodDistances],
     keepRatios: [...DEFAULT_GRASS_PRESET.keepRatios],
+    fadeDistance: DEFAULT_GRASS_PRESET.fadeDistance,
     updateBudgetMs: DEFAULT_GRASS_PRESET.updateBudgetMs,
   });
 });

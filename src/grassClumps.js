@@ -545,6 +545,7 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1,
   const scaleValue = THREE.MathUtils.lerp(0.82, 1.08, edgeStrength) * THREE.MathUtils.lerp(0.94, 1.16, hash2(seedX + 5.7, seedZ + 33.1));
   const variantRoll = hash2(seedX + 91.2, seedZ - 11.4);
   const lodRoll = hash2(seedX - 73.6, seedZ + 48.9);
+  const transitionRoll = hash2(seedX + 28.4, seedZ - 67.3);
   const tilt = new THREE.Quaternion().setFromUnitVectors(UP, normal);
   const rotation = new THREE.Quaternion().setFromAxisAngle(normal, yaw).multiply(tilt);
   const scale = new THREE.Vector3(scaleValue, scaleValue, scaleValue);
@@ -556,6 +557,7 @@ export function createPlacement(terrain, x, z, seedX, seedZ, patchInfluence = 1,
     matrix,
     variantName: getGrassVariantName(variantRoll),
     lodRoll,
+    transitionRoll,
   };
 }
 
