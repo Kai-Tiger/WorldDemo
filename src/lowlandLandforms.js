@@ -7,7 +7,7 @@ import {
 } from './hydrology/riverNetwork.js';
 import { RIVER_TERMINAL_LAKE } from './riverChannel.js';
 
-const LOWLAND_FEATURE_SEGMENTS = 128;
+const LOWLAND_FEATURE_SEGMENTS = 256;
 const LAKE_ANGLE_SEGMENTS = 72;
 const LAKE_RADIAL_RINGS = 12;
 
@@ -35,7 +35,7 @@ const lakes = [
     shapeAmp: 0.12,
     phase: 0.75,
     waterLevel: -0.2,
-    maxDepth: 2.4,
+    maxDepth: 4.5,
     edgeDepth: 0.16,
     shoreWidth: 7,
     surfaceOffset: 0.045,
@@ -73,7 +73,7 @@ const streamReaches = [
       [710, -326],
       [690, -340],
     ],
-    waterLevels: [-0.2, -0.27, -0.38, -0.55, -0.72, -1.02, -1.28],
+    waterLevels: [-0.2, -0.2, -0.2, -0.55, -0.72, -1.28, -1.28],
     width: [2, 3.2],
     depth: [0.5, 0.9],
     influence: [5.5, 8],
@@ -213,6 +213,12 @@ export function getLowlandTerminalInletFade(x, z) {
     RIVER_TERMINAL_LAKE.radius,
     distance,
   );
+}
+
+export function getLowlandLakeOutletFade(x, z) {
+  const frame = getLakeFrame(LOWLAND_LAKES[0], x, z);
+
+  return smoothstep(-4, 2, frame.signedDistance);
 }
 
 export function createLowlandLakeGeometry(lake, terrain) {

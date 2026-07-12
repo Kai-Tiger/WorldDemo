@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { getGoldenShotFromLocation, listGoldenShotNames } from '../src/goldenShots.js';
 import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
+import { RIVER_TERMINAL_LAKE } from '../src/riverChannel.js';
 import {
   LOWLAND_HILLS,
   LOWLAND_LAKES,
@@ -38,10 +39,13 @@ test('lowland definitions keep one pond-to-terminal stream and varied frozen hil
   const reach = LOWLAND_STREAM_DEFINITION.reaches[0];
 
   assert.deepEqual([pond.cx, pond.cz, pond.waterLevel], [820, -260, -0.2]);
+  assert.ok(pond.maxDepth >= 4.5);
   assert.deepEqual(reach.points[0], [820, -260]);
   assert.deepEqual(reach.points.at(-1), [690, -340]);
   assert.equal(reach.waterLevels[0], pond.waterLevel);
   assert.equal(reach.waterLevels.at(-1), -1.28);
+  assert.deepEqual(reach.waterLevels.slice(0, 3), Array(3).fill(pond.waterLevel));
+  assert.deepEqual(reach.waterLevels.slice(-2), Array(2).fill(-1.28));
   assert.notEqual(pond.radiusX, pond.radiusZ);
 
   for (let index = 1; index < reach.waterLevels.length; index += 1) {
@@ -150,7 +154,9 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
   });
   const positions = geometry.getAttribute('position');
   const normals = geometry.getAttribute('normal');
+  const depths = geometry.getAttribute('lakeDepth');
   const outerStart = positions.count - 72;
+  const halfRadiusStart = 1 + 5 * 72;
   const radii = [];
 
   assert.equal(positions.count, 865);
@@ -158,6 +164,8 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
   assert.ok(geometry.getAttribute('lakeDepth'));
   assert.ok(geometry.getAttribute('lakeEdge'));
   assert.ok(geometry.getAttribute('lakeBedVisibility'));
+  assert.ok(depths.getX(0) >= 4.5);
+  assert.ok(depths.getX(halfRadiusStart) >= 2.8);
 
   for (let vertex = 0; vertex < normals.count; vertex += 1) {
     assert.ok(normals.getY(vertex) > 0.999);
@@ -192,9 +200,9 @@ test('lowland LOD uses local segment bounds instead of the diagonal reach rectan
   }
 
   assert.deepEqual(promoted, [
-    [6, 2, 128],
-    [7, 2, 128],
-    [7, 3, 128],
+    [6, 2, 256],
+    [7, 2, 256],
+    [7, 3, 256],
   ]);
   assert.equal(getLowlandMinimumSegmentsForBounds({
     minX: 512,
@@ -223,8 +231,13 @@ test('water system reuses one bounded stream mesh and the shared lake material p
 
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');
+  const waterEdges = stream.geometry.getAttribute('waterEdge');
+  const pond = LOWLAND_LAKES[0];
   let maximumInnerFade = 0;
+  let maximumPondInnerFade = 0;
   let inletOverlapVisible = false;
+  let pondShore = null;
+  let terminalShore = null;
 
   for (let vertex = 0; vertex < positions.count; vertex += 1) {
     const distance = Math.hypot(
@@ -236,13 +249,57 @@ test('water system reuses one bounded stream mesh and the shared lake material p
     if (distance >= 20 && distance <= 23 && waterFades.getX(vertex) > 0.8) {
       inletOverlapVisible = true;
     }
+
+    const pondDistance = Math.hypot(
+      positions.getX(vertex) - pond.cx,
+      positions.getZ(vertex) - pond.cz,
+    );
+
+    if (pondDistance < 12) {
+      maximumPondInnerFade = Math.max(maximumPondInnerFade, waterFades.getX(vertex));
+    }
+    if (waterEdges.getX(vertex) < 0.999) continue;
+
+    pondShore = getCloserWaterVertex(pondShore, positions, waterFades, vertex, 795.46, -273.06);
+    terminalShore = getCloserWaterVertex(
+      terminalShore,
+      positions,
+      waterFades,
+      vertex,
+      706.4,
+      -328.55,
+    );
   }
 
   assert.ok(maximumInnerFade < 1e-6);
+  assert.ok(maximumPondInnerFade < 1e-6);
   assert.equal(inletOverlapVisible, true);
+  assert.ok(pondShore.fade > 0.25 && pondShore.fade < 0.95);
+  assert.ok(Math.abs(pondShore.y - (pond.waterLevel + pond.surfaceOffset)) < 0.01);
+  assert.ok(Math.abs(
+    terminalShore.y
+      - (RIVER_TERMINAL_LAKE.waterLevel + RIVER_TERMINAL_LAKE.surfaceOffset),
+  ) < 0.01);
 
   geometry.dispose();
   disposeSystem(system);
+});
+
+test('the required lowland terrain mesh cannot bridge across the visible creek', () => {
+  const pond = LOWLAND_LAKES[0];
+  const target = { x: 749.0390014648438, z: -300.90869140625 };
+  const bounds = getChunkBounds(target.x, target.z);
+  const segments = getLowlandMinimumSegmentsForBounds(bounds);
+  const terrainHeight = sampleRenderedLowlandTerrain(target.x, target.z, bounds, segments);
+  const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
+  const center = getClosestReachCenterVertex(geometry, stats.reaches[0], target.x, target.z);
+  const waterHeight = center.y + pond.surfaceOffset;
+
+  assert.ok(
+    terrainHeight < waterHeight,
+    `terrain ${terrainHeight} bridged creek water ${waterHeight} at ${target.x},${target.z}`,
+  );
+  geometry.dispose();
 });
 
 test('pond, creek, and hill groups have deterministic visual-check cameras', () => {
@@ -269,4 +326,71 @@ function disposeSystem(system) {
   });
   geometries.forEach((geometry) => geometry.dispose());
   materials.forEach((material) => material.dispose());
+}
+
+function getCloserWaterVertex(current, positions, waterFades, vertex, x, z) {
+  const distance = Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z);
+
+  if (current && current.distance <= distance) return current;
+
+  return {
+    distance,
+    fade: waterFades.getX(vertex),
+    y: positions.getY(vertex),
+  };
+}
+
+function getClosestReachCenterVertex(geometry, stats, x, z) {
+  const positions = geometry.getAttribute('position');
+  let closest = null;
+
+  for (let row = 0; row < stats.rowCount; row += 1) {
+    const vertex = stats.startVertex + row * stats.rowSize + Math.floor(stats.rowSize / 2);
+    const distance = Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z);
+
+    if (closest && closest.distance <= distance) continue;
+    closest = { distance, y: positions.getY(vertex) };
+  }
+
+  return closest;
+}
+
+function getChunkBounds(x, z) {
+  const chunkX = Math.floor((x - MAP_MIN) / CHUNK_SIZE);
+  const chunkZ = Math.floor((z - MAP_MIN) / CHUNK_SIZE);
+  const minX = MAP_MIN + chunkX * CHUNK_SIZE;
+  const minZ = MAP_MIN + chunkZ * CHUNK_SIZE;
+
+  return {
+    minX,
+    maxX: minX + CHUNK_SIZE,
+    minZ,
+    maxZ: minZ + CHUNK_SIZE,
+  };
+}
+
+function sampleRenderedLowlandTerrain(x, z, bounds, segments) {
+  const step = CHUNK_SIZE / segments;
+  const cellX = Math.floor((x - bounds.minX) / step);
+  const cellZ = Math.floor((z - bounds.minZ) / step);
+  const x0 = bounds.minX + cellX * step;
+  const z0 = bounds.minZ + cellZ * step;
+  const tx = (x - x0) / step;
+  const tz = (z - z0) / step;
+  const topLeft = sampleLowlandHeight(x0, z0);
+  const topRight = sampleLowlandHeight(x0 + step, z0);
+  const bottomLeft = sampleLowlandHeight(x0, z0 + step);
+  const bottomRight = sampleLowlandHeight(x0 + step, z0 + step);
+
+  if (tx + tz <= 1) {
+    return topLeft * (1 - tx - tz) + topRight * tx + bottomLeft * tz;
+  }
+
+  return topRight * (1 - tz)
+    + bottomLeft * (1 - tx)
+    + bottomRight * (tx + tz - 1);
+}
+
+function sampleLowlandHeight(x, z) {
+  return applyLowlandWaterTerrain(applyLowlandHillsTerrain(0, x, z), x, z);
 }

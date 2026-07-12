@@ -28,6 +28,7 @@ import {
   LOWLAND_STREAM_NETWORK,
   applyLowlandWaterTerrain,
   createLowlandLakeGeometry,
+  getLowlandLakeOutletFade,
   getLowlandMaterialFrame,
   getLowlandTerminalInletFade,
   isInLowlandVegetationExclusion,
@@ -351,7 +352,8 @@ function createRiverNetworkWaterSurface() {
 function createLowlandWaterFeatures(terrain) {
   const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
 
-  fadeLowlandStreamInsideTerminalLake(geometry);
+  geometry.translate(0, LOWLAND_LAKES[0].surfaceOffset, 0);
+  blendLowlandStreamIntoLakes(geometry);
 
   const stream = new THREE.Mesh(geometry, createStreamMaterial({
     shallow: WATER_SHALLOW_COLOR,
@@ -386,17 +388,17 @@ function createLowlandWaterFeatures(terrain) {
   return { group, stream, lakes };
 }
 
-function fadeLowlandStreamInsideTerminalLake(geometry) {
+function blendLowlandStreamIntoLakes(geometry) {
   const positions = geometry.getAttribute('position');
   const waterFades = geometry.getAttribute('waterFade');
 
   for (let vertex = 0; vertex < positions.count; vertex += 1) {
-    const inletFade = getLowlandTerminalInletFade(
-      positions.getX(vertex),
-      positions.getZ(vertex),
-    );
+    const x = positions.getX(vertex);
+    const z = positions.getZ(vertex);
+    const lakeFade = getLowlandLakeOutletFade(x, z)
+      * getLowlandTerminalInletFade(x, z);
 
-    waterFades.setX(vertex, waterFades.getX(vertex) * inletFade);
+    waterFades.setX(vertex, waterFades.getX(vertex) * lakeFade);
   }
 
   waterFades.needsUpdate = true;
