@@ -25,7 +25,7 @@ export function applySmallLakesTerrain(baseHeight, x, z) {
   return baseHeight;
 }
 
-export function isInSmallLakeExclusion(x, z) {
+export function isInSmallLakeExclusion(x, z, buffer = 0) {
   for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
     const lake = ACTIVE_LAKES[i];
     const dx = x - lake.cx;
@@ -33,14 +33,14 @@ export function isInSmallLakeExclusion(x, z) {
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (lake.isTerminal) {
-      if (dist < lake.radius + lake.shoreWidth) return true;
+      if (dist < lake.radius + lake.shoreWidth + buffer) return true;
       continue;
     }
 
     const angle = Math.atan2(dz, dx);
     const actualRadius = lakeRadiusAt(angle, lake);
 
-    if (dist < actualRadius) return true;
+    if (dist < actualRadius + buffer) return true;
   }
 
   return false;

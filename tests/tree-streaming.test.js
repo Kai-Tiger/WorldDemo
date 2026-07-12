@@ -4,13 +4,23 @@ import * as THREE from 'three';
 import { TreeManager, TreeZone, distanceToChunkBounds } from '../src/treeManager.js';
 import {
   buildTreeInstancedMeshes,
+  createTreePlacementIterator,
   createTreeDepthMaterial,
   createTreeMaterial,
   createTreeSwayUniforms,
+  getTreeDensity,
   getTreeMeshRole,
+  isTreeArea,
   updateTreeSwayUniforms,
 } from '../src/treePlacements.js';
-import { TREE_SWAY_BOUNDS_PADDING } from '../src/vegetationConfig.js';
+import {
+  TREE_DENSITY_HIGHLAND,
+  TREE_DENSITY_LOWLAND,
+  TREE_DENSITY_MIDLAND,
+  TREE_GROUND_MASK_THRESHOLD,
+  TREE_SWAY_BOUNDS_PADDING,
+} from '../src/vegetationConfig.js';
+import { isInSmallLakeExclusion, SMALL_LAKES } from '../src/smallLakes.js';
 
 function createPlacement() {
   return {
@@ -19,6 +29,67 @@ function createPlacement() {
     tint: new THREE.Color(1, 1, 1),
   };
 }
+
+test('tree placement triples the realized density while preserving terrain and shoreline rules', () => {
+  assert.equal(getTreeDensity(100), TREE_DENSITY_LOWLAND * 3);
+  assert.equal(getTreeDensity(150), TREE_DENSITY_MIDLAND * 3);
+  assert.equal(getTreeDensity(200), TREE_DENSITY_HIGHLAND * 3);
+
+  const terrain = {
+    sampleSurfaceAt(_x, _z, target) {
+      Object.assign(target, {
+        height: 100,
+        normalX: 0,
+        normalY: 0.92,
+        normalZ: 0,
+        groundMask: 1,
+      });
+      return target;
+    },
+  };
+  const windows = [
+    [4096, 4096],
+    [4608, 4096],
+    [4096, 4608],
+    [4608, 4608],
+    [5120, 5120],
+    [5632, 5632],
+  ];
+  let placementCount = 0;
+
+  for (const [minX, minZ] of windows) {
+    const iterator = createTreePlacementIterator(
+      terrain,
+      minX,
+      minZ,
+      minX + 256,
+      minZ + 256,
+    );
+
+    while (!iterator.step(10000)) {}
+    placementCount += iterator.getPlacements().length;
+  }
+
+  const previousPlacementCount = 1295;
+  const placementRatio = placementCount / previousPlacementCount;
+
+  assert.ok(placementRatio >= 2.8 && placementRatio <= 3.2, `placement ratio was ${placementRatio}`);
+  assert.equal(isTreeArea(terrain, 800, 800, {
+    groundMask: TREE_GROUND_MASK_THRESHOLD - 0.01,
+  }), false);
+
+  const lake = SMALL_LAKES.find(({ isTerminal }) => !isTerminal);
+  const angle = 0;
+  const actualRadius = lake.radius * (1 + lake.shapeAmp * (
+    Math.sin(angle * 3 + lake.phase) * 0.5
+    + Math.sin(angle * 5 - lake.phase * 0.7) * 0.3
+    + Math.sin(angle * 7 + lake.phase * 1.3) * 0.2
+  ));
+  const shorelineX = lake.cx + actualRadius + 3;
+
+  assert.equal(isInSmallLakeExclusion(shorelineX, lake.cz), false);
+  assert.equal(isInSmallLakeExclusion(shorelineX, lake.cz, 5), true);
+});
 
 test('tree quality preset applies generation budget and visibility distance', () => {
   const manager = new TreeManager({}, [], {});

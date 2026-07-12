@@ -40,7 +40,9 @@ import {
   TREE_NOISE_MIN_FACTOR,
 } from './vegetationConfig.js';
 
-const MIN_TREE_SPACING = TREE_MIN_SPACING;
+const TREE_DENSITY_MULTIPLIER = 3;
+const TREE_CANDIDATE_DENSITY = 0.05 * TREE_DENSITY_MULTIPLIER;
+const MIN_TREE_SPACING = TREE_MIN_SPACING / Math.sqrt(TREE_DENSITY_MULTIPLIER);
 const RIVER_BUFFER = TREE_RIVER_BUFFER;
 const WATER_SYSTEM_BUFFER = Math.max(RIVER_BUFFER, 10);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -253,10 +255,10 @@ export function updateTreeSwayUniforms(treeModels, viewerPosition, elapsedTime) 
 }
 
 export function getTreeDensity(height) {
-  if (height <= TREE_HEIGHT_THRESHOLD_LOW) return TREE_DENSITY_LOWLAND;
-  if (height <= TREE_HEIGHT_THRESHOLD_MID) return TREE_DENSITY_MIDLAND;
+  if (height <= TREE_HEIGHT_THRESHOLD_LOW) return TREE_DENSITY_LOWLAND * TREE_DENSITY_MULTIPLIER;
+  if (height <= TREE_HEIGHT_THRESHOLD_MID) return TREE_DENSITY_MIDLAND * TREE_DENSITY_MULTIPLIER;
 
-  return TREE_DENSITY_HIGHLAND;
+  return TREE_DENSITY_HIGHLAND * TREE_DENSITY_MULTIPLIER;
 }
 
 export function isTreeArea(terrain, x, z, surface = null) {
@@ -268,7 +270,7 @@ export function isTreeArea(terrain, x, z, surface = null) {
 }
 
 export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
-  const baseCellSize = Math.sqrt(1 / 0.05);
+  const baseCellSize = Math.sqrt(1 / TREE_CANDIDATE_DENSITY);
   const startZ = minZ - baseCellSize * 0.5;
   const endZ = maxZ + baseCellSize * 0.5;
   const startX = minX - baseCellSize * 0.5;
@@ -301,7 +303,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
             sampleTerrainSurface(terrain, x, z, surface);
             const height = surface.height;
             const density = getTreeDensity(height);
-            const densityRatio = density / 0.05;
+            const densityRatio = density / TREE_CANDIDATE_DENSITY;
 
             const noiseVal = fbm(x * TREE_NOISE_SCALE, z * TREE_NOISE_SCALE, TREE_NOISE_OCTAVES);
             const biomeNoise = fbm((x + 180) * 0.0045, (z - 260) * 0.0045, 4);
@@ -321,7 +323,7 @@ export function createTreePlacementIterator(terrain, minX, minZ, maxX, maxZ) {
                 if (
                   !isInRiverGrassExclusion(x, z, RIVER_BUFFER)
                   && !isInWaterSystemVegetationExclusion(x, z, WATER_SYSTEM_BUFFER)
-                  && !isInSmallLakeExclusion(x, z)
+                  && !isInSmallLakeExclusion(x, z, RIVER_BUFFER)
                   && !isInMountainTrailTreeExclusion(x, z)
                 ) {
                   if (!isTooClose(x, z, occupied)) {
