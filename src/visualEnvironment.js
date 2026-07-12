@@ -23,7 +23,7 @@ const SKY_ZENITH_COLOR = new THREE.Color('#3f77b8');
 const SKY_HORIZON_COLOR = new THREE.Color('#9bbdd0');
 const SKY_GROUND_COLOR = new THREE.Color('#343c35');
 const FOG_COLOR = new THREE.Color('#91a3aa');
-const FOG_DENSITY = 0.00135;
+const FOG_DENSITY = 0.0008;
 
 /** @type {VisualEnvironmentState} */
 export const VISUAL_ENVIRONMENT = Object.freeze({
