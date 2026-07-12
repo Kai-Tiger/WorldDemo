@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { RIVER_TERMINAL_LAKE } from './riverChannel.js';
+import {
+  SOUTHERN_LOWLAND_LAKES,
+  TERMINAL_LOWLAND_LAKE,
+} from './lowlandHeightPlan.js';
 import { MAP_SIZE } from './vegetationConfig.js';
 import { createLakeSurfaceMaterial } from './waterSystem.js';
 import { WATER_RENDER_ORDER } from './waterContext.js';
 
 const LAKES = [
-  { cx: 755, cz: -657, radius: 35, maxDepth: 3.5, waterDrop: 1.0, shapeAmp: 0.28 },
-  { cx: 667, cz: -605, radius: 28, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.20 },
-  { cx: 859, cz: -692, radius: 25, maxDepth: 3.0, waterDrop: 0.8, shapeAmp: 0.18 },
-  { cx: 717, cz: -751, radius: 30, maxDepth: 3.2, waterDrop: 0.9, shapeAmp: 0.32 },
-  { ...RIVER_TERMINAL_LAKE, isTerminal: true },
+  ...SOUTHERN_LOWLAND_LAKES,
+  { ...TERMINAL_LOWLAND_LAKE, isTerminal: true },
 ];
 
 const SHORE_WIDTH = 6;
@@ -18,36 +18,11 @@ const ANGLE_SEGMENTS = 64;
 const RADIAL_RINGS = 12;
 const BED_MASK_RADIUS = 1;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
-const ACTIVE_LAKES = LAKES.filter(isLakeFullyInsideMap);
+export const SMALL_LAKES = Object.freeze(LAKES.filter(isLakeFullyInsideMap));
+const ACTIVE_LAKES = SMALL_LAKES;
 
 export function applySmallLakesTerrain(baseHeight, x, z) {
-  let height = baseHeight;
-
-  for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
-    const lake = ACTIVE_LAKES[i];
-    const dx = x - lake.cx;
-    const dz = z - lake.cz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-
-    if (lake.isTerminal) {
-      height = applyTerminalLakeTerrain(height, dist, lake);
-      continue;
-    }
-
-    const angle = Math.atan2(dz, dx);
-    const actualRadius = lakeRadiusAt(angle, lake);
-
-    if (dist > actualRadius + SHORE_WIDTH) continue;
-
-    const basinShape = 1 - smoothstep(0, actualRadius, dist);
-    const bankShape = 1 - smoothstep(actualRadius, actualRadius + SHORE_WIDTH, dist);
-    const carveDepth = lake.maxDepth * Math.max(basinShape, bankShape * 0.15);
-    const lakeBase = baseHeight - carveDepth;
-
-    height = Math.min(height, lakeBase);
-  }
-
-  return height;
+  return baseHeight;
 }
 
 export function isInSmallLakeExclusion(x, z) {
@@ -110,15 +85,17 @@ export function createSmallLakes(terrain) {
       continue;
     }
 
-    const terrainHeight = terrain.getBaseHeightAt(lake.cx, lake.cz);
-    const waterLevel = terrainHeight - lake.waterDrop;
     const lr = lakeRadiusAt;
 
-    const geometry = createLakeGeometry(lake, waterLevel, lr);
+    const geometry = createLakeGeometry(
+      lake,
+      lake.waterLevel + lake.surfaceOffset,
+      lr,
+    );
     const material = createLakeSurfaceMaterial();
     const mesh = new THREE.Mesh(geometry, material);
 
-    mesh.name = `SmallLake_${i}`;
+    mesh.name = `SmallLake_${lake.id}`;
     mesh.renderOrder = WATER_RENDER_ORDER.surface;
 
     group.add(mesh);
@@ -149,29 +126,13 @@ function isLakeFullyInsideMap(lake) {
     && lake.cz + maxRadius <= HALF_MAP_SIZE;
 }
 
-function applyTerminalLakeTerrain(height, distance, lake) {
-  const shoreOuter = lake.radius + lake.shoreWidth;
-
-  if (distance > shoreOuter) return height;
-
-  if (distance <= lake.radius) {
-    const basinT = smoothstep(0, lake.radius, distance);
-    const depth = THREE.MathUtils.lerp(lake.maxDepth, lake.edgeDepth, basinT);
-
-    return Math.min(height, lake.waterLevel - depth);
-  }
-
-  const shoreT = smoothstep(lake.radius, shoreOuter, distance);
-  const shoreTarget = THREE.MathUtils.lerp(lake.waterLevel - lake.edgeDepth, height, shoreT);
-
-  return Math.min(height, shoreTarget);
-}
-
 function lakeRadiusAt(angle, lake) {
+  const phase = lake.phase ?? 0;
+
   return lake.radius * (1 + lake.shapeAmp * (
-    Math.sin(angle * 3.0 + 0.7) * 0.5
-    + Math.sin(angle * 5.0 - 1.1) * 0.3
-    + Math.sin(angle * 7.0 + 2.2) * 0.2
+    Math.sin(angle * 3 + phase) * 0.5
+    + Math.sin(angle * 5 - phase * 0.7) * 0.3
+    + Math.sin(angle * 7 + phase * 1.3) * 0.2
   ));
 }
 

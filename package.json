@@ -7,11 +7,15 @@
     "dev": "vite",
     "test": "node --test",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bake:lowlands": "node tools/bake-black-lowlands.mjs --write",
+    "check:lowlands": "node tools/bake-black-lowlands.mjs --check"
   },
   "dependencies": {
     "three": "^0.179.1",
     "vite": "^7.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "sharp": "^0.34.5"
+  }
 }

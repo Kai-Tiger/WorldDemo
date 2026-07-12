@@ -62,22 +62,37 @@ const GOLDEN_SHOTS = Object.freeze({
   'terminal-lake-overhead': {
     player: { x: 720, z: -340 },
     camera: { x: 690, z: -340, y: 55 },
-    target: { x: 690, z: -340, y: -1.235 },
+    target: { x: 690, z: -340, y: 1.645 },
   },
   'lowland-creek': {
     player: { x: 748, z: -286 },
     camera: { x: 790, z: -236, y: 14 },
-    target: { x: 735, z: -308, y: -0.7 },
+    target: { x: 735, z: -308, y: 2.395 },
   },
   'lowland-lake': {
     player: { x: 858, z: -278 },
     camera: { x: 874, z: -226, y: 18 },
-    target: { x: 820, z: -260, y: -0.2 },
+    target: { x: 820, z: -260, y: 3.245 },
   },
   'lowland-hills': {
     player: { x: -555, z: 505 },
     camera: { x: -505, z: 430, y: 31 },
-    target: { x: -650, z: 510, y: 8 },
+    target: { x: -650, z: 510, y: 16.1 },
+  },
+  'lowland-north-overview': {
+    player: { x: -520, z: 660 },
+    camera: { x: -320, z: 650, y: 92 },
+    target: { x: -320, z: 760, y: 4 },
+  },
+  'lowland-east-overview': {
+    player: { x: 850, z: -200 },
+    camera: { x: 930, z: -90, y: 100 },
+    target: { x: 755, z: -310, y: 3 },
+  },
+  'lowland-south-overview': {
+    player: { x: 900, z: -620 },
+    camera: { x: 955, z: -500, y: 110 },
+    target: { x: 750, z: -680, y: 3 },
   },
 });
 

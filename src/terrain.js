@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  applyRiverChannel,
   getRiverMaterialFrame,
   RIVER_BED_TEXTURE_PATH,
   RIVER_BED_TEXTURE_WORLD_SIZE,
@@ -13,17 +12,13 @@ import {
   getWaterSystemMinimumSegmentsForBounds,
   getWaterSystemMaterialFrame,
 } from './waterSystem.js';
-import { applySmallLakesTerrain, getSmallLakesMaterialMask } from './smallLakes.js';
+import { getSmallLakesMaterialMask } from './smallLakes.js';
 import {
   applyMountainTrailTerrain,
   getMountainTrailMaterialMask,
   getMountainTrailMinimumSegmentsForBounds,
 } from './mountainTrailNetwork.js';
-import {
-  applyLowlandHillsTerrain,
-  applyLowlandMacroTerrain,
-  getLowlandMinimumSegmentsForBounds,
-} from './lowlandLandforms.js';
+import { getLowlandMinimumSegmentsForBounds } from './lowlandLandforms.js';
 import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
@@ -1013,12 +1008,9 @@ export class Terrain {
   }
 
   getSurfaceHeightFromBase(baseHeight, x, z) {
-    const lowlandHeight = applyLowlandHillsTerrain(baseHeight, x, z);
-    const mountainTrailHeight = applyMountainTrailTerrain(lowlandHeight, x, z);
-    const waterSystemHeight = applyWaterSystemTerrain(mountainTrailHeight, x, z);
-    const smallLakesHeight = applySmallLakesTerrain(waterSystemHeight, x, z);
+    const mountainTrailHeight = applyMountainTrailTerrain(baseHeight, x, z);
 
-    return applyRiverChannel(smallLakesHeight, x, z);
+    return applyWaterSystemTerrain(mountainTrailHeight, x, z);
   }
 
   getHeightAt(x, z) {
@@ -1027,10 +1019,8 @@ export class Terrain {
 
   getShadowProxyHeightAt(x, z) {
     const baseHeight = this.getBaseHeightAt(x, z);
-    const lowlandHeight = applyLowlandMacroTerrain(baseHeight, x, z);
-    const waterHeight = applyWaterSystemMacroTerrain(lowlandHeight, x, z);
 
-    return applySmallLakesTerrain(waterHeight, x, z);
+    return applyWaterSystemMacroTerrain(baseHeight, x, z);
   }
 
   getBaseHeightAt(x, z) {

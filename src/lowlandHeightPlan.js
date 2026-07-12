@@ -1,0 +1,652 @@
+import { CatmullRomCurve3, Vector3 } from 'three';
+
+const DEFAULT_WORLD_SIZE = 2048;
+const DEFAULT_MAX_HEIGHT = 300;
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+export const LOWLAND_HEIGHT_SETTINGS = deepFreeze({
+  worldSize: DEFAULT_WORLD_SIZE,
+  maxHeight: DEFAULT_MAX_HEIGHT,
+  baseHeight: 4.7,
+  reliefMax: 2.4,
+  edgeFeatherMeters: 24,
+  maximumBakedHeight: 18,
+});
+
+const preservedHills = [
+  { id: 'spawn-meadow-west', region: 'preserved', cx: 570, cz: -395, radiusX: 25, radiusZ: 18, height: 3.6, rotation: -0.35, shapeAmp: 0.10, phase: 0.4 },
+  { id: 'spawn-meadow-east', region: 'preserved', cx: 615, cz: -410, radiusX: 28, radiusZ: 20, height: 4.6, rotation: 0.25, shapeAmp: 0.08, phase: 1.8 },
+  { id: 'northwest-foothill-south', region: 'preserved', cx: -665, cz: 430, radiusX: 54, radiusZ: 78, height: 8.6, rotation: 0.10, shapeAmp: 0.12, phase: 0.9 },
+  { id: 'northwest-foothill-center', region: 'preserved', cx: -645, cz: 510, radiusX: 62, radiusZ: 86, height: 10.5, rotation: -0.08, shapeAmp: 0.10, phase: 2.2 },
+  { id: 'northwest-foothill-north', region: 'preserved', cx: -620, cz: 590, radiusX: 50, radiusZ: 70, height: 7.8, rotation: 0.14, shapeAmp: 0.13, phase: 3.4 },
+  { id: 'north-rolling-west', region: 'preserved', cx: -320, cz: 640, radiusX: 76, radiusZ: 48, height: 8.5, rotation: -0.20, shapeAmp: 0.11, phase: 1.3 },
+  { id: 'north-rolling-east', region: 'preserved', cx: -205, cz: 675, radiusX: 68, radiusZ: 44, height: 7.0, rotation: 0.24, shapeAmp: 0.09, phase: 2.7 },
+  { id: 'southeast-low-hill-west', region: 'preserved', cx: 770, cz: -855, radiusX: 42, radiusZ: 31, height: 6.2, rotation: 0.18, shapeAmp: 0.12, phase: 0.2 },
+  { id: 'southeast-low-hill-center', region: 'preserved', cx: 830, cz: -875, radiusX: 38, radiusZ: 45, height: 7.4, rotation: -0.30, shapeAmp: 0.10, phase: 1.9 },
+  { id: 'southeast-low-hill-east', region: 'preserved', cx: 875, cz: -825, radiusX: 34, radiusZ: 27, height: 5.2, rotation: 0.35, shapeAmp: 0.13, phase: 3.1 },
+];
+
+const addedHills = [
+  { id: 'north-broad-rise-01', region: 'north', cx: -680, cz: 825, radiusX: 68, radiusZ: 45, height: 5.1, rotation: 0.18, shapeAmp: 0.09, phase: 0.2 },
+  { id: 'north-broad-rise-02', region: 'north', cx: -610, cz: 875, radiusX: 58, radiusZ: 38, height: 4.4, rotation: -0.22, shapeAmp: 0.12, phase: 1.1 },
+  { id: 'north-broad-rise-03', region: 'north', cx: -430, cz: 930, radiusX: 74, radiusZ: 42, height: 5.8, rotation: 0.12, shapeAmp: 0.10, phase: 2.4 },
+  { id: 'north-broad-rise-04', region: 'north', cx: -255, cz: 925, radiusX: 62, radiusZ: 46, height: 4.0, rotation: -0.28, shapeAmp: 0.08, phase: 3.2 },
+  { id: 'north-broad-rise-05', region: 'north', cx: 30, cz: 925, radiusX: 78, radiusZ: 50, height: 6.4, rotation: 0.08, shapeAmp: 0.11, phase: 4.1 },
+  { id: 'north-broad-rise-06', region: 'north', cx: 180, cz: 855, radiusX: 65, radiusZ: 44, height: 4.8, rotation: -0.18, shapeAmp: 0.09, phase: 5.0 },
+  { id: 'north-broad-rise-07', region: 'north', cx: 365, cz: 805, radiusX: 72, radiusZ: 48, height: 5.5, rotation: 0.24, shapeAmp: 0.10, phase: 0.8 },
+  { id: 'north-broad-rise-08', region: 'north', cx: 550, cz: 745, radiusX: 60, radiusZ: 40, height: 3.8, rotation: -0.15, shapeAmp: 0.13, phase: 1.7 },
+  { id: 'north-broad-rise-09', region: 'north', cx: 735, cz: 660, radiusX: 76, radiusZ: 52, height: 6.8, rotation: 0.20, shapeAmp: 0.09, phase: 2.6 },
+  { id: 'north-broad-rise-10', region: 'north', cx: 900, cz: 680, radiusX: 57, radiusZ: 37, height: 4.6, rotation: -0.26, shapeAmp: 0.12, phase: 3.5 },
+  { id: 'east-broad-rise-01', region: 'east', cx: 930, cz: 130, radiusX: 58, radiusZ: 42, height: 4.2, rotation: 0.20, shapeAmp: 0.10, phase: 1.4 },
+  { id: 'east-broad-rise-02', region: 'east', cx: 930, cz: -185, radiusX: 64, radiusZ: 39, height: 5.7, rotation: -0.18, shapeAmp: 0.12, phase: 3.8 },
+  { id: 'south-broad-rise-01', region: 'south', cx: 600, cz: -800, radiusX: 54, radiusZ: 38, height: 3.9, rotation: 0.16, shapeAmp: 0.11, phase: 0.6 },
+  { id: 'south-broad-rise-02', region: 'south', cx: 540, cz: -900, radiusX: 67, radiusZ: 43, height: 5.3, rotation: -0.24, shapeAmp: 0.09, phase: 1.9 },
+  { id: 'south-broad-rise-03', region: 'south', cx: 650, cz: -850, radiusX: 61, radiusZ: 40, height: 4.5, rotation: 0.22, shapeAmp: 0.13, phase: 2.8 },
+  { id: 'south-broad-rise-04', region: 'south', cx: 860, cz: -970, radiusX: 73, radiusZ: 46, height: 6.1, rotation: -0.12, shapeAmp: 0.08, phase: 4.0 },
+  { id: 'south-broad-rise-05', region: 'south', cx: 960, cz: -900, radiusX: 55, radiusZ: 36, height: 4.7, rotation: 0.28, shapeAmp: 0.12, phase: 5.1 },
+  { id: 'south-broad-rise-06', region: 'south', cx: 970, cz: -540, radiusX: 62, radiusZ: 41, height: 5.9, rotation: -0.19, shapeAmp: 0.10, phase: 2.2 },
+];
+
+export const LOWLAND_HILLS = deepFreeze([...preservedHills, ...addedHills]);
+
+export const TERMINAL_LOWLAND_LAKE = deepFreeze({
+  id: 'terminal-lake',
+  cx: 690,
+  cz: -340,
+  radius: 20,
+  waterLevel: 1.6,
+  maxDepth: 1.6,
+  edgeDepth: 0.15,
+  shoreWidth: 6,
+  surfaceOffset: 0.045,
+});
+
+export const LOWLAND_LAKES = deepFreeze([
+  {
+    id: 'east-meadow-pond',
+    cx: 820,
+    cz: -260,
+    radiusX: 31,
+    radiusZ: 24,
+    rotation: -0.24,
+    shapeAmp: 0.12,
+    phase: 0.75,
+    waterLevel: 3.2,
+    maxDepth: 2.8,
+    edgeDepth: 0.16,
+    shoreWidth: 7,
+    surfaceOffset: 0.045,
+  },
+  {
+    id: 'northwest-shallow-lake',
+    cx: -520,
+    cz: 720,
+    radiusX: 55,
+    radiusZ: 39,
+    rotation: 0.18,
+    shapeAmp: 0.14,
+    phase: 1.35,
+    waterLevel: 3.5,
+    maxDepth: 3,
+    edgeDepth: 0.18,
+    shoreWidth: 8,
+    surfaceOffset: 0.045,
+  },
+  {
+    id: 'northeast-shallow-lake',
+    cx: -120,
+    cz: 800,
+    radiusX: 48,
+    radiusZ: 34,
+    rotation: -0.22,
+    shapeAmp: 0.13,
+    phase: 2.6,
+    waterLevel: 2,
+    maxDepth: 1.7,
+    edgeDepth: 0.15,
+    shoreWidth: 8,
+    surfaceOffset: 0.045,
+  },
+]);
+
+export const SOUTHERN_LOWLAND_LAKES = deepFreeze([
+  { id: 'south-northwest-lake', cx: 667, cz: -605, radius: 28, shapeAmp: 0.20, phase: 0.7, waterLevel: 3.5, maxDepth: 3, edgeDepth: 0.18, shoreWidth: 6, surfaceOffset: 0.045 },
+  { id: 'south-east-lake', cx: 859, cz: -692, radius: 25, shapeAmp: 0.18, phase: 1.8, waterLevel: 3.2, maxDepth: 2.8, edgeDepth: 0.17, shoreWidth: 6, surfaceOffset: 0.045 },
+  { id: 'south-central-lake', cx: 755, cz: -657, radius: 35, shapeAmp: 0.28, phase: 2.9, waterLevel: 2.8, maxDepth: 2.5, edgeDepth: 0.16, shoreWidth: 6, surfaceOffset: 0.045 },
+  { id: 'south-terminal-lake', cx: 717, cz: -751, radius: 30, shapeAmp: 0.32, phase: 4.1, waterLevel: 1.8, maxDepth: 1.6, edgeDepth: 0.15, shoreWidth: 6, surfaceOffset: 0.045 },
+]);
+
+const eastStream = {
+  id: 'east-lowland-basin',
+  nodes: [
+    { id: 'east-meadow-pond', type: 'lake', position: [820, -260], waterLevel: 3.2 },
+    { id: 'terminal-lake', type: 'lake', position: [690, -340], waterLevel: 1.6, existing: true },
+  ],
+  reaches: [
+    {
+      id: 'east-meadow-outlet',
+      from: 'east-meadow-pond',
+      to: 'terminal-lake',
+      style: 'lake-outlet',
+      points: [[820, -260], [805, -270], [780, -278], [758, -296], [735, -308], [710, -326], [690, -340]],
+      waterLevels: [3.2, 3.2, 3.2, 2.75, 2.35, 1.6, 1.6],
+      width: [2, 3.2],
+      depth: [0.65, 1.05],
+      influence: [5.5, 8],
+      vegetationBuffer: [1.8, 2.8],
+    },
+  ],
+};
+
+const northStream = {
+  id: 'north-lowland-basin',
+  nodes: [
+    { id: 'northwest-shallow-lake', type: 'lake', position: [-520, 720], waterLevel: 3.5 },
+    { id: 'northeast-shallow-lake', type: 'lake', position: [-120, 800], waterLevel: 2 },
+  ],
+  reaches: [
+    {
+      id: 'north-lake-connector',
+      from: 'northwest-shallow-lake',
+      to: 'northeast-shallow-lake',
+      style: 'lake-outlet',
+      points: [[-520, 720], [-465, 742], [-408, 730], [-350, 765], [-290, 750], [-230, 786], [-175, 778], [-120, 800]],
+      waterLevels: [3.5, 3.35, 3.15, 2.95, 2.72, 2.45, 2.2, 2],
+      width: [2.2, 3.4],
+      depth: [0.6, 1],
+      influence: [6, 8.5],
+      vegetationBuffer: [2, 3],
+    },
+  ],
+};
+
+const southStream = {
+  id: 'south-lowland-basin',
+  nodes: [
+    { id: 'south-northwest-lake', type: 'lake', position: [667, -605], waterLevel: 3.5 },
+    { id: 'south-east-lake', type: 'lake', position: [859, -692], waterLevel: 3.2 },
+    { id: 'south-central-lake', type: 'lake', position: [755, -657], waterLevel: 2.8 },
+    { id: 'south-terminal-lake', type: 'lake', position: [717, -751], waterLevel: 1.8 },
+  ],
+  reaches: [
+    {
+      id: 'south-northwest-tributary', from: 'south-northwest-lake', to: 'south-central-lake', style: 'lake-inlet',
+      points: [[667, -605], [690, -620], [715, -635], [735, -648], [755, -657]],
+      waterLevels: [3.5, 3.35, 3.16, 2.98, 2.8], width: [1.8, 2.8], depth: [0.55, 0.9], influence: [5, 7.5], vegetationBuffer: [1.7, 2.6],
+    },
+    {
+      id: 'south-east-tributary', from: 'south-east-lake', to: 'south-central-lake', style: 'lake-inlet',
+      points: [[859, -692], [830, -684], [800, -675], [775, -664], [755, -657]],
+      waterLevels: [3.2, 3.1, 3, 2.9, 2.8], width: [1.8, 2.8], depth: [0.55, 0.9], influence: [5, 7.5], vegetationBuffer: [1.7, 2.6],
+    },
+    {
+      id: 'south-central-outlet', from: 'south-central-lake', to: 'south-terminal-lake', style: 'lake-outlet',
+      points: [[755, -657], [760, -680], [748, -705], [735, -730], [717, -751]],
+      waterLevels: [2.8, 2.56, 2.3, 2.04, 1.8], width: [2.4, 3.6], depth: [0.75, 1.1], influence: [6.5, 9], vegetationBuffer: [2.3, 3.2],
+    },
+  ],
+};
+
+export const LOWLAND_STREAM_DEFINITIONS = deepFreeze([eastStream, northStream, southStream]);
+
+export const LOWLAND_STREAM_DEFINITION = LOWLAND_STREAM_DEFINITIONS[0];
+
+export const LOWLAND_STREAM_PLAN = deepFreeze({
+  basins: LOWLAND_STREAM_DEFINITIONS,
+  nodes: LOWLAND_STREAM_DEFINITIONS.flatMap((basin) => basin.nodes),
+  reaches: LOWLAND_STREAM_DEFINITIONS.flatMap((basin) => basin.reaches),
+});
+
+export const MAIN_RIVER_CHANNEL = deepFreeze({
+  id: 'main-river-channel',
+  points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336], [604, -337], [633, -349], [662, -351], [690, -340]],
+  waterLevels: [3.2, 3.05, 2.9, 2.72, 2.55, 2.38, 2.2, 2.05, 1.88, 1.72, 1.6],
+  width: [8, 8],
+  depth: [1.6, 1.6],
+  influence: [7, 7],
+  vegetationBuffer: [2, 2.8],
+});
+
+export const PLUNGE_POOL = deepFreeze({
+  id: 'waterfall-plunge-pool',
+  cx: 418,
+  cz: -424,
+  radius: 10,
+  waterLevel: 3.2,
+  maxDepth: 1.7,
+  edgeDepth: 0.2,
+  shoreWidth: 4,
+});
+
+export const LOWLAND_BAKE_COUNTS = deepFreeze({
+  hills: LOWLAND_HILLS.length,
+  preservedHills: preservedHills.length,
+  addedHills: addedHills.length,
+  northAddedHills: addedHills.filter((hill) => hill.region === 'north').length,
+  eastAddedHills: addedHills.filter((hill) => hill.region === 'east').length,
+  southAddedHills: addedHills.filter((hill) => hill.region === 'south').length,
+  lowlandLakes: LOWLAND_LAKES.length,
+  southernLakes: SOUTHERN_LOWLAND_LAKES.length,
+  streamBasins: LOWLAND_STREAM_DEFINITIONS.length,
+  streamReaches: LOWLAND_STREAM_PLAN.reaches.length,
+});
+
+const hillBounds = LOWLAND_HILLS.map((hill) => ({
+  minX: hill.cx - Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
+  maxX: hill.cx + Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
+  minZ: hill.cz - Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
+  maxZ: hill.cz + Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
+}));
+const reachMetadata = new WeakMap(
+  [MAIN_RIVER_CHANNEL, ...LOWLAND_STREAM_PLAN.reaches].map((reach) => [
+    reach,
+    createReachMetadata(reach),
+  ]),
+);
+
+export function getLowlandBaseHeight(x, z) {
+  const broad = valueNoise2D(x / 260, z / 260, 0x51f2a3d7);
+  const local = valueNoise2D(x / 110, z / 110, 0x2c9277b5);
+
+  return LOWLAND_HEIGHT_SETTINGS.baseHeight + broad * 1.55 + local * 0.85;
+}
+
+export function getLowlandHillRise(x, z) {
+  let rise = 0;
+
+  for (let index = 0; index < LOWLAND_HILLS.length; index += 1) {
+    const bounds = hillBounds[index];
+
+    if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) continue;
+    rise += getHillRise(LOWLAND_HILLS[index], x, z);
+  }
+  return rise;
+}
+
+export function getLowlandTerrainHeight(x, z) {
+  return Math.min(
+    getLowlandBaseHeight(x, z) + getLowlandHillRise(x, z),
+    LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
+  );
+}
+
+export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
+  let height = baseHeight;
+  let strongest = null;
+  const reaches = [
+    MAIN_RIVER_CHANNEL,
+    ...LOWLAND_STREAM_PLAN.reaches,
+  ];
+
+  for (const reach of reaches) {
+    const frame = getReachFrame(reach, x, z);
+
+    if (!frame || frame.distance > frame.influence) continue;
+
+    const smoothingPadding = 1.5;
+    const bedOuter = Math.min(frame.halfWidth + smoothingPadding, frame.influence - 0.5);
+    const mask = frame.distance <= bedOuter
+      ? 1
+      : 1 - smoothstep(bedOuter, frame.influence, frame.distance);
+    const bedHeight = Math.max(0, frame.waterLevel - frame.depth);
+
+    height = Math.min(height, lerp(height, bedHeight, mask));
+    strongest = chooseStrongerTarget(strongest, {
+      featureType: 'reach', featureId: reach.id, mask, bedHeight, waterLevel: frame.waterLevel,
+    });
+  }
+
+  const lakes = [
+    PLUNGE_POOL,
+    TERMINAL_LOWLAND_LAKE,
+    ...LOWLAND_LAKES,
+    ...SOUTHERN_LOWLAND_LAKES,
+  ];
+
+  for (const lake of lakes) {
+    const target = getLakeTerrainTarget(lake, height, x, z);
+
+    if (!target) continue;
+
+    height = Math.min(height, target.height);
+    strongest = chooseStrongerTarget(strongest, target);
+  }
+
+  if (!strongest) return null;
+  return { ...strongest, height: Math.max(0, height) };
+}
+
+export function applyBakedLowlandWaterTerrain(baseHeight, x, z) {
+  return getLowlandWaterTerrainTarget(baseHeight, x, z)?.height ?? baseHeight;
+}
+
+export function getBakedLowlandHeight(x, z, edgeDistanceMeters = Infinity) {
+  const terrainHeight = getLowlandTerrainHeight(x, z);
+  const waterHeight = applyBakedLowlandWaterTerrain(terrainHeight, x, z);
+  const feather = smoothstep(
+    0,
+    LOWLAND_HEIGHT_SETTINGS.edgeFeatherMeters,
+    edgeDistanceMeters,
+  );
+
+  return Math.min(
+    Math.max(waterHeight * feather, 0),
+    LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
+  );
+}
+
+export function getBakedLowlandHeightDetails(x, z, edgeDistanceMeters = Infinity) {
+  const terrainHeight = getLowlandTerrainHeight(x, z);
+  const waterTarget = getLowlandWaterTerrainTarget(terrainHeight, x, z);
+  const feather = smoothstep(0, LOWLAND_HEIGHT_SETTINGS.edgeFeatherMeters, edgeDistanceMeters);
+  const height = Math.min(
+    Math.max((waterTarget?.height ?? terrainHeight) * feather, 0),
+    LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
+  );
+
+  return { height, terrainHeight, feather, waterTarget };
+}
+
+export function getLowlandLakeFrame(lake, x, z) {
+  const rotation = lake.rotation ?? 0;
+  const dx = x - lake.cx;
+  const dz = z - lake.cz;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const localX = dx * cos + dz * sin;
+  const localZ = -dx * sin + dz * cos;
+  const radiusX = lake.radiusX ?? lake.radius;
+  const radiusZ = lake.radiusZ ?? lake.radius;
+  const angle = Math.atan2(localZ / radiusZ, localX / radiusX);
+  const shapeScale = getShapeScale(lake.shapeAmp ?? 0, lake.phase ?? 0, angle);
+  const normalizedRadius = Math.hypot(localX / radiusX, localZ / radiusZ) / shapeScale;
+  const averageRadius = (radiusX + radiusZ) * 0.5;
+
+  return {
+    normalizedRadius,
+    signedDistance: (normalizedRadius - 1) * averageRadius,
+    angle,
+  };
+}
+
+export function heightmapPixelToWorld(pixelX, pixelY, width, height, worldSize = DEFAULT_WORLD_SIZE) {
+  return {
+    x: pixelX / (width - 1) * worldSize - worldSize * 0.5,
+    z: (1 - pixelY / (height - 1)) * worldSize - worldSize * 0.5,
+  };
+}
+
+export function worldToHeightmapPixel(x, z, width, height, worldSize = DEFAULT_WORLD_SIZE) {
+  return {
+    x: (x + worldSize * 0.5) / worldSize * (width - 1),
+    y: (1 - (z + worldSize * 0.5) / worldSize) * (height - 1),
+  };
+}
+
+export function encodeTerrainHeight(height, maxHeight = DEFAULT_MAX_HEIGHT) {
+  return Math.round(clamp(height / maxHeight, 0, 1) * 255);
+}
+
+export function encodeWaterTerrainHeight(height, maxHeight = DEFAULT_MAX_HEIGHT) {
+  return Math.floor(clamp(height / maxHeight, 0, 1) * 255);
+}
+
+export function decodeTerrainHeight(value, maxHeight = DEFAULT_MAX_HEIGHT) {
+  return value / 255 * maxHeight;
+}
+
+export function getLowlandPlanStatistics() {
+  const waterFeatures = [
+    PLUNGE_POOL,
+    TERMINAL_LOWLAND_LAKE,
+    ...LOWLAND_LAKES,
+    ...SOUTHERN_LOWLAND_LAKES,
+  ];
+  const reachMinimums = [MAIN_RIVER_CHANNEL, ...LOWLAND_STREAM_PLAN.reaches]
+    .flatMap((reach) => reach.waterLevels.map((level, index) => {
+      const t = reach.waterLevels.length > 1 ? index / (reach.waterLevels.length - 1) : 0;
+      return level - interpolateRange(reach.depth, t);
+    }));
+  const lakeMinimums = waterFeatures.map((lake) => lake.waterLevel - lake.maxDepth);
+
+  return {
+    ...LOWLAND_BAKE_COUNTS,
+    minimumAuthoredBedHeight: Math.min(...reachMinimums, ...lakeMinimums),
+    maximumAuthoredBedHeight: Math.max(...reachMinimums, ...lakeMinimums),
+    maximumBakedHeight: LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
+  };
+}
+
+function getHillRise(hill, x, z) {
+  const cos = Math.cos(hill.rotation);
+  const sin = Math.sin(hill.rotation);
+  const dx = x - hill.cx;
+  const dz = z - hill.cz;
+  const localX = dx * cos + dz * sin;
+  const localZ = -dx * sin + dz * cos;
+  const normalizedX = localX / hill.radiusX;
+  const normalizedZ = localZ / hill.radiusZ;
+  const angle = Math.atan2(normalizedZ, normalizedX);
+  const shapeScale = getShapeScale(hill.shapeAmp, hill.phase, angle);
+  const distance = Math.hypot(normalizedX, normalizedZ) / shapeScale;
+
+  if (distance >= 1) return 0;
+  return hill.height * (1 - smoothstep(0.08, 1, distance));
+}
+
+function getLakeTerrainTarget(lake, baseHeight, x, z) {
+  const outerRadius = Math.max(lake.radiusX ?? lake.radius, lake.radiusZ ?? lake.radius)
+    * (1 + (lake.shapeAmp ?? 0)) + lake.shoreWidth;
+
+  if (Math.abs(x - lake.cx) > outerRadius || Math.abs(z - lake.cz) > outerRadius) return null;
+
+  const frame = getLowlandLakeFrame(lake, x, z);
+
+  if (frame.signedDistance > lake.shoreWidth) return null;
+
+  if (frame.normalizedRadius <= 1) {
+    const depthT = smoothstep(0.18, 1, frame.normalizedRadius);
+    const depth = lerp(lake.maxDepth, lake.edgeDepth, depthT);
+    const bedHeight = Math.max(0, lake.waterLevel - depth);
+
+    return {
+      featureType: 'lake', featureId: lake.id, height: bedHeight, mask: 1, bedHeight, waterLevel: lake.waterLevel,
+    };
+  }
+
+  const shoreT = smoothstep(0, lake.shoreWidth, frame.signedDistance);
+  const bedHeight = Math.max(0, lake.waterLevel - lake.edgeDepth);
+
+  return {
+    featureType: 'lake',
+    featureId: lake.id,
+    height: lerp(bedHeight, baseHeight, shoreT),
+    mask: 1 - shoreT,
+    bedHeight,
+    waterLevel: lake.waterLevel,
+  };
+}
+
+function getReachFrame(reach, x, z) {
+  const metadata = reachMetadata.get(reach) ?? createReachMetadata(reach);
+
+  if (
+    x < metadata.minX
+    || x > metadata.maxX
+    || z < metadata.minZ
+    || z > metadata.maxZ
+  ) return null;
+
+  let closest = null;
+
+  for (let index = 0; index < metadata.samples.length - 1; index += 1) {
+    const start = metadata.samples[index];
+    const end = metadata.samples[index + 1];
+    const segmentX = end.x - start.x;
+    const segmentZ = end.z - start.z;
+    const segmentLengthSq = segmentX * segmentX + segmentZ * segmentZ;
+    const segmentT = segmentLengthSq > 0
+      ? clamp(((x - start.x) * segmentX + (z - start.z) * segmentZ) / segmentLengthSq, 0, 1)
+      : 0;
+    const nearestX = start.x + segmentX * segmentT;
+    const nearestZ = start.z + segmentZ * segmentT;
+    const distance = Math.hypot(x - nearestX, z - nearestZ);
+
+    if (!closest || distance < closest.distance) {
+      const width = lerp(start.width, end.width, segmentT);
+
+      closest = {
+        distance,
+        halfWidth: width * 0.5,
+        waterLevel: lerp(start.waterLevel, end.waterLevel, segmentT),
+        depth: lerp(start.depth, end.depth, segmentT),
+        influence: lerp(start.influence, end.influence, segmentT),
+      };
+    }
+  }
+
+  return closest;
+}
+
+function chooseStrongerTarget(current, candidate) {
+  if (!current || candidate.mask > current.mask) return candidate;
+  if (candidate.mask === current.mask && candidate.bedHeight < current.bedHeight) return candidate;
+  return current;
+}
+
+function createReachMetadata(reach) {
+  const padding = Array.isArray(reach.influence)
+    ? Math.max(...reach.influence)
+    : reach.influence;
+  const curve = new CatmullRomCurve3(
+    reach.points.map(([x, z]) => new Vector3(x, 0, z)),
+    false,
+    'centripetal',
+  );
+  const sampleCount = Math.max(1, Math.ceil(curve.getLength() / 2));
+  const samples = [];
+  let distance = 0;
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const t = index / sampleCount;
+    const point = curve.getPointAt(t);
+
+    if (index > 0) distance += point.distanceTo(samples[index - 1].point);
+    samples.push({ point, x: point.x, z: point.z, t, distance });
+  }
+
+  const levelProfile = createReachLevelProfile(reach);
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index];
+    const distanceT = distance > 0 ? sample.distance / distance : 0;
+
+    sample.width = interpolateRange(reach.width, sample.t);
+    sample.depth = interpolateRange(reach.depth, sample.t);
+    sample.influence = interpolateRange(reach.influence, sample.t);
+    sample.waterLevel = sampleReachLevelProfile(levelProfile, distanceT);
+    if (index > 0) sample.waterLevel = Math.min(sample.waterLevel, samples[index - 1].waterLevel);
+  }
+  samples[0].waterLevel = reach.waterLevels[0];
+  samples.at(-1).waterLevel = reach.waterLevels.at(-1);
+
+  return {
+    length: distance,
+    samples,
+    minX: Math.min(...samples.map((sample) => sample.x)) - padding,
+    maxX: Math.max(...samples.map((sample) => sample.x)) + padding,
+    minZ: Math.min(...samples.map((sample) => sample.z)) - padding,
+    maxZ: Math.max(...samples.map((sample) => sample.z)) + padding,
+  };
+}
+
+function createReachLevelProfile(reach) {
+  const distances = [0];
+  let totalDistance = 0;
+
+  for (let index = 1; index < reach.points.length; index += 1) {
+    totalDistance += Math.hypot(
+      reach.points[index][0] - reach.points[index - 1][0],
+      reach.points[index][1] - reach.points[index - 1][1],
+    );
+    distances.push(totalDistance);
+  }
+
+  return reach.waterLevels.map((value, index) => ({
+    t: totalDistance > 0 ? distances[index] / totalDistance : 0,
+    value,
+  }));
+}
+
+function sampleReachLevelProfile(profile, t) {
+  for (let index = 1; index < profile.length; index += 1) {
+    const end = profile[index];
+
+    if (t > end.t) continue;
+
+    const start = profile[index - 1];
+    const localT = end.t > start.t ? (t - start.t) / (end.t - start.t) : 0;
+
+    return lerp(start.value, end.value, localT);
+  }
+
+  return profile.at(-1).value;
+}
+
+function interpolateRange(range, t) {
+  return Array.isArray(range) ? lerp(range[0], range.at(-1), t) : range;
+}
+
+function getShapeScale(amplitude, phase, angle) {
+  return 1 + amplitude * (
+    Math.sin(angle * 3 + phase) * 0.5
+    + Math.sin(angle * 5 - phase * 0.7) * 0.3
+    + Math.sin(angle * 7 + phase * 1.3) * 0.2
+  );
+}
+
+function valueNoise2D(x, z, seed) {
+  const x0 = Math.floor(x);
+  const z0 = Math.floor(z);
+  const tx = smootherstep(x - x0);
+  const tz = smootherstep(z - z0);
+  const top = lerp(hash2D(x0, z0, seed), hash2D(x0 + 1, z0, seed), tx);
+  const bottom = lerp(hash2D(x0, z0 + 1, seed), hash2D(x0 + 1, z0 + 1, seed), tx);
+
+  return lerp(top, bottom, tz);
+}
+
+function hash2D(x, z, seed) {
+  let value = (Math.imul(x, 0x1f123bb5) ^ Math.imul(z, 0x5f356495) ^ seed) >>> 0;
+
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b) >>> 0;
+  value = Math.imul(value ^ (value >>> 16), 0x45d9f3b) >>> 0;
+  value ^= value >>> 16;
+  return (value >>> 0) / 0xffffffff;
+}
+
+function smoothstep(edge0, edge1, value) {
+  if (value <= edge0) return 0;
+  if (value >= edge1) return 1;
+
+  const t = (value - edge0) / (edge1 - edge0);
+  return t * t * (3 - 2 * t);
+}
+
+function smootherstep(value) {
+  return value * value * value * (value * (value * 6 - 15) + 10);
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function lerp(start, end, t) {
+  return start + (end - start) * t;
+}

@@ -3,6 +3,12 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { getGoldenShotFromLocation } from '../src/goldenShots.js';
 import {
+  PLUNGE_POOL,
+  getBakedLowlandHeight,
+} from '../src/lowlandHeightPlan.js';
+import {
+  applyWaterSystemMacroTerrain,
+  applyWaterSystemTerrain,
   createWaterSystem,
   updateWaterSystemVisuals,
 } from '../src/waterSystem.js';
@@ -23,9 +29,33 @@ function disposeSystem(system) {
   materials.forEach((material) => material.dispose());
 }
 
+test('runtime water terrain keeps baked lowland channels while retaining mountain carving', () => {
+  assert.equal(applyWaterSystemTerrain(9, 735, -308), 9);
+  const plungeFloor = PLUNGE_POOL.waterLevel - PLUNGE_POOL.maxDepth;
+
+  assert.equal(applyWaterSystemMacroTerrain(30, 418, -424), plungeFloor);
+  assert.equal(applyWaterSystemMacroTerrain(plungeFloor, 418, -424), plungeFloor);
+
+  for (let ring = 0; ring <= 9; ring += 1) {
+    for (let segment = 0; segment < 24; segment += 1) {
+      const radius = ring / 10 * PLUNGE_POOL.radius;
+      const angle = segment / 24 * Math.PI * 2;
+      const x = PLUNGE_POOL.cx + Math.cos(angle) * radius;
+      const z = PLUNGE_POOL.cz + Math.sin(angle) * radius;
+      const bakedHeight = getBakedLowlandHeight(x, z);
+
+      assert.ok(Math.abs(
+        applyWaterSystemMacroTerrain(bakedHeight, x, z) - bakedHeight,
+      ) < 1e-10);
+    }
+  }
+  assert.ok(applyWaterSystemMacroTerrain(80, 300, -400) < 32);
+});
+
 test('water system exposes one merged tributary surface and keeps the compatibility alias', () => {
   const system = createWaterSystem(createTerrainStub());
   const tributaries = system.tributaries;
+  const confluencePositions = system.confluence.geometry.getAttribute('position');
 
   assert.equal(system.snowmelt, tributaries);
   assert.equal(tributaries.name, 'AlpineRiverNetworkSurface');
@@ -38,6 +68,9 @@ test('water system exposes one merged tributary surface and keeps the compatibil
   assert.match(tributaries.material.vertexShader, /attribute float viewDistance/);
   assert.match(tributaries.material.fragmentShader, /vViewDistance - 55\.0/);
   assert.doesNotMatch(tributaries.material.fragmentShader, /smoothstep\(6\.9, 8\.0, vUv\.x\)/);
+  assert.ok(Math.abs(
+    confluencePositions.getY(0) - (PLUNGE_POOL.waterLevel + 0.02),
+  ) < 1e-6);
 
   const camera = new THREE.PerspectiveCamera();
 

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { createSmallLakes } from '../src/smallLakes.js';
+import {
+  SMALL_LAKES,
+  applySmallLakesTerrain,
+  createSmallLakes,
+} from '../src/smallLakes.js';
 import { getGoldenShotFromLocation, listGoldenShotNames } from '../src/goldenShots.js';
 
 const ANGLE_SEGMENTS = 64;
@@ -56,9 +60,35 @@ function assertGeometryFacesUp(geometry) {
 test('radial lake surfaces keep their vertex budget and every triangle faces +Y', () => {
   const lakes = createSmallLakes(createTerrainStub());
 
-  assert.ok(lakes.children.length > 1);
+  assert.equal(lakes.children.length, 5);
   for (const lake of lakes.children) {
     assertGeometryFacesUp(lake.geometry);
+    lake.geometry.dispose();
+    lake.material.dispose();
+  }
+});
+
+test('baked southern lakes keep fixed water levels without runtime terrain carving', () => {
+  const lakes = createSmallLakes(createTerrainStub());
+  const expectedLevels = new Map([
+    ['south-northwest-lake', 3.5],
+    ['south-east-lake', 3.2],
+    ['south-central-lake', 2.8],
+    ['south-terminal-lake', 1.8],
+  ]);
+
+  assert.equal(applySmallLakesTerrain(12.5, 755, -657), 12.5);
+  for (const lake of SMALL_LAKES.filter((entry) => !entry.isTerminal)) {
+    const mesh = lakes.getObjectByName(`SmallLake_${lake.id}`);
+
+    assert.equal(lake.waterLevel, expectedLevels.get(lake.id));
+    assert.ok(Math.abs(
+      mesh.geometry.getAttribute('position').getY(0)
+        - (lake.waterLevel + lake.surfaceOffset),
+    ) < 1e-6);
+  }
+
+  for (const lake of lakes.children) {
     lake.geometry.dispose();
     lake.material.dispose();
   }
@@ -92,6 +122,6 @@ test('terminal lake overhead golden shot is fixed above the new circular lake', 
   assert.ok(listGoldenShotNames().includes('terminal-lake-overhead'));
   assert.equal(shot.key, 'terminal-lake-overhead');
   assert.deepEqual(shot.camera, { x: 690, z: -340, y: 55 });
-  assert.deepEqual(shot.target, { x: 690, z: -340, y: -1.235 });
+  assert.deepEqual(shot.target, { x: 690, z: -340, y: 1.645 });
   assert.ok(Math.hypot(shot.player.x - 690, shot.player.z + 340) > 26);
 });

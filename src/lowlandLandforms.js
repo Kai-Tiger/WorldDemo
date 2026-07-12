@@ -1,159 +1,74 @@
 import * as THREE from 'three';
 import {
-  applyRiverNetworkTerrain,
   compileRiverNetwork,
   getNearestRiverReach,
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
-import { RIVER_TERMINAL_LAKE } from './riverChannel.js';
+import {
+  LOWLAND_HILLS as BAKED_LOWLAND_HILLS,
+  LOWLAND_LAKES as BAKED_LOWLAND_LAKES,
+  LOWLAND_STREAM_DEFINITION as BAKED_LOWLAND_STREAM_DEFINITION,
+  LOWLAND_STREAM_DEFINITIONS as BAKED_LOWLAND_STREAM_DEFINITIONS,
+  LOWLAND_STREAM_PLAN as BAKED_LOWLAND_STREAM_PLAN,
+  SOUTHERN_LOWLAND_LAKES,
+  TERMINAL_LOWLAND_LAKE,
+} from './lowlandHeightPlan.js';
 
 const LOWLAND_FEATURE_SEGMENTS = 256;
 const LAKE_ANGLE_SEGMENTS = 72;
 const LAKE_RADIAL_RINGS = 12;
 
-const hills = [
-  { id: 'spawn-meadow-west', cx: 570, cz: -395, radiusX: 25, radiusZ: 18, height: 3.6, rotation: -0.35, shapeAmp: 0.10, phase: 0.4 },
-  { id: 'spawn-meadow-east', cx: 615, cz: -410, radiusX: 28, radiusZ: 20, height: 4.6, rotation: 0.25, shapeAmp: 0.08, phase: 1.8 },
-  { id: 'northwest-foothill-south', cx: -665, cz: 430, radiusX: 54, radiusZ: 78, height: 8.6, rotation: 0.10, shapeAmp: 0.12, phase: 0.9 },
-  { id: 'northwest-foothill-center', cx: -645, cz: 510, radiusX: 62, radiusZ: 86, height: 10.5, rotation: -0.08, shapeAmp: 0.10, phase: 2.2 },
-  { id: 'northwest-foothill-north', cx: -620, cz: 590, radiusX: 50, radiusZ: 70, height: 7.8, rotation: 0.14, shapeAmp: 0.13, phase: 3.4 },
-  { id: 'north-rolling-west', cx: -320, cz: 640, radiusX: 76, radiusZ: 48, height: 8.5, rotation: -0.20, shapeAmp: 0.11, phase: 1.3 },
-  { id: 'north-rolling-east', cx: -205, cz: 675, radiusX: 68, radiusZ: 44, height: 7.0, rotation: 0.24, shapeAmp: 0.09, phase: 2.7 },
-  { id: 'southeast-low-hill-west', cx: 770, cz: -855, radiusX: 42, radiusZ: 31, height: 6.2, rotation: 0.18, shapeAmp: 0.12, phase: 0.2 },
-  { id: 'southeast-low-hill-center', cx: 830, cz: -875, radiusX: 38, radiusZ: 45, height: 7.4, rotation: -0.30, shapeAmp: 0.10, phase: 1.9 },
-  { id: 'southeast-low-hill-east', cx: 875, cz: -825, radiusX: 34, radiusZ: 27, height: 5.2, rotation: 0.35, shapeAmp: 0.13, phase: 3.1 },
-];
-
-const lakes = [
-  {
-    id: 'east-meadow-pond',
-    cx: 820,
-    cz: -260,
-    radiusX: 31,
-    radiusZ: 24,
-    rotation: -0.24,
-    shapeAmp: 0.12,
-    phase: 0.75,
-    waterLevel: -0.2,
-    maxDepth: 4.5,
-    edgeDepth: 0.16,
-    shoreWidth: 7,
-    surfaceOffset: 0.045,
-  },
-];
-
-const streamNodes = [
-  {
-    id: 'east-meadow-pond',
-    type: 'lake',
-    position: [820, -260],
-    waterLevel: -0.2,
-  },
-  {
-    id: 'terminal-lake',
-    type: 'lake',
-    position: [690, -340],
-    waterLevel: -1.28,
-    existing: true,
-  },
-];
-
-const streamReaches = [
-  {
-    id: 'east-meadow-outlet',
-    from: 'east-meadow-pond',
-    to: 'terminal-lake',
-    style: 'lake-outlet',
-    points: [
-      [820, -260],
-      [805, -270],
-      [780, -278],
-      [758, -296],
-      [735, -308],
-      [710, -326],
-      [690, -340],
-    ],
-    waterLevels: [-0.2, -0.2, -0.2, -0.55, -0.72, -1.28, -1.28],
-    width: [2, 3.2],
-    depth: [0.5, 0.9],
-    influence: [5.5, 8],
-    vegetationBuffer: [1.8, 2.8],
-  },
-];
-
-export const LOWLAND_HILLS = Object.freeze(hills.map((hill) => Object.freeze({ ...hill })));
-export const LOWLAND_LAKES = Object.freeze(lakes.map((lake) => Object.freeze({ ...lake })));
-export const LOWLAND_STREAM_DEFINITION = Object.freeze({
-  nodes: Object.freeze(streamNodes.map((node) => Object.freeze({
-    ...node,
-    position: Object.freeze([...node.position]),
-  }))),
-  reaches: Object.freeze(streamReaches.map((reach) => Object.freeze({
-    ...reach,
-    points: Object.freeze(reach.points.map((point) => Object.freeze([...point]))),
-    waterLevels: Object.freeze([...reach.waterLevels]),
-    width: Object.freeze([...reach.width]),
-    depth: Object.freeze([...reach.depth]),
-    influence: Object.freeze([...reach.influence]),
-    vegetationBuffer: Object.freeze([...reach.vegetationBuffer]),
-  }))),
-});
-export const LOWLAND_STREAM_NETWORK = compileRiverNetwork(LOWLAND_STREAM_DEFINITION);
+export const LOWLAND_HILLS = BAKED_LOWLAND_HILLS;
+export const LOWLAND_LAKES = BAKED_LOWLAND_LAKES;
+export const LOWLAND_STREAM_DEFINITION = BAKED_LOWLAND_STREAM_DEFINITION;
+export const LOWLAND_STREAM_DEFINITIONS = BAKED_LOWLAND_STREAM_DEFINITIONS;
+export const LOWLAND_STREAM_PLAN = BAKED_LOWLAND_STREAM_PLAN;
+export const LOWLAND_STREAM_NETWORKS = Object.freeze(
+  LOWLAND_STREAM_DEFINITIONS.map((definition) => compileRiverNetwork(definition)),
+);
+export const LOWLAND_STREAM_NETWORK = LOWLAND_STREAM_NETWORKS[0];
 
 const streamDetailBounds = createStreamDetailBounds();
 const lakeDetailBounds = LOWLAND_LAKES.map(createLakeBounds);
+const streamTransitionLakes = [...LOWLAND_LAKES, ...SOUTHERN_LOWLAND_LAKES];
 
 export function applyLowlandHillsTerrain(baseHeight, x, z) {
-  let rise = 0;
-
-  for (const hill of LOWLAND_HILLS) {
-    rise += getHillRise(hill, x, z);
-  }
-
-  return baseHeight + rise;
+  return baseHeight;
 }
 
 export function applyLowlandWaterTerrain(baseHeight, x, z) {
-  const streamHeight = applyRiverNetworkTerrain(baseHeight, x, z, LOWLAND_STREAM_NETWORK);
-  let height = THREE.MathUtils.lerp(
-    baseHeight,
-    streamHeight,
-    getLowlandTerminalInletFade(x, z),
-  );
-
-  for (const lake of LOWLAND_LAKES) {
-    height = applyLakeTerrain(height, lake, x, z);
-  }
-
-  return height;
+  return baseHeight;
 }
 
 export function applyLowlandMacroTerrain(baseHeight, x, z) {
-  let height = applyLowlandHillsTerrain(baseHeight, x, z);
-
-  for (const lake of LOWLAND_LAKES) {
-    height = applyLakeTerrain(height, lake, x, z);
-  }
-
-  return height;
+  return baseHeight;
 }
 
 export function getLowlandMaterialFrame(x, z) {
-  const reach = getNearestRiverReach(x, z, 16, LOWLAND_STREAM_NETWORK);
   let bedMask = 0;
   let wetMask = 0;
   let lakeBedMask = 0;
 
-  if (reach && reach.distance <= reach.influence) {
-    const wetOuter = Math.min(reach.influence, reach.halfWidth + 3);
-    const inletFade = getLowlandTerminalInletFade(x, z);
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    const reach = getNearestRiverReach(x, z, 16, network);
 
-    bedMask = (
-      1 - smoothstep(reach.halfWidth * 0.58, reach.halfWidth, reach.distance)
-    ) * inletFade;
-    wetMask = (
-      1 - smoothstep(reach.halfWidth * 0.82, wetOuter, reach.distance)
-    ) * 0.72 * inletFade;
+    if (reach && reach.distance <= reach.influence) {
+      const wetOuter = Math.min(reach.influence, reach.halfWidth + 3);
+      const inletFade = getLowlandTerminalInletFade(x, z);
+
+      bedMask = Math.max(
+        bedMask,
+        (
+          1 - smoothstep(reach.halfWidth * 0.58, reach.halfWidth, reach.distance)
+        ) * inletFade,
+      );
+      wetMask = Math.max(
+        wetMask,
+        (
+          1 - smoothstep(reach.halfWidth * 0.82, wetOuter, reach.distance)
+        ) * 0.72 * inletFade,
+      );
+    }
   }
 
   for (const lake of LOWLAND_LAKES) {
@@ -178,8 +93,8 @@ export function getLowlandMaterialFrame(x, z) {
 }
 
 export function isInLowlandVegetationExclusion(x, z, buffer = 0) {
-  if (isInRiverNetworkVegetationExclusion(x, z, buffer, LOWLAND_STREAM_NETWORK)) {
-    return true;
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    if (isInRiverNetworkVegetationExclusion(x, z, buffer, network)) return true;
   }
 
   for (const lake of LOWLAND_LAKES) {
@@ -204,13 +119,13 @@ export function getLowlandMinimumSegmentsForBounds(bounds) {
 
 export function getLowlandTerminalInletFade(x, z) {
   const distance = Math.hypot(
-    x - RIVER_TERMINAL_LAKE.cx,
-    z - RIVER_TERMINAL_LAKE.cz,
+    x - TERMINAL_LOWLAND_LAKE.cx,
+    z - TERMINAL_LOWLAND_LAKE.cz,
   );
 
   return smoothstep(
-    RIVER_TERMINAL_LAKE.radius - 4,
-    RIVER_TERMINAL_LAKE.radius,
+    TERMINAL_LOWLAND_LAKE.radius - 4,
+    TERMINAL_LOWLAND_LAKE.radius,
     distance,
   );
 }
@@ -219,6 +134,16 @@ export function getLowlandLakeOutletFade(x, z) {
   const frame = getLakeFrame(LOWLAND_LAKES[0], x, z);
 
   return smoothstep(-4, 2, frame.signedDistance);
+}
+
+export function getLowlandStreamLakeFade(x, z) {
+  let fade = getLowlandTerminalInletFade(x, z);
+
+  for (const lake of streamTransitionLakes) {
+    fade = Math.min(fade, smoothstep(-4, 2, getLakeFrame(lake, x, z).signedDistance));
+  }
+
+  return fade;
 }
 
 export function createLowlandLakeGeometry(lake, terrain) {
@@ -307,49 +232,16 @@ export function createLowlandLakeGeometry(lake, terrain) {
   return geometry;
 }
 
-function getHillRise(hill, x, z) {
-  const local = toLocalPoint(hill, x, z);
-  const normalizedX = local.x / hill.radiusX;
-  const normalizedZ = local.z / hill.radiusZ;
-  const angle = Math.atan2(normalizedZ, normalizedX);
-  const shapeScale = getShapeScale(hill.shapeAmp, hill.phase, angle);
-  const distance = Math.hypot(normalizedX, normalizedZ) / shapeScale;
-
-  if (distance >= 1) return 0;
-
-  return hill.height * (1 - smoothstep(0.08, 1, distance));
-}
-
-function applyLakeTerrain(baseHeight, lake, x, z) {
-  const frame = getLakeFrame(lake, x, z);
-
-  if (frame.signedDistance > lake.shoreWidth) return baseHeight;
-
-  if (frame.normalizedDistance <= 1) {
-    const depthT = smoothstep(0.14, 1, frame.normalizedDistance);
-    const depth = THREE.MathUtils.lerp(lake.maxDepth, lake.edgeDepth, depthT);
-
-    return Math.min(baseHeight, lake.waterLevel - depth);
-  }
-
-  const shoreT = smoothstep(0, lake.shoreWidth, frame.signedDistance);
-  const shoreTarget = THREE.MathUtils.lerp(
-    lake.waterLevel - lake.edgeDepth,
-    baseHeight,
-    shoreT,
-  );
-
-  return Math.min(baseHeight, shoreTarget);
-}
-
 function getLakeFrame(lake, x, z) {
   const local = toLocalPoint(lake, x, z);
-  const normalizedX = local.x / lake.radiusX;
-  const normalizedZ = local.z / lake.radiusZ;
+  const radiusX = lake.radiusX ?? lake.radius;
+  const radiusZ = lake.radiusZ ?? lake.radius;
+  const normalizedX = local.x / radiusX;
+  const normalizedZ = local.z / radiusZ;
   const angle = Math.atan2(normalizedZ, normalizedX);
   const normalizedDistance = Math.hypot(normalizedX, normalizedZ)
     / getLakeShapeScale(lake, angle);
-  const meanRadius = (lake.radiusX + lake.radiusZ) * 0.5;
+  const meanRadius = (radiusX + radiusZ) * 0.5;
 
   return {
     normalizedDistance,
@@ -358,22 +250,22 @@ function getLakeFrame(lake, x, z) {
 }
 
 function getLakeShapeScale(lake, angle) {
-  return getShapeScale(lake.shapeAmp, lake.phase, angle);
+  return getShapeScale(lake.shapeAmp ?? 0, lake.phase ?? 0, angle);
 }
 
 function getShapeScale(amplitude, phase, angle) {
   return 1 + amplitude * (
-    Math.sin(angle * 3 + phase) * 0.58
-    + Math.sin(angle * 5 - phase * 0.7) * 0.28
-    + Math.sin(angle * 7 + phase * 1.3) * 0.14
+    Math.sin(angle * 3 + phase) * 0.5
+    + Math.sin(angle * 5 - phase * 0.7) * 0.3
+    + Math.sin(angle * 7 + phase * 1.3) * 0.2
   );
 }
 
 function toLocalPoint(feature, x, z) {
   const dx = x - feature.cx;
   const dz = z - feature.cz;
-  const cosine = Math.cos(feature.rotation);
-  const sine = Math.sin(feature.rotation);
+  const cosine = Math.cos(feature.rotation ?? 0);
+  const sine = Math.sin(feature.rotation ?? 0);
 
   return {
     x: dx * cosine + dz * sine,
@@ -426,18 +318,20 @@ function writeLakeVertex(
 function createStreamDetailBounds() {
   const bounds = [];
 
-  for (const reach of LOWLAND_STREAM_NETWORK.reaches) {
-    for (let index = 0; index < reach.samples.length - 1; index += 1) {
-      const start = reach.samples[index];
-      const end = reach.samples[index + 1];
-      const padding = Math.max(start.influence, end.influence);
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    for (const reach of network.reaches) {
+      for (let index = 0; index < reach.samples.length - 1; index += 1) {
+        const start = reach.samples[index];
+        const end = reach.samples[index + 1];
+        const padding = Math.max(start.influence, end.influence);
 
-      bounds.push({
-        minX: Math.min(start.point.x, end.point.x) - padding,
-        maxX: Math.max(start.point.x, end.point.x) + padding,
-        minZ: Math.min(start.point.z, end.point.z) - padding,
-        maxZ: Math.max(start.point.z, end.point.z) + padding,
-      });
+        bounds.push({
+          minX: Math.min(start.point.x, end.point.x) - padding,
+          maxX: Math.max(start.point.x, end.point.x) + padding,
+          minZ: Math.min(start.point.z, end.point.z) - padding,
+          maxZ: Math.max(start.point.z, end.point.z) + padding,
+        });
+      }
     }
   }
 

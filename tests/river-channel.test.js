@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import {
   RIVER_TERMINAL_LAKE,
+  applyRiverChannel,
   createRiverWaterMesh,
   createWetBankMesh,
   getRiverWaterGeometryMaxDistance,
@@ -30,6 +31,15 @@ function getRowDistances(geometry) {
   return distances;
 }
 
+test('runtime river channel leaves the baked main river and terminal basin unchanged', () => {
+  assert.equal(RIVER_TERMINAL_LAKE.waterLevel, 1.6);
+  assert.equal(applyRiverChannel(8.25, 545, -350), 8.25);
+  assert.equal(
+    applyRiverChannel(8.25, RIVER_TERMINAL_LAKE.cx, RIVER_TERMINAL_LAKE.cz),
+    8.25,
+  );
+});
+
 test('river water geometry ends exactly where the terminal-lake alpha reaches zero', () => {
   const water = createRiverWaterMesh(createTerrainStub());
   const geometry = water.geometry;
@@ -53,6 +63,7 @@ test('river water geometry ends exactly where the terminal-lake alpha reaches ze
   }
 
   const verticesPerRow = uvs.count / rowDistances.length;
+  const firstCenterVertex = Math.floor(verticesPerRow / 2);
   const lastCenterVertex = (rowDistances.length - 1) * verticesPerRow
     + Math.floor(verticesPerRow / 2);
   const lakeDistance = Math.hypot(
@@ -62,6 +73,13 @@ test('river water geometry ends exactly where the terminal-lake alpha reaches ze
   const expectedSurfaceHeight = RIVER_TERMINAL_LAKE.waterLevel
     + RIVER_TERMINAL_LAKE.surfaceOffset;
 
+  assert.ok(Math.abs(positions.getY(firstCenterVertex) - 3.2) < 1e-5);
+  for (let row = 1; row < rowDistances.length; row += 1) {
+    const previousCenter = (row - 1) * verticesPerRow + Math.floor(verticesPerRow / 2);
+    const center = row * verticesPerRow + Math.floor(verticesPerRow / 2);
+
+    assert.ok(positions.getY(center) <= positions.getY(previousCenter) + 1e-6);
+  }
   assert.ok(lakeDistance > 14);
   assert.ok(lakeDistance < RIVER_TERMINAL_LAKE.radius);
   assert.ok(Math.abs(positions.getY(lastCenterVertex) - expectedSurfaceHeight) < 1e-5);

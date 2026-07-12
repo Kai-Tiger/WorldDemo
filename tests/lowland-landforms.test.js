@@ -1,21 +1,26 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import * as THREE from 'three';
 import { getGoldenShotFromLocation, listGoldenShotNames } from '../src/goldenShots.js';
+import { compileRiverNetwork } from '../src/hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
-import { RIVER_TERMINAL_LAKE } from '../src/riverChannel.js';
+import { createRiverWaterMesh, RIVER_TERMINAL_LAKE } from '../src/riverChannel.js';
 import {
   LOWLAND_HILLS,
   LOWLAND_LAKES,
   LOWLAND_STREAM_DEFINITION,
+  LOWLAND_STREAM_DEFINITIONS,
   LOWLAND_STREAM_NETWORK,
+  LOWLAND_STREAM_NETWORKS,
+  LOWLAND_STREAM_PLAN,
   applyLowlandHillsTerrain,
   applyLowlandMacroTerrain,
   applyLowlandWaterTerrain,
   createLowlandLakeGeometry,
   getLowlandMaterialFrame,
   getLowlandMinimumSegmentsForBounds,
-  getLowlandTerminalInletFade,
   isInLowlandVegetationExclusion,
 } from '../src/lowlandLandforms.js';
 import {
@@ -23,33 +28,47 @@ import {
   getWaterSystemMaterialFrame,
   isInWaterSystemVegetationExclusion,
 } from '../src/waterSystem.js';
+import { createSmallLakes } from '../src/smallLakes.js';
+import { Terrain } from '../src/terrain.js';
+import { PLUNGE_POOL } from '../src/lowlandHeightPlan.js';
 
 const MAP_MIN = -1024;
 const CHUNK_SIZE = 256;
 
-test('lowland definitions keep one pond-to-terminal stream and varied frozen hill groups', () => {
+test('lowland definitions cover the east, north, and south watersheds with frozen hill groups', () => {
   assert.equal(Object.isFrozen(LOWLAND_HILLS), true);
   assert.equal(Object.isFrozen(LOWLAND_LAKES), true);
   assert.equal(Object.isFrozen(LOWLAND_STREAM_DEFINITION), true);
-  assert.equal(LOWLAND_HILLS.length, 10);
-  assert.equal(LOWLAND_LAKES.length, 1);
+  assert.equal(Object.isFrozen(LOWLAND_STREAM_DEFINITIONS), true);
+  assert.equal(LOWLAND_HILLS.length, 28);
+  assert.equal(LOWLAND_LAKES.length, 3);
+  assert.equal(LOWLAND_STREAM_DEFINITIONS.length, 3);
   assert.equal(LOWLAND_STREAM_DEFINITION.reaches.length, 1);
+  assert.equal(LOWLAND_STREAM_PLAN.reaches.length, 5);
+  assert.equal(LOWLAND_STREAM_NETWORK.definition, LOWLAND_STREAM_DEFINITION);
 
-  const pond = LOWLAND_LAKES[0];
+  const pond = LOWLAND_LAKES.find((lake) => lake.cx === 820 && lake.cz === -260);
+  const northWestLake = LOWLAND_LAKES.find((lake) => lake.cx === -520 && lake.cz === 720);
+  const northEastLake = LOWLAND_LAKES.find((lake) => lake.cx === -120 && lake.cz === 800);
   const reach = LOWLAND_STREAM_DEFINITION.reaches[0];
 
-  assert.deepEqual([pond.cx, pond.cz, pond.waterLevel], [820, -260, -0.2]);
-  assert.ok(pond.maxDepth >= 4.5);
+  assert.deepEqual([pond.cx, pond.cz, pond.waterLevel], [820, -260, 3.2]);
+  assert.deepEqual([northWestLake.waterLevel, northEastLake.waterLevel], [3.5, 2]);
+  assert.ok(pond.maxDepth >= 2.8);
   assert.deepEqual(reach.points[0], [820, -260]);
   assert.deepEqual(reach.points.at(-1), [690, -340]);
   assert.equal(reach.waterLevels[0], pond.waterLevel);
-  assert.equal(reach.waterLevels.at(-1), -1.28);
+  assert.equal(reach.waterLevels.at(-1), 1.6);
   assert.deepEqual(reach.waterLevels.slice(0, 3), Array(3).fill(pond.waterLevel));
-  assert.deepEqual(reach.waterLevels.slice(-2), Array(2).fill(-1.28));
+  assert.deepEqual(reach.waterLevels.slice(-2), Array(2).fill(1.6));
   assert.notEqual(pond.radiusX, pond.radiusZ);
 
-  for (let index = 1; index < reach.waterLevels.length; index += 1) {
-    assert.ok(reach.waterLevels[index] <= reach.waterLevels[index - 1]);
+  for (const definition of LOWLAND_STREAM_DEFINITIONS) {
+    for (const currentReach of definition.reaches) {
+      for (let index = 1; index < currentReach.waterLevels.length; index += 1) {
+        assert.ok(currentReach.waterLevels[index] <= currentReach.waterLevels[index - 1]);
+      }
+    }
   }
 
   const regions = new Set(LOWLAND_HILLS.map((hill) => hill.id.split('-')[0]));
@@ -60,97 +79,76 @@ test('lowland definitions keep one pond-to-terminal stream and varied frozen hil
   assert.ok(LOWLAND_HILLS.some((hill) => hill.radiusZ > hill.radiusX * 1.4));
 });
 
-test('the compiled slow creek descends continuously and stays below both banks', () => {
-  const reach = LOWLAND_STREAM_NETWORK.reaches[0];
-  let previousLevel = Infinity;
+test('singular lowland stream definition remains directly compilable as the east basin', () => {
+  const compiled = compileRiverNetwork(LOWLAND_STREAM_DEFINITION);
 
-  for (let index = 0; index < reach.samples.length; index += 1) {
-    const sample = reach.samples[index];
-    const previous = reach.samples[Math.max(index - 1, 0)];
-    const next = reach.samples[Math.min(index + 1, reach.samples.length - 1)];
-    const tangentX = next.point.x - previous.point.x;
-    const tangentZ = next.point.z - previous.point.z;
-    const tangentLength = Math.hypot(tangentX, tangentZ) || 1;
-    const sideX = -tangentZ / tangentLength;
-    const sideZ = tangentX / tangentLength;
-    const terrainBase = applyLowlandHillsTerrain(0, sample.point.x, sample.point.z);
-    const bed = applyLowlandWaterTerrain(
-      terrainBase,
-      sample.point.x,
-      sample.point.z,
-    );
-    const bankOffset = sample.influence + 1;
-    const leftBank = applyLowlandHillsTerrain(
-      0,
-      sample.point.x + sideX * bankOffset,
-      sample.point.z + sideZ * bankOffset,
-    );
-    const rightBank = applyLowlandHillsTerrain(
-      0,
-      sample.point.x - sideX * bankOffset,
-      sample.point.z - sideZ * bankOffset,
-    );
-
-    assert.ok(sample.waterLevel <= previousLevel + 1e-8);
-    if (getLowlandTerminalInletFade(sample.point.x, sample.point.z) > 0.999) {
-      assert.ok(bed < sample.waterLevel - 0.35);
-    }
-    assert.ok(leftBank > sample.waterLevel);
-    assert.ok(rightBank > sample.waterLevel);
-    previousLevel = sample.waterLevel;
-  }
+  assert.equal(LOWLAND_STREAM_DEFINITION.id, 'east-lowland-basin');
+  assert.equal(compiled.definition, LOWLAND_STREAM_DEFINITION);
+  assert.deepEqual(compiled.reaches.map((reach) => reach.id), ['east-meadow-outlet']);
+  assert.deepEqual(LOWLAND_STREAM_NETWORK.reaches.map((reach) => reach.id), [
+    'east-meadow-outlet',
+  ]);
 });
 
-test('broad hills remain walkable, affect shadow macro terrain, and stop at their boundaries', () => {
-  let maximumSlope = 0;
+test('all three compiled lowland watersheds descend continuously', () => {
+  assert.equal(LOWLAND_STREAM_NETWORKS.length, 3);
 
-  for (const hill of LOWLAND_HILLS) {
-    assert.ok(applyLowlandHillsTerrain(0, hill.cx, hill.cz) >= hill.height);
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    for (const reach of network.reaches) {
+      let previousLevel = Infinity;
 
-    for (let z = hill.cz - hill.radiusZ * 1.2; z <= hill.cz + hill.radiusZ * 1.2; z += 2) {
-      for (let x = hill.cx - hill.radiusX * 1.2; x <= hill.cx + hill.radiusX * 1.2; x += 2) {
-        const xSlope = (
-          applyLowlandHillsTerrain(0, x + 0.5, z)
-          - applyLowlandHillsTerrain(0, x - 0.5, z)
-        );
-        const zSlope = (
-          applyLowlandHillsTerrain(0, x, z + 0.5)
-          - applyLowlandHillsTerrain(0, x, z - 0.5)
-        );
-        const slope = THREE.MathUtils.radToDeg(Math.atan(Math.hypot(xSlope, zSlope)));
-
-        maximumSlope = Math.max(maximumSlope, slope);
+      for (const sample of reach.samples) {
+        assert.ok(sample.waterLevel <= previousLevel + 1e-8);
+        previousLevel = sample.waterLevel;
       }
     }
   }
+});
 
-  assert.ok(maximumSlope < 25, `maximum lowland hill slope was ${maximumSlope}`);
-  assert.equal(applyLowlandHillsTerrain(12, 0, 0), 12);
-  assert.equal(applyLowlandHillsTerrain(7, 335, -358), 7);
-  assert.ok(applyLowlandMacroTerrain(0, -645, 510) > 9);
+test('runtime lowland terrain helpers leave the baked height unchanged', () => {
+  const baseHeight = 11.25;
+  const points = [
+    ...LOWLAND_HILLS.map((hill) => ({ x: hill.cx, z: hill.cz })),
+    ...LOWLAND_LAKES.map((lake) => ({ x: lake.cx, z: lake.cz })),
+    ...LOWLAND_STREAM_PLAN.reaches.flatMap((reach) => (
+      reach.points.map(([x, z]) => ({ x, z }))
+    )),
+  ];
+
+  for (const point of points) {
+    assert.equal(applyLowlandHillsTerrain(baseHeight, point.x, point.z), baseHeight);
+    assert.equal(applyLowlandWaterTerrain(baseHeight, point.x, point.z), baseHeight);
+    assert.equal(applyLowlandMacroTerrain(baseHeight, point.x, point.z), baseHeight);
+  }
 });
 
 test('pond terrain, masks, geometry, and vegetation share one irregular boundary', () => {
   const pond = LOWLAND_LAKES[0];
-  const centerHeight = applyLowlandWaterTerrain(0, pond.cx, pond.cz);
+  const centerHeight = applyLowlandWaterTerrain(7, pond.cx, pond.cz);
   const streamFrame = getLowlandMaterialFrame(758, -296);
+  const northStreamFrame = getLowlandMaterialFrame(-350, 765);
+  const southStreamFrame = getLowlandMaterialFrame(690, -620);
   const pondFrame = getLowlandMaterialFrame(pond.cx, pond.cz);
+  const northLakeFrame = getLowlandMaterialFrame(-520, 720);
 
-  assert.ok(centerHeight <= pond.waterLevel - pond.maxDepth + 1e-8);
+  assert.equal(centerHeight, 7);
   assert.equal(applyLowlandWaterTerrain(9, 0, 0), 9);
   assert.ok(pondFrame.lakeBedMask > 0.99);
+  assert.ok(northLakeFrame.lakeBedMask > 0.99);
   assert.ok(streamFrame.bedMask > 0.99);
+  assert.ok(northStreamFrame.bedMask > 0.99);
+  assert.ok(southStreamFrame.bedMask > 0.99);
   assert.equal(getLowlandMaterialFrame(0, 0).bedMask, 0);
   assert.equal(getLowlandMaterialFrame(690, -340).bedMask, 0);
   assert.equal(applyLowlandWaterTerrain(0, 690, -340), 0);
   assert.equal(isInLowlandVegetationExclusion(pond.cx, pond.cz), true);
   assert.equal(isInLowlandVegetationExclusion(758, -296), true);
+  assert.equal(isInLowlandVegetationExclusion(-350, 765), true);
+  assert.equal(isInLowlandVegetationExclusion(690, -620), true);
   assert.equal(isInLowlandVegetationExclusion(0, 0), false);
 
   const geometry = createLowlandLakeGeometry(pond, {
-    getHeightAt(x, z) {
-      return applyLowlandWaterTerrain(0, x, z);
-    },
+    getHeightAt: () => pond.waterLevel - pond.maxDepth,
   });
   const positions = geometry.getAttribute('position');
   const normals = geometry.getAttribute('normal');
@@ -164,8 +162,8 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
   assert.ok(geometry.getAttribute('lakeDepth'));
   assert.ok(geometry.getAttribute('lakeEdge'));
   assert.ok(geometry.getAttribute('lakeBedVisibility'));
-  assert.ok(depths.getX(0) >= 4.5);
-  assert.ok(depths.getX(halfRadiusStart) >= 2.8);
+  assert.ok(depths.getX(0) >= 2.79);
+  assert.ok(depths.getX(halfRadiusStart) >= 2.79);
 
   for (let vertex = 0; vertex < normals.count; vertex += 1) {
     assert.ok(normals.getY(vertex) > 0.999);
@@ -181,53 +179,53 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
   geometry.dispose();
 });
 
-test('lowland LOD uses local segment bounds instead of the diagonal reach rectangle', () => {
-  const promoted = [];
-
-  for (let chunkZ = 0; chunkZ < 8; chunkZ += 1) {
-    for (let chunkX = 0; chunkX < 8; chunkX += 1) {
-      const minX = MAP_MIN + chunkX * CHUNK_SIZE;
-      const minZ = MAP_MIN + chunkZ * CHUNK_SIZE;
-      const minimum = getLowlandMinimumSegmentsForBounds({
-        minX,
-        maxX: minX + CHUNK_SIZE,
-        minZ,
-        maxZ: minZ + CHUNK_SIZE,
-      });
-
-      if (minimum > 0) promoted.push([chunkX, chunkZ, minimum]);
-    }
+test('lowland LOD promotes every lake and stream locally without filling unrelated gaps', () => {
+  for (const lake of LOWLAND_LAKES) {
+    assert.equal(getLowlandMinimumSegmentsForBounds(getChunkBounds(lake.cx, lake.cz)), 256);
   }
 
-  assert.deepEqual(promoted, [
-    [6, 2, 256],
-    [7, 2, 256],
-    [7, 3, 256],
-  ]);
+  for (const reach of LOWLAND_STREAM_PLAN.reaches) {
+    const midpoint = reach.points[Math.floor(reach.points.length / 2)];
+
+    assert.equal(getLowlandMinimumSegmentsForBounds(getChunkBounds(...midpoint)), 256);
+  }
+
   assert.equal(getLowlandMinimumSegmentsForBounds({
-    minX: 512,
-    maxX: 768,
-    minZ: -256,
-    maxZ: 0,
+    minX: -256,
+    maxX: 0,
+    minZ: 0,
+    maxZ: 256,
   }), 0);
 });
 
-test('water system reuses one bounded stream mesh and the shared lake material pipeline', () => {
+test('water system renders three bounded watersheds through the shared lake material pipeline', () => {
   const system = createWaterSystem({ getHeightAt: () => -4 });
-  const { stream, lakes, group } = system.lowlands;
+  const {
+    stream, streams, lakes, group,
+  } = system.lowlands;
   const waterFrame = getWaterSystemMaterialFrame(0, 820, -260);
   const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
 
   assert.equal(group.name, 'LowlandWaterFeatures');
   assert.equal(stream.name, 'LowlandStreamSurface');
-  assert.equal(lakes.length, 1);
+  assert.equal(streams.length, 3);
+  assert.equal(lakes.length, 3);
   assert.equal(lakes[0].name, 'LowlandLake_east-meadow-pond');
-  assert.equal(stream.userData.waterReflectionModeCap, 1);
-  assert.ok(stream.userData.riverNetworkStats.triangleCount < 1000);
-  assert.equal(stats.triangleCount, 712);
+  assert.equal(group.children.length, 6);
+  assert.ok(streams.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
+  assert.equal(
+    streams.reduce((total, mesh) => total + mesh.userData.riverNetworkStats.reachCount, 0),
+    5,
+  );
+  assert.ok(streams.every((mesh) => mesh.userData.riverNetworkStats.triangleCount < 3000));
+  assert.ok(stats.triangleCount > 0 && stats.triangleCount < 1000);
   assert.ok(waterFrame.lakeBedMask > 0.99);
   assert.equal(isInWaterSystemVegetationExclusion(820, -260), true);
   assert.match(stream.material.vertexShader, /attribute float junctionMask/);
+  assertStreamHiddenInsideLake(streams[1], -520, 720);
+  assertStreamHiddenInsideLake(streams[1], -120, 800);
+  assertStreamHiddenInsideLake(streams[2], 755, -657);
+  assertStreamHiddenInsideLake(streams[2], 717, -751);
 
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');
@@ -285,35 +283,72 @@ test('water system reuses one bounded stream mesh and the shared lake material p
   disposeSystem(system);
 });
 
-test('the required lowland terrain mesh cannot bridge across the visible creek', () => {
-  const pond = LOWLAND_LAKES[0];
-  const target = { x: 749.0390014648438, z: -300.90869140625 };
-  const bounds = getChunkBounds(target.x, target.z);
-  const segments = getLowlandMinimumSegmentsForBounds(bounds);
-  const terrainHeight = sampleRenderedLowlandTerrain(target.x, target.z, bounds, segments);
-  const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
-  const center = getClosestReachCenterVertex(geometry, stats.reaches[0], target.x, target.z);
-  const waterHeight = center.y + pond.surfaceOffset;
+test('tracked bake keeps every visible lowland water surface above runtime terrain', async () => {
+  const heightmapPath = fileURLToPath(new URL(
+    '../public/assets/terrain/height.webp',
+    import.meta.url,
+  ));
+  const { data, info } = await sharp(heightmapPath)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const texture = new THREE.Texture();
+  const terrain = new Terrain(data, info.width, info.height, {
+    rock: texture,
+    rockNormal: texture,
+    forestFloorBaseColor: texture,
+    forestFloorNormal: texture,
+    riverBank: texture,
+    riverBed: texture,
+  });
+  const system = createWaterSystem(terrain);
+  const smallLakes = createSmallLakes(terrain);
+  const mainRiver = createRiverWaterMesh(terrain);
+  const reports = [
+    ...system.lowlands.streams.flatMap((stream) => getStreamClearanceReports(stream, terrain)),
+    ...system.lowlands.lakes.map((lake) => getLakeClearanceReport(lake, terrain)),
+    ...smallLakes.children.map((lake) => getLakeClearanceReport(lake, terrain)),
+    getMeshClearanceReport(mainRiver, terrain),
+    getPlungePoolClearanceReport(terrain),
+  ];
+  const failures = reports.filter((report) => report.minimumClearance <= 0);
 
-  assert.ok(
-    terrainHeight < waterHeight,
-    `terrain ${terrainHeight} bridged creek water ${waterHeight} at ${target.x},${target.z}`,
-  );
-  geometry.dispose();
+  try {
+    assert.ok(reports.every((report) => report.sampleCount > 0));
+    assert.deepEqual(failures, [], failures.map((report) => (
+      `${report.name}: ${report.minimumClearance.toFixed(3)}m`
+    )).join(', '));
+  } finally {
+    disposeSystem(system);
+    disposeMeshGroup(smallLakes);
+    mainRiver.geometry.dispose();
+    mainRiver.material.dispose();
+    terrain.dispose();
+    texture.dispose();
+  }
 });
 
-test('pond, creek, and hill groups have deterministic visual-check cameras', () => {
+test('north, east, and south lowlands have deterministic overview cameras', () => {
   const names = listGoldenShotNames();
   const creek = getGoldenShotFromLocation({ search: '?shot=lowland-creek' });
   const lake = getGoldenShotFromLocation({ search: '?shot=lowland-lake' });
   const hills = getGoldenShotFromLocation({ search: '?shot=lowland-hills' });
+  const north = getGoldenShotFromLocation({ search: '?shot=lowland-north-overview' });
+  const east = getGoldenShotFromLocation({ search: '?shot=lowland-east-overview' });
+  const south = getGoldenShotFromLocation({ search: '?shot=lowland-south-overview' });
 
   assert.ok(names.includes('lowland-creek'));
   assert.ok(names.includes('lowland-lake'));
   assert.ok(names.includes('lowland-hills'));
-  assert.deepEqual(creek.target, { x: 735, z: -308, y: -0.7 });
-  assert.deepEqual(lake.target, { x: 820, z: -260, y: -0.2 });
-  assert.deepEqual(hills.target, { x: -650, z: 510, y: 8 });
+  assert.ok(names.includes('lowland-north-overview'));
+  assert.ok(names.includes('lowland-east-overview'));
+  assert.ok(names.includes('lowland-south-overview'));
+  assert.deepEqual(creek.target, { x: 735, z: -308, y: 2.395 });
+  assert.deepEqual(lake.target, { x: 820, z: -260, y: 3.245 });
+  assert.deepEqual(hills.target, { x: -650, z: 510, y: 16.1 });
+  assert.deepEqual(north.target, { x: -320, z: 760, y: 4 });
+  assert.deepEqual(east.target, { x: 755, z: -310, y: 3 });
+  assert.deepEqual(south.target, { x: 750, z: -680, y: 3 });
 });
 
 function disposeSystem(system) {
@@ -328,6 +363,106 @@ function disposeSystem(system) {
   materials.forEach((material) => material.dispose());
 }
 
+function disposeMeshGroup(group) {
+  const materials = new Set();
+
+  group.traverse((object) => {
+    object.geometry?.dispose();
+    if (object.material) materials.add(object.material);
+  });
+  materials.forEach((material) => material.dispose());
+}
+
+function getStreamClearanceReports(stream, terrain) {
+  const positions = stream.geometry.getAttribute('position');
+  const waterFades = stream.geometry.getAttribute('waterFade');
+
+  return stream.userData.riverNetworkStats.reaches.map((reach) => {
+    let minimumClearance = Infinity;
+    let sampleCount = 0;
+
+    for (let row = 0; row < reach.rowCount; row += 1) {
+      const rowStart = reach.startVertex + row * reach.rowSize;
+      const leftCenter = rowStart + Math.floor((reach.rowSize - 1) * 0.5);
+      const rightCenter = rowStart + Math.ceil((reach.rowSize - 1) * 0.5);
+      const waterFade = (waterFades.getX(leftCenter) + waterFades.getX(rightCenter)) * 0.5;
+
+      if (waterFade <= 0.05) continue;
+
+      const x = (positions.getX(leftCenter) + positions.getX(rightCenter)) * 0.5;
+      const z = (positions.getZ(leftCenter) + positions.getZ(rightCenter)) * 0.5;
+      const waterHeight = (positions.getY(leftCenter) + positions.getY(rightCenter)) * 0.5;
+
+      minimumClearance = Math.min(minimumClearance, waterHeight - terrain.getHeightAt(x, z));
+      sampleCount += 1;
+    }
+
+    return { name: reach.id, minimumClearance, sampleCount };
+  });
+}
+
+function getLakeClearanceReport(lake, terrain) {
+  const positions = lake.geometry.getAttribute('position');
+  const lakeEdges = lake.geometry.getAttribute('lakeEdge');
+  let minimumClearance = Infinity;
+  let sampleCount = 0;
+
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    if (lakeEdges.getX(vertex) < 0.1) continue;
+
+    minimumClearance = Math.min(
+      minimumClearance,
+      positions.getY(vertex) - terrain.getHeightAt(
+        positions.getX(vertex),
+        positions.getZ(vertex),
+      ),
+    );
+    sampleCount += 1;
+  }
+
+  return { name: lake.name, minimumClearance, sampleCount };
+}
+
+function getMeshClearanceReport(mesh, terrain) {
+  const positions = mesh.geometry.getAttribute('position');
+  let minimumClearance = Infinity;
+
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    minimumClearance = Math.min(
+      minimumClearance,
+      positions.getY(vertex) - terrain.getHeightAt(
+        positions.getX(vertex),
+        positions.getZ(vertex),
+      ),
+    );
+  }
+
+  return { name: mesh.name, minimumClearance, sampleCount: positions.count };
+}
+
+function getPlungePoolClearanceReport(terrain) {
+  let minimumClearance = Infinity;
+  let sampleCount = 0;
+
+  for (let ring = 0; ring <= 9; ring += 1) {
+    const radius = ring / 10 * PLUNGE_POOL.radius;
+
+    for (let segment = 0; segment < 48; segment += 1) {
+      const angle = segment / 48 * Math.PI * 2;
+      const x = PLUNGE_POOL.cx + Math.cos(angle) * radius;
+      const z = PLUNGE_POOL.cz + Math.sin(angle) * radius;
+
+      minimumClearance = Math.min(
+        minimumClearance,
+        PLUNGE_POOL.waterLevel - terrain.getHeightAt(x, z),
+      );
+      sampleCount += 1;
+    }
+  }
+
+  return { name: PLUNGE_POOL.id, minimumClearance, sampleCount };
+}
+
 function getCloserWaterVertex(current, positions, waterFades, vertex, x, z) {
   const distance = Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z);
 
@@ -340,19 +475,21 @@ function getCloserWaterVertex(current, positions, waterFades, vertex, x, z) {
   };
 }
 
-function getClosestReachCenterVertex(geometry, stats, x, z) {
-  const positions = geometry.getAttribute('position');
-  let closest = null;
+function assertStreamHiddenInsideLake(stream, x, z) {
+  const positions = stream.geometry.getAttribute('position');
+  const waterFades = stream.geometry.getAttribute('waterFade');
+  let maximumFade = 0;
+  let sampleCount = 0;
 
-  for (let row = 0; row < stats.rowCount; row += 1) {
-    const vertex = stats.startVertex + row * stats.rowSize + Math.floor(stats.rowSize / 2);
-    const distance = Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z);
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    if (Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z) > 4) continue;
 
-    if (closest && closest.distance <= distance) continue;
-    closest = { distance, y: positions.getY(vertex) };
+    maximumFade = Math.max(maximumFade, waterFades.getX(vertex));
+    sampleCount += 1;
   }
 
-  return closest;
+  assert.ok(sampleCount > 0);
+  assert.ok(maximumFade < 1e-6);
 }
 
 function getChunkBounds(x, z) {
@@ -367,30 +504,4 @@ function getChunkBounds(x, z) {
     minZ,
     maxZ: minZ + CHUNK_SIZE,
   };
-}
-
-function sampleRenderedLowlandTerrain(x, z, bounds, segments) {
-  const step = CHUNK_SIZE / segments;
-  const cellX = Math.floor((x - bounds.minX) / step);
-  const cellZ = Math.floor((z - bounds.minZ) / step);
-  const x0 = bounds.minX + cellX * step;
-  const z0 = bounds.minZ + cellZ * step;
-  const tx = (x - x0) / step;
-  const tz = (z - z0) / step;
-  const topLeft = sampleLowlandHeight(x0, z0);
-  const topRight = sampleLowlandHeight(x0 + step, z0);
-  const bottomLeft = sampleLowlandHeight(x0, z0 + step);
-  const bottomRight = sampleLowlandHeight(x0 + step, z0 + step);
-
-  if (tx + tz <= 1) {
-    return topLeft * (1 - tx - tz) + topRight * tx + bottomLeft * tz;
-  }
-
-  return topRight * (1 - tz)
-    + bottomLeft * (1 - tx)
-    + bottomRight * (tx + tz - 1);
-}
-
-function sampleLowlandHeight(x, z) {
-  return applyLowlandWaterTerrain(applyLowlandHillsTerrain(0, x, z), x, z);
 }

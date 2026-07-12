@@ -190,9 +190,9 @@ test('feature floors keep the existing water and the tree river network at full 
   terrain.centerChunkZ = terrain.getChunkCoord(0);
 
   assert.equal(getSegmentsAt(128, -640), 256);
-  assert.equal(getSegmentsAt(640, -640), 128);
+  assert.equal(getSegmentsAt(640, -640), 256);
   assert.equal(getSegmentsAt(-384, -384), 256);
-  assert.equal(getSegmentsAt(-640, 640), 64);
+  assert.equal(getSegmentsAt(-640, 640), 256);
 });
 
 test('build priorities order center recovery before visible, upgrades, and downgrades', () => {

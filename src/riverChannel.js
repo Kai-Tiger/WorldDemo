@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import {
+  MAIN_RIVER_CHANNEL,
+  TERMINAL_LOWLAND_LAKE,
+} from './lowlandHeightPlan.js';
+import {
   WATER_DUAL_WAVE_GLSL,
   WATER_FOG_FRAGMENT_GLSL,
   WATER_FOG_FRAGMENT_PARS_GLSL,
@@ -11,34 +15,14 @@ import {
   createWaterUniforms,
 } from './waterContext.js';
 
-export const RIVER_TERMINAL_LAKE = Object.freeze({
-  cx: 690,
-  cz: -340,
-  radius: 20,
-  shoreWidth: 6,
-  waterLevel: -1.28,
-  maxDepth: 3,
-  edgeDepth: 0.15,
-  surfaceOffset: 0.045,
-});
+export const RIVER_TERMINAL_LAKE = TERMINAL_LOWLAND_LAKE;
 
-const CHANNEL_POINTS = [
-  new THREE.Vector3(420, 0, -423),
-  new THREE.Vector3(435, 0, -413),
-  new THREE.Vector3(460, 0, -398),
-  new THREE.Vector3(489, 0, -388),
-  new THREE.Vector3(518, 0, -374),
-  new THREE.Vector3(545, 0, -350),
-  new THREE.Vector3(575, 0, -336),
-  new THREE.Vector3(604, 0, -337),
-  new THREE.Vector3(633, 0, -349),
-  new THREE.Vector3(662, 0, -351),
-  new THREE.Vector3(690, 0, -340),
-];
+const CHANNEL_POINTS = MAIN_RIVER_CHANNEL.points.map(
+  ([x, z]) => new THREE.Vector3(x, 0, z),
+);
 
-const CHANNEL_WIDTH = 8;
-const CHANNEL_DEPTH = 3;
-const INFLUENCE_RADIUS = 7;
+const CHANNEL_WIDTH = MAIN_RIVER_CHANNEL.width[0];
+const INFLUENCE_RADIUS = MAIN_RIVER_CHANNEL.influence[0];
 const HIGHLAND_FADE_START = 10;
 const HIGHLAND_FADE_END = 18;
 const PATH_SAMPLE_COUNT = 260;
@@ -46,8 +30,6 @@ const WATER_WIDTH = 4.8;
 const WATER_LEVEL_ABOVE_BED = 1.6;
 const WATER_LONGITUDINAL_STEP = 0.3;
 const WATER_LATERAL_SEGMENTS = 24;
-const WATER_PROFILE_SMOOTH_RADIUS = 10;
-const WATER_PROFILE_MAX_STEP = 0.025;
 const WET_BANK_WIDTH = 0.85;
 const START_TAPER_LENGTH = 10;
 const TERMINAL_LAKE_LEVEL_BLEND_LENGTH = 18;
@@ -70,6 +52,7 @@ const RIVER_BANK_OUTER_LATERAL = HALF_CHANNEL_WIDTH;
 const channelCurve = new THREE.CatmullRomCurve3(CHANNEL_POINTS, false, 'centripetal');
 const channelSamples = createChannelSamples();
 const channelLength = channelSamples[channelSamples.length - 1].distance;
+const authoredWaterLevelDistances = createAuthoredWaterLevelDistances();
 const terminalLakeEntryDistance = findTerminalLakeEntryDistance();
 const channelBounds = createChannelBounds();
 
@@ -85,29 +68,7 @@ export async function loadRiverTextures() {
 }
 
 export function applyRiverChannel(baseHeight, x, z) {
-  const frame = getChannelFrameAt(x, z);
-
-  if (!frame) return baseHeight;
-
-  const heightMask = 1 - smoothstep(HIGHLAND_FADE_START, HIGHLAND_FADE_END, baseHeight);
-
-  if (heightMask <= 0) return baseHeight;
-
-  const lateralDistance = Math.abs(frame.lateral);
-  const bedShape = 1 - smoothstep(0, HALF_CHANNEL_WIDTH, lateralDistance);
-  const bankShape = 1 - smoothstep(HALF_CHANNEL_WIDTH, INFLUENCE_RADIUS, lateralDistance);
-  const carveStrength = Math.max(bedShape, bankShape * 0.22)
-    * heightMask
-    * getStartMask(frame.distance);
-
-  if (isInsideTerminalLake(x, z)) {
-    const lakeBedTarget = RIVER_TERMINAL_LAKE.waterLevel - RIVER_TERMINAL_LAKE.maxDepth;
-    const riverBedTarget = THREE.MathUtils.lerp(baseHeight, lakeBedTarget, carveStrength);
-
-    return Math.min(baseHeight, riverBedTarget);
-  }
-
-  return baseHeight - CHANNEL_DEPTH * carveStrength;
+  return baseHeight;
 }
 
 export function getRiverMaterialMask(baseHeight, x, z) {
@@ -342,60 +303,56 @@ function getWaterRowHeight(terrain, x, z) {
   return terrain.getHeightAt(x, z) + WATER_LEVEL_ABOVE_BED;
 }
 
-function createWaterHeightProfile(terrain, longitudinalStep) {
+function createWaterHeightProfile(_terrain, longitudinalStep) {
   const longitudinalSegments = Math.ceil(channelLength / longitudinalStep);
-  const rawHeights = new Float32Array(longitudinalSegments + 1);
+  const heights = new Float32Array(longitudinalSegments + 1);
 
   for (let i = 0; i <= longitudinalSegments; i += 1) {
-    const center = channelCurve.getPointAt(i / longitudinalSegments);
-    rawHeights[i] = getWaterRowHeight(terrain, center.x, center.z);
+    heights[i] = getAuthoredWaterLevel(i / longitudinalSegments * channelLength);
   }
-
-  const smoothedHeights = smoothWaterProfile(rawHeights);
-  const clampedHeights = clampWaterProfileSteps(smoothedHeights, WATER_PROFILE_MAX_STEP);
 
   return {
     step: channelLength / longitudinalSegments,
-    heights: clampedHeights,
+    heights,
   };
 }
 
-function smoothWaterProfile(heights) {
-  const smoothed = new Float32Array(heights.length);
+function createAuthoredWaterLevelDistances() {
+  const distances = [0];
 
-  for (let i = 0; i < heights.length; i += 1) {
-    let total = 0;
-    let weightTotal = 0;
-    const start = Math.max(0, i - WATER_PROFILE_SMOOTH_RADIUS);
-    const end = Math.min(heights.length - 1, i + WATER_PROFILE_SMOOTH_RADIUS);
-
-    for (let j = start; j <= end; j += 1) {
-      const distance = Math.abs(i - j);
-      const weight = WATER_PROFILE_SMOOTH_RADIUS + 1 - distance;
-      total += heights[j] * weight;
-      weightTotal += weight;
-    }
-
-    smoothed[i] = total / weightTotal;
+  for (let index = 1; index < CHANNEL_POINTS.length; index += 1) {
+    distances.push(
+      distances[index - 1] + CHANNEL_POINTS[index].distanceTo(CHANNEL_POINTS[index - 1]),
+    );
   }
 
-  return smoothed;
+  return distances;
 }
 
-function clampWaterProfileSteps(heights, maxStep) {
-  const clamped = Float32Array.from(heights);
+function getAuthoredWaterLevel(distance) {
+  const authoredLength = authoredWaterLevelDistances.at(-1);
+  const authoredDistance = THREE.MathUtils.clamp(
+    distance / channelLength * authoredLength,
+    0,
+    authoredLength,
+  );
 
-  for (let i = 1; i < clamped.length; i += 1) {
-    const previous = clamped[i - 1];
-    clamped[i] = THREE.MathUtils.clamp(clamped[i], previous - maxStep, previous + maxStep);
+  for (let index = 1; index < authoredWaterLevelDistances.length; index += 1) {
+    const endDistance = authoredWaterLevelDistances[index];
+
+    if (authoredDistance > endDistance) continue;
+
+    const startDistance = authoredWaterLevelDistances[index - 1];
+    const segmentT = (authoredDistance - startDistance) / (endDistance - startDistance || 1);
+
+    return THREE.MathUtils.lerp(
+      MAIN_RIVER_CHANNEL.waterLevels[index - 1],
+      MAIN_RIVER_CHANNEL.waterLevels[index],
+      segmentT,
+    );
   }
 
-  for (let i = clamped.length - 2; i >= 0; i -= 1) {
-    const next = clamped[i + 1];
-    clamped[i] = THREE.MathUtils.clamp(clamped[i], next - maxStep, next + maxStep);
-  }
-
-  return clamped;
+  return MAIN_RIVER_CHANNEL.waterLevels.at(-1);
 }
 
 function getWaterProfileHeight(profile, distance) {
@@ -736,13 +693,6 @@ function findTerminalLakeEntryDistance() {
   }
 
   return channelLength;
-}
-
-function isInsideTerminalLake(x, z) {
-  const dx = x - RIVER_TERMINAL_LAKE.cx;
-  const dz = z - RIVER_TERMINAL_LAKE.cz;
-
-  return dx * dx + dz * dz <= RIVER_TERMINAL_LAKE.radius * RIVER_TERMINAL_LAKE.radius;
 }
 
 function createChannelBounds() {

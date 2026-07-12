@@ -23,14 +23,13 @@ import {
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
+import { PLUNGE_POOL } from './lowlandHeightPlan.js';
 import {
   LOWLAND_LAKES,
-  LOWLAND_STREAM_NETWORK,
-  applyLowlandWaterTerrain,
+  LOWLAND_STREAM_NETWORKS,
   createLowlandLakeGeometry,
-  getLowlandLakeOutletFade,
   getLowlandMaterialFrame,
-  getLowlandTerminalInletFade,
+  getLowlandStreamLakeFade,
   isInLowlandVegetationExclusion,
 } from './lowlandLandforms.js';
 
@@ -86,9 +85,8 @@ const WATERFALL_LAYERS = [
   { name: 'WaterfallMistVeil', xOffset: 0.3, zOffset: 0.8, width: 0.82, alpha: 0.05, speed: 0.72 },
 ];
 
-const PLUNGE_CENTER = new THREE.Vector2(418, -424);
-const PLUNGE_RADIUS = 10;
-const PLUNGE_FLOOR = -2.2;
+const PLUNGE_CENTER = new THREE.Vector2(PLUNGE_POOL.cx, PLUNGE_POOL.cz);
+const PLUNGE_RADIUS = PLUNGE_POOL.radius;
 const PLUNGE_OUTFLOW_DIRECTION = new THREE.Vector2(0.82, 0.57).normalize();
 const PLUNGE_OUTFLOW_LENGTH = 24;
 const PLUNGE_OUTFLOW_START_WIDTH = 8.5;
@@ -101,7 +99,6 @@ export function applyWaterSystemTerrain(baseHeight, x, z) {
   let height = applyWaterSystemMacroTerrain(baseHeight, x, z);
 
   height = applyRiverNetworkTerrain(height, x, z);
-  height = applyLowlandWaterTerrain(height, x, z);
 
   return height;
 }
@@ -311,9 +308,16 @@ function applyPlungePool(height, x, z) {
 
   if (distance > PLUNGE_RADIUS) return height;
 
-  const poolMask = 1 - smoothstep(PLUNGE_RADIUS * 0.25, PLUNGE_RADIUS, distance);
+  const radiusT = distance / PLUNGE_RADIUS;
+  const depthT = smoothstep(0.18, 1, radiusT);
+  const depth = THREE.MathUtils.lerp(
+    PLUNGE_POOL.maxDepth,
+    PLUNGE_POOL.edgeDepth,
+    depthT,
+  );
+  const target = PLUNGE_POOL.waterLevel - depth;
 
-  return Math.min(height, THREE.MathUtils.lerp(height, PLUNGE_FLOOR, poolMask));
+  return Math.min(height, target);
 }
 
 function createLakeWater(terrain) {
@@ -350,12 +354,7 @@ function createRiverNetworkWaterSurface() {
 }
 
 function createLowlandWaterFeatures(terrain) {
-  const { geometry, stats } = createRiverNetworkWaterGeometry(LOWLAND_STREAM_NETWORK);
-
-  geometry.translate(0, LOWLAND_LAKES[0].surfaceOffset, 0);
-  blendLowlandStreamIntoLakes(geometry);
-
-  const stream = new THREE.Mesh(geometry, createStreamMaterial({
+  const streamMaterial = createStreamMaterial({
     shallow: WATER_SHALLOW_COLOR,
     deep: WATER_DEEP_COLOR,
     foam: WATER_FOAM_COLOR,
@@ -363,7 +362,21 @@ function createLowlandWaterFeatures(terrain) {
     alpha: 0.4,
     foamStrength: 0.2,
     mode: 'network',
-  }));
+  });
+  const streams = LOWLAND_STREAM_NETWORKS.map((network, index) => {
+    const { geometry, stats } = createRiverNetworkWaterGeometry(network);
+
+    geometry.translate(0, LOWLAND_LAKES[0].surfaceOffset, 0);
+    blendLowlandStreamIntoLakes(geometry);
+
+    const mesh = new THREE.Mesh(geometry, streamMaterial);
+
+    mesh.name = index === 0 ? 'LowlandStreamSurface' : `LowlandStreamSurface_${index}`;
+    mesh.renderOrder = WATER_RENDER_ORDER.surface;
+    mesh.userData.waterReflectionModeCap = 1;
+    mesh.userData.riverNetworkStats = stats;
+    return mesh;
+  });
   const lakeMaterial = createLakeSurfaceMaterial();
   const lakes = LOWLAND_LAKES.map((lake) => {
     const mesh = new THREE.Mesh(
@@ -378,14 +391,10 @@ function createLowlandWaterFeatures(terrain) {
   });
   const group = new THREE.Group();
 
-  stream.name = 'LowlandStreamSurface';
-  stream.renderOrder = WATER_RENDER_ORDER.surface;
-  stream.userData.waterReflectionModeCap = 1;
-  stream.userData.riverNetworkStats = stats;
   group.name = 'LowlandWaterFeatures';
-  group.add(stream, ...lakes);
+  group.add(...streams, ...lakes);
 
-  return { group, stream, lakes };
+  return { group, stream: streams[0], streams, lakes };
 }
 
 function blendLowlandStreamIntoLakes(geometry) {
@@ -395,8 +404,7 @@ function blendLowlandStreamIntoLakes(geometry) {
   for (let vertex = 0; vertex < positions.count; vertex += 1) {
     const x = positions.getX(vertex);
     const z = positions.getZ(vertex);
-    const lakeFade = getLowlandLakeOutletFade(x, z)
-      * getLowlandTerminalInletFade(x, z);
+    const lakeFade = getLowlandStreamLakeFade(x, z);
 
     waterFades.setX(vertex, waterFades.getX(vertex) * lakeFade);
   }
@@ -768,7 +776,11 @@ function createConfluenceFoamGeometry() {
   const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
   const forward = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
   const side = new THREE.Vector3(-forward.z, 0, forward.x);
-  const start = new THREE.Vector3(PLUNGE_CENTER.x, 1.02, PLUNGE_CENTER.y);
+  const start = new THREE.Vector3(
+    PLUNGE_CENTER.x,
+    PLUNGE_POOL.waterLevel + 0.02,
+    PLUNGE_CENTER.y,
+  );
   let positionOffset = 0;
   let uvOffset = 0;
 
