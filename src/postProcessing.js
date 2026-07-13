@@ -14,14 +14,14 @@ const COLOR_GRADE_SHADER = {
     tDiffuse: { value: null },
     uContrast: { value: 1.0 },
     uSaturation: { value: 1.02 },
-    uShadowTint: { value: new THREE.Color(0xf3f7ff) },
-    uHighlightTint: { value: new THREE.Color(0xfff1d4) },
+    uShadowTint: { value: new THREE.Color(0xf8fbff) },
+    uHighlightTint: { value: new THREE.Color(0xfffaf2) },
     uShadowLift: { value: 0.015 },
     uTexelSize: { value: new THREE.Vector2(1, 1) },
     uSharpenStrength: { value: 0.08 },
     uBloomStrength: { value: 0.06 },
     uBloomThreshold: { value: 1.05 },
-    uVignetteStrength: { value: 0.08 },
+    uVignetteStrength: { value: 0.03 },
   },
   vertexShader: `
     varying vec2 vUv;

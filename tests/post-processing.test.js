@@ -196,7 +196,9 @@ test('pre-tonemap grading preserves terrain shadows with neutral contrast and re
 
   assert.match(source, /uContrast:\s*\{ value: 1\.0 \}/);
   assert.match(source, /uShadowLift:\s*\{ value: 0\.015 \}/);
-  assert.match(source, /uVignetteStrength:\s*\{ value: 0\.08 \}/);
+  assert.match(source, /uShadowTint:\s*\{ value: new THREE\.Color\(0xf8fbff\) \}/);
+  assert.match(source, /uHighlightTint:\s*\{ value: new THREE\.Color\(0xfffaf2\) \}/);
+  assert.match(source, /uVignetteStrength:\s*\{ value: 0\.03 \}/);
 });
 
 test('GTAO temporarily hides only explicitly excluded roots and always restores visibility', () => {
@@ -244,6 +246,10 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.postProcessing.gtaoSamples),
     [0, 6, 12],
+  );
+  assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.postProcessing.gtaoIntensity),
+    [0, 0.20, 0.24],
   );
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.streamingBudgets.totalMs),

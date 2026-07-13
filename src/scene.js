@@ -45,6 +45,8 @@ export async function createScene(renderer, quality) {
   const grassManager = createDeferredManager('GrassManager');
   const treeManager = createDeferredManager('TreeManager');
 
+  grassManager.group.userData.excludeFromGtao = true;
+  treeManager.group.userData.excludeFromGtao = true;
   scene.add(grassManager.group);
   scene.add(treeManager.group);
   scene.add(water);

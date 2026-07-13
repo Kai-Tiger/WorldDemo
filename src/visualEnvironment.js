@@ -16,20 +16,26 @@ import * as THREE from 'three';
 
 const ENVIRONMENT_MAP_WIDTH = 1024;
 const ENVIRONMENT_MAP_HEIGHT = 512;
-const SUN_DIRECTION = new THREE.Vector3(0.48, 0.48, 0.73).normalize();
-const SUN_COLOR = new THREE.Color('#ffd9aa');
-const SUN_GLOW_COLOR = new THREE.Color('#f6c995');
+const SUN_ELEVATION = THREE.MathUtils.degToRad(48);
+const SUN_AZIMUTH = new THREE.Vector2(0.48, 0.73).normalize();
+const SUN_DIRECTION = new THREE.Vector3(
+  SUN_AZIMUTH.x * Math.cos(SUN_ELEVATION),
+  Math.sin(SUN_ELEVATION),
+  SUN_AZIMUTH.y * Math.cos(SUN_ELEVATION),
+);
+const SUN_COLOR = new THREE.Color('#ffe4bd');
+const SUN_GLOW_COLOR = new THREE.Color('#f8d5a7');
 const SKY_ZENITH_COLOR = new THREE.Color('#3f77b8');
 const SKY_HORIZON_COLOR = new THREE.Color('#9bbdd0');
-const SKY_GROUND_COLOR = new THREE.Color('#343c35');
-const FOG_COLOR = new THREE.Color('#91a3aa');
-const FOG_DENSITY = 0.0008;
+const SKY_GROUND_COLOR = new THREE.Color('#6b776b');
+const FOG_COLOR = new THREE.Color('#9fb2ba');
+const PERFORMANCE_FOG_DENSITY = 0.00045;
 
 /** @type {VisualEnvironmentState} */
 export const VISUAL_ENVIRONMENT = Object.freeze({
-  name: 'cold-wet-mountain-morning',
-  timeOfDay: 'early-morning',
-  weather: 'cold-mist',
+  name: 'clear-alpine-late-morning',
+  timeOfDay: 'late-morning',
+  weather: 'clear',
   exposure: 1.14,
   sunDirection: SUN_DIRECTION,
   sunColor: SUN_COLOR,
@@ -37,7 +43,7 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
   skyZenith: SKY_ZENITH_COLOR,
   skyHorizon: SKY_HORIZON_COLOR,
   fogColor: FOG_COLOR,
-  fogDensity: FOG_DENSITY,
+  fogDensity: PERFORMANCE_FOG_DENSITY,
   sun: Object.freeze({
     direction: SUN_DIRECTION,
     color: SUN_COLOR,
@@ -48,26 +54,26 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
     zenithColor: SKY_ZENITH_COLOR,
     horizonColor: SKY_HORIZON_COLOR,
     groundColor: SKY_GROUND_COLOR,
-    cloudColor: new THREE.Color('#d5dad7'),
-    cloudShadowColor: new THREE.Color('#718087'),
-    cloudCover: 0.5,
+    cloudColor: new THREE.Color('#e2e6e4'),
+    cloudShadowColor: new THREE.Color('#89979c'),
+    cloudCover: 0.43,
   }),
   fog: Object.freeze({
     color: FOG_COLOR,
     near: 420,
     far: 1700,
-    density: FOG_DENSITY,
+    density: PERFORMANCE_FOG_DENSITY,
     heightFalloff: 0.018,
   }),
   hemisphere: Object.freeze({
-    skyColor: new THREE.Color('#91b4c3'),
-    groundColor: new THREE.Color('#465044'),
-    intensity: 1.32,
+    skyColor: new THREE.Color('#9bbdca'),
+    groundColor: new THREE.Color('#687568'),
+    intensity: 1.42,
   }),
   environmentMap: Object.freeze({
     width: ENVIRONMENT_MAP_WIDTH,
     height: ENVIRONMENT_MAP_HEIGHT,
-    intensity: 0.82,
+    intensity: 1.05,
     sunRadiance: 24,
   }),
 });
@@ -112,16 +118,16 @@ export function createProceduralEnvironmentTexture(environment = VISUAL_ENVIRONM
         green = THREE.MathUtils.lerp(horizon.g, zenith.g, skyHeight);
         blue = THREE.MathUtils.lerp(horizon.b, zenith.b, skyHeight);
       } else {
-        const groundBlend = Math.pow(groundHeight, 0.28);
-        red = THREE.MathUtils.lerp(horizon.r * 0.55, ground.r, groundBlend);
-        green = THREE.MathUtils.lerp(horizon.g * 0.55, ground.g, groundBlend);
-        blue = THREE.MathUtils.lerp(horizon.b * 0.55, ground.b, groundBlend);
+        const groundBlend = Math.pow(groundHeight, 0.36);
+        red = THREE.MathUtils.lerp(horizon.r * 0.78, ground.r, groundBlend);
+        green = THREE.MathUtils.lerp(horizon.g * 0.78, ground.g, groundBlend);
+        blue = THREE.MathUtils.lerp(horizon.b * 0.78, ground.b, groundBlend);
       }
 
-      const hazeAmount = horizonHaze * 0.22;
-      red = THREE.MathUtils.lerp(red, horizon.r * 0.8, hazeAmount);
-      green = THREE.MathUtils.lerp(green, horizon.g * 0.8, hazeAmount);
-      blue = THREE.MathUtils.lerp(blue, horizon.b * 0.8, hazeAmount);
+      const hazeAmount = horizonHaze * 0.16;
+      red = THREE.MathUtils.lerp(red, horizon.r * 0.92, hazeAmount);
+      green = THREE.MathUtils.lerp(green, horizon.g * 0.92, hazeAmount);
+      blue = THREE.MathUtils.lerp(blue, horizon.b * 0.92, hazeAmount);
 
       const sunGlow = Math.pow(sunDot, 72) * 1.7 + Math.pow(sunDot, 640) * 5.5;
       const sunDisc = smoothstep(Math.cos(THREE.MathUtils.degToRad(1.25)), Math.cos(THREE.MathUtils.degToRad(0.38)), sunDot);
@@ -136,7 +142,7 @@ export function createProceduralEnvironmentTexture(environment = VISUAL_ENVIRONM
   }
 
   const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
-  texture.name = 'ColdWetMorningEnvironment';
+  texture.name = 'ClearAlpineLateMorningEnvironment';
   texture.mapping = THREE.EquirectangularReflectionMapping;
   texture.colorSpace = THREE.LinearSRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
