@@ -902,6 +902,8 @@ function createPathStripGeometry(
   const flowSpeeds = new Float32Array(vertexCount);
   const rapidMasks = new Float32Array(vertexCount);
   const flowDirections = new Float32Array(vertexCount * 2);
+  const flowUvs = new Float32Array(vertexCount * 2);
+  const junctionFlowDirections = new Float32Array(vertexCount * 2);
   const disturbanceMasks = new Float32Array(vertexCount);
   const waterFades = new Float32Array(vertexCount);
   const junctionMasks = new Float32Array(vertexCount);
@@ -945,6 +947,10 @@ function createPathStripGeometry(
       rapidMasks[attributeOffset] = THREE.MathUtils.clamp(getRapidMask(x, z, t), 0, 1);
       flowDirections[attributeOffset * 2] = tangent.x;
       flowDirections[attributeOffset * 2 + 1] = tangent.z;
+      flowUvs[attributeOffset * 2] = t * pathLength;
+      flowUvs[attributeOffset * 2 + 1] = (lateralT - 0.5) * 8;
+      junctionFlowDirections[attributeOffset * 2] = tangent.x;
+      junctionFlowDirections[attributeOffset * 2 + 1] = tangent.z;
       disturbanceMasks[attributeOffset] = THREE.MathUtils.clamp(
         getDisturbanceMask(x, z, t),
         0,
@@ -983,6 +989,11 @@ function createPathStripGeometry(
   geometry.setAttribute('flowSpeed', new THREE.BufferAttribute(flowSpeeds, 1));
   geometry.setAttribute('rapidMask', new THREE.BufferAttribute(rapidMasks, 1));
   geometry.setAttribute('flowDirection', new THREE.BufferAttribute(flowDirections, 2));
+  geometry.setAttribute('flowUv', new THREE.BufferAttribute(flowUvs, 2));
+  geometry.setAttribute(
+    'junctionFlowDirection',
+    new THREE.BufferAttribute(junctionFlowDirections, 2),
+  );
   geometry.setAttribute('disturbanceMask', new THREE.BufferAttribute(disturbanceMasks, 1));
   geometry.setAttribute('waterFade', new THREE.BufferAttribute(waterFades, 1));
   geometry.setAttribute('junctionMask', new THREE.BufferAttribute(junctionMasks, 1));

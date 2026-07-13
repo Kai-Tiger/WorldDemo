@@ -23,7 +23,6 @@ const DEFAULT_VIEW_DISTANCE = 260;
 const CONFLUENCE_ARM_CLEARANCE = 0.75;
 const CONFLUENCE_TRIM_STEP = 1;
 const CONFLUENCE_ARC_STEP = Math.PI / 24;
-const CONFLUENCE_SHOULDER_ANGLE = Math.PI / 10;
 const CONFLUENCE_RADIAL_SPACING = 4;
 const MAX_CONFLUENCE_RADIAL_SEGMENTS = 6;
 
@@ -455,9 +454,8 @@ function createJunctionPatches(
     const outgoingFrame = sampleReachAtDistance(outgoingReach, 0);
     const outgoingDirection = getReachTangent(outgoingReach, 0);
     const nodeFlowCoordinate = nodeFlowCoordinates.get(node.id);
-    const centerDepth = node.poolDepth ?? outgoingFrame.depth;
-    const centerShoreDistance = node.poolRadius
-      ?? outgoingFrame.width * (node.poolWidthScale ?? 1.5) * 0.5;
+    const centerDepth = outgoingFrame.depth;
+    const centerShoreDistance = outgoingFrame.width * 0.5;
     const firstPatchVertex = getVertexCount(data);
 
     for (const endpoint of endpoints) {
@@ -481,7 +479,7 @@ function createJunctionPatches(
         ? Math.max(node.waterLevel - terrain.getHeightAt(node.position[0], node.position[1]), 0)
         : centerDepth,
       shoreDistance: centerShoreDistance,
-      flowSpeed: node.poolDepth ? outgoingFrame.flowSpeed * 0.55 : outgoingFrame.flowSpeed,
+      flowSpeed: outgoingFrame.flowSpeed,
       rapidMask: outgoingFrame.rapidMask,
       flowDirectionX: outgoingDirection.x,
       flowDirectionZ: outgoingDirection.z,
@@ -492,7 +490,7 @@ function createJunctionPatches(
       waterFade: centerFade,
       viewDistance,
       waterDepth: centerDepth,
-      flowSpeed: node.poolDepth ? outgoingFrame.flowSpeed * 0.55 : outgoingFrame.flowSpeed,
+      flowSpeed: outgoingFrame.flowSpeed,
       rapidMask: outgoingFrame.rapidMask,
       flowDirectionX: outgoingDirection.x,
       flowDirectionZ: outgoingDirection.z,
@@ -517,7 +515,6 @@ function createJunctionPatches(
       boundaryVertices: boundary.vertices,
       endpointBoundaryVertexCount: boundary.endpointVertexCount,
       coreBoundaryVertexCount: boundary.coreVertices.length,
-      coreRadius: boundary.coreRadius,
       maxBoundaryAngleStep: boundary.maxAngleStep,
       radialSegments,
       firstPatchVertex,
@@ -533,15 +530,6 @@ function createJunctionPatches(
 
 function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
   const arms = orderEndpointArms(data, node, endpoints);
-  const minimumEndpointRadius = Math.min(...arms.map((arm) => arm.centerRadius));
-  const maximumWidth = Math.max(...arms.map((arm) => arm.width));
-  const desiredCoreRadius = node.poolRadius !== undefined
-    ? node.poolRadius * 0.58
-    : Math.max(1.5, maximumWidth * 0.72);
-  const coreRadius = Math.max(1, Math.min(
-    desiredCoreRadius,
-    minimumEndpointRadius * 0.7,
-  ));
   const vertices = [];
   const coreVertices = [];
 
@@ -555,37 +543,38 @@ function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
     const gapSegments = gap > 1e-6
       ? Math.max(2, Math.ceil(gap / CONFLUENCE_ARC_STEP))
       : 1;
-    const startRadius = getVertexRadius(data, arm.vertices.at(-1), node);
-    const endRadius = getVertexRadius(data, next.vertices[0], node);
+    const startVertex = arm.vertices.at(-1);
+    const endVertex = next.vertices[0];
+    const startX = data.positions[startVertex * 3];
+    const startZ = data.positions[startVertex * 3 + 2];
+    const endX = data.positions[endVertex * 3];
+    const endZ = data.positions[endVertex * 3 + 2];
+    const segmentX = endX - startX;
+    const segmentZ = endZ - startZ;
+
+    if (gap >= Math.PI - 1e-5) {
+      throw new Error(`River confluence ${node.id} bank join must span less than 180 degrees.`);
+    }
 
     vertices.push(...arm.vertices);
 
     for (let segment = 1; segment < gapSegments; segment += 1) {
       const gapT = segment / gapSegments;
       const angle = arm.endAngle + gap * gapT;
-      const fromStart = gap * gapT;
-      const fromEnd = gap * (1 - gapT);
-      const startShoulder = 1 - smoothstep(
-        0,
-        Math.min(CONFLUENCE_SHOULDER_ANGLE, gap * 0.45),
-        fromStart,
-      );
-      const endShoulder = 1 - smoothstep(
-        0,
-        Math.min(CONFLUENCE_SHOULDER_ANGLE, gap * 0.45),
-        fromEnd,
-      );
-      const radius = gap <= CONFLUENCE_ARC_STEP
-        ? THREE.MathUtils.lerp(startRadius, endRadius, gapT)
-        : Math.max(
-          coreRadius,
-          THREE.MathUtils.lerp(coreRadius, startRadius, startShoulder),
-          THREE.MathUtils.lerp(coreRadius, endRadius, endShoulder),
-        );
-      const x = node.position[0] + Math.cos(angle) * radius;
-      const z = node.position[1] + Math.sin(angle) * radius;
-      const startVertex = arm.vertices.at(-1);
-      const endVertex = next.vertices[0];
+      const directionX = Math.cos(angle);
+      const directionZ = Math.sin(angle);
+      const relativeStartX = startX - node.position[0];
+      const relativeStartZ = startZ - node.position[1];
+      const denominator = segmentX * directionZ - segmentZ * directionX;
+      const chordT = Math.abs(denominator) > 1e-8
+        ? THREE.MathUtils.clamp(
+          -(relativeStartX * directionZ - relativeStartZ * directionX) / denominator,
+          0,
+          1,
+        )
+        : gapT;
+      const x = THREE.MathUtils.lerp(startX, endX, chordT);
+      const z = THREE.MathUtils.lerp(startZ, endZ, chordT);
       const vertex = pushVertex(data, {
         x,
         y: node.waterLevel,
@@ -593,12 +582,12 @@ function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
         u: THREE.MathUtils.lerp(
           data.uvs[startVertex * 2],
           data.uvs[endVertex * 2],
-          gapT,
+          chordT,
         ),
         v: THREE.MathUtils.lerp(
           data.uvs[startVertex * 2 + 1],
           data.uvs[endVertex * 2 + 1],
-          gapT,
+          chordT,
         ),
         waterFade: attributes.waterFade,
         waterEdge: 0,
@@ -628,7 +617,6 @@ function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
   return {
     vertices,
     coreVertices,
-    coreRadius,
     endpointVertexCount: endpoints.reduce((count, endpoint) => count + endpoint.vertices.length, 0),
     maxAngleStep: getMaximumBoundaryAngleStep(data, vertices, node),
   };
@@ -1089,13 +1077,6 @@ function getTriangleCrossY(positions, a, b, c) {
   const acZ = positions[c * 3 + 2] - az;
 
   return abZ * acX - abX * acZ;
-}
-
-function getVertexRadius(data, vertexIndex, node) {
-  return Math.hypot(
-    data.positions[vertexIndex * 3] - node.position[0],
-    data.positions[vertexIndex * 3 + 2] - node.position[1],
-  );
 }
 
 function getMaximumBoundaryAngleStep(data, vertices, node) {

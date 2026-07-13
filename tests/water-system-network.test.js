@@ -102,6 +102,8 @@ test('all flowing water meshes share one probe-capped material and update it onc
       ['flowSpeed', 1],
       ['rapidMask', 1],
       ['flowDirection', 2],
+      ['flowUv', 2],
+      ['junctionFlowDirection', 2],
       ['disturbanceMask', 1],
       ['waterFade', 1],
       ['junctionMask', 1],
@@ -135,6 +137,22 @@ test('all flowing water meshes share one probe-capped material and update it onc
   assert.equal(outletUvs.getX(0), 0);
   assert.ok(outletUvs.getX(outletLastRow) > 50);
   assert.equal(outletUvs.getX(outletLastRow), outletUvs.getX(outletLastRow + 10));
+
+  const outletFlowUvs = system.outletStream.geometry.getAttribute('flowUv');
+  const outletJunctionDirections = system.outletStream.geometry.getAttribute(
+    'junctionFlowDirection',
+  );
+
+  for (let vertex = 0; vertex < outletFlowUvs.count; vertex += 17) {
+    assert.ok(Number.isFinite(outletFlowUvs.getX(vertex)));
+    assert.ok(Number.isFinite(outletFlowUvs.getY(vertex)));
+    assert.ok(Math.abs(
+      Math.hypot(
+        outletJunctionDirections.getX(vertex),
+        outletJunctionDirections.getY(vertex),
+      ) - 1,
+    ) < 1e-5);
+  }
 
   let timeWrites = 0;
   let cameraWrites = 0;

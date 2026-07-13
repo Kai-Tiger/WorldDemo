@@ -15,6 +15,7 @@ import {
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
   getBakedLowlandHeight,
+  getHeroRiverConfluenceMask,
   getHeroRiverCorridorFrame,
   getHeroRiverTerrainTarget,
   getLowlandPlanStatistics,
@@ -218,12 +219,12 @@ test('hero river is a frozen five-reach DAG with the locked confluences and prof
     {
       id: 'hero-j1', position: [575, -336], waterLevel: 2.2,
       incoming: ['hero-main-upper', 'hero-west-tributary'], outgoing: 'hero-main-middle',
-      poolRadius: 10, poolDepth: 1.5, poolWidthScale: 1.4,
+      poolRadius: 10,
     },
     {
       id: 'hero-j2', position: [633, -349], waterLevel: 1.88,
       incoming: ['hero-main-middle', 'hero-east-tributary'], outgoing: 'hero-main-lower',
-      poolRadius: 12, poolDepth: 1.35, poolWidthScale: 1.5,
+      poolRadius: 12,
     },
   ]);
 
@@ -246,7 +247,53 @@ test('hero river is a frozen five-reach DAG with the locked confluences and prof
   ]);
 });
 
-test('hero river disturbances are fixed, sparse, and avoid both scour-pool cores', () => {
+test('hero confluences keep three wet arms while leaving dry wedges between them', () => {
+  for (const confluence of HERO_RIVER_NETWORK_DEFINITION.confluences) {
+    const reaches = [...confluence.incoming, confluence.outgoing].map((id) => (
+      HERO_RIVER_NETWORK_DEFINITION.reaches.find((reach) => reach.id === id)
+    ));
+    const directions = reaches.map((reach) => {
+      const point = reach.to === confluence.id
+        ? reach.points.at(-2)
+        : reach.points[1];
+      const dx = point[0] - confluence.position[0];
+      const dz = point[1] - confluence.position[1];
+      const length = Math.hypot(dx, dz);
+
+      return { x: dx / length, z: dz / length, angle: Math.atan2(dz, dx) };
+    }).sort((a, b) => a.angle - b.angle);
+    const radius = confluence.poolRadius * 0.8;
+
+    for (const direction of directions) {
+      assert.ok(getHeroRiverConfluenceMask(
+        confluence.position[0] + direction.x * radius,
+        confluence.position[1] + direction.z * radius,
+      ) > 0.8, `${confluence.id} must retain each river arm`);
+    }
+
+    let largestGap = null;
+
+    for (let index = 0; index < directions.length; index += 1) {
+      const start = directions[index].angle;
+      const end = index === directions.length - 1
+        ? directions[0].angle + Math.PI * 2
+        : directions[index + 1].angle;
+
+      if (!largestGap || end - start > largestGap.size) {
+        largestGap = { start, size: end - start };
+      }
+    }
+
+    const wedgeAngle = largestGap.start + largestGap.size * 0.5;
+
+    assert.ok(getHeroRiverConfluenceMask(
+      confluence.position[0] + Math.cos(wedgeAngle) * radius,
+      confluence.position[1] + Math.sin(wedgeAngle) * radius,
+    ) < 0.1, `${confluence.id} must not retain a circular pool between its arms`);
+  }
+});
+
+test('hero river disturbances are fixed, sparse, and avoid both junction cores', () => {
   const nodeById = new Map(
     HERO_RIVER_NETWORK_DEFINITION.nodes.map((node) => [node.id, node]),
   );

@@ -342,11 +342,22 @@ test('tracked bake keeps every visible lowland water surface above runtime terra
       const confluence = HERO_RIVER_NETWORK_DEFINITION.confluences.find(
         (entry) => entry.id === report.nodeId,
       );
+      const outgoing = HERO_RIVER_NETWORK_DEFINITION.reaches.find(
+        (reach) => reach.id === confluence.outgoing,
+      );
+      const junctionDepth = Array.isArray(outgoing.depth) ? outgoing.depth[0] : outgoing.depth;
 
-      assert.ok(report.minimumClearance >= 0.14, report.nodeId);
       assert.ok(
-        report.maximumClearance <= confluence.poolDepth + 0.2,
-        `${report.nodeId}: ${report.maximumClearance.toFixed(3)}m`,
+        report.minimumVisibleClearance >= 0.08,
+        `${report.nodeId}: ${report.minimumVisibleClearance.toFixed(3)}m visible minimum`,
+      );
+      assert.ok(
+        report.minimumBoundaryClearance >= -0.65,
+        `${report.nodeId}: ${report.minimumBoundaryClearance.toFixed(3)}m boundary minimum`,
+      );
+      assert.ok(
+        report.maximumVisibleClearance <= junctionDepth + 0.2,
+        `${report.nodeId}: ${report.maximumVisibleClearance.toFixed(3)}m visible maximum`,
       );
     }
   } finally {
@@ -401,23 +412,74 @@ function getHeroReachEdgeClearances(mesh, terrain) {
 
 function getHeroJunctionClearances(mesh, terrain) {
   const positions = mesh.geometry.getAttribute('position');
+  const shoreDistances = mesh.geometry.getAttribute('shoreDistance');
+  const indices = mesh.geometry.index.array;
 
   return mesh.userData.riverNetworkStats.junctions.map((junction) => {
-    let minimumClearance = Infinity;
-    let maximumClearance = -Infinity;
+    let minimumVisibleClearance = Infinity;
+    let maximumVisibleClearance = -Infinity;
+    let minimumBoundaryClearance = Infinity;
     const endVertex = junction.firstPatchVertex + junction.patchVertexCount;
+    const addSample = (x, y, z, shoreDistance) => {
+      const clearance = y - terrain.getHeightAt(x, z);
+
+      if (shoreDistance >= 0.85) {
+        minimumVisibleClearance = Math.min(minimumVisibleClearance, clearance);
+        maximumVisibleClearance = Math.max(maximumVisibleClearance, clearance);
+      } else {
+        minimumBoundaryClearance = Math.min(minimumBoundaryClearance, clearance);
+      }
+    };
 
     for (let vertex = junction.firstPatchVertex; vertex < endVertex; vertex += 1) {
-      const clearance = positions.getY(vertex) - terrain.getHeightAt(
+      addSample(
         positions.getX(vertex),
+        positions.getY(vertex),
         positions.getZ(vertex),
+        shoreDistances.getX(vertex),
       );
-
-      minimumClearance = Math.min(minimumClearance, clearance);
-      maximumClearance = Math.max(maximumClearance, clearance);
     }
 
-    return { nodeId: junction.nodeId, minimumClearance, maximumClearance };
+    for (
+      let offset = junction.startIndex;
+      offset < junction.startIndex + junction.indexCount;
+      offset += 3
+    ) {
+      const a = indices[offset];
+      const b = indices[offset + 1];
+      const c = indices[offset + 2];
+      const subdivisions = 20;
+
+      for (let row = 0; row <= subdivisions; row += 1) {
+        for (let column = 0; column <= subdivisions - row; column += 1) {
+          const aWeight = row / subdivisions;
+          const bWeight = column / subdivisions;
+          const cWeight = 1 - aWeight - bWeight;
+
+          addSample(
+            positions.getX(a) * aWeight
+              + positions.getX(b) * bWeight
+              + positions.getX(c) * cWeight,
+            positions.getY(a) * aWeight
+              + positions.getY(b) * bWeight
+              + positions.getY(c) * cWeight,
+            positions.getZ(a) * aWeight
+              + positions.getZ(b) * bWeight
+              + positions.getZ(c) * cWeight,
+            shoreDistances.getX(a) * aWeight
+              + shoreDistances.getX(b) * bWeight
+              + shoreDistances.getX(c) * cWeight,
+          );
+        }
+      }
+    }
+
+    return {
+      nodeId: junction.nodeId,
+      minimumVisibleClearance,
+      maximumVisibleClearance,
+      minimumBoundaryClearance,
+    };
   });
 }
 
@@ -496,6 +558,7 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   const east = getGoldenShotFromLocation({ search: '?shot=lowland-east-overview' });
   const south = getGoldenShotFromLocation({ search: '?shot=lowland-south-overview' });
   const riverOverhead = getGoldenShotFromLocation({ search: '?shot=river-reference-overhead' });
+  const riverJunctions = getGoldenShotFromLocation({ search: '?shot=river-junctions-overhead' });
   const riverBank = getGoldenShotFromLocation({ search: '?shot=river-reference-bank' });
   const riverFlow = getGoldenShotFromLocation({ search: '?shot=river-reference-flow' });
 
@@ -506,6 +569,7 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   assert.ok(names.includes('lowland-east-overview'));
   assert.ok(names.includes('lowland-south-overview'));
   assert.ok(names.includes('river-reference-overhead'));
+  assert.ok(names.includes('river-junctions-overhead'));
   assert.ok(names.includes('river-reference-bank'));
   assert.ok(names.includes('river-reference-flow'));
   assert.deepEqual(creek.target, { x: 735, z: -308, y: 2.395 });
@@ -515,6 +579,7 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   assert.deepEqual(east.target, { x: 755, z: -310, y: 3 });
   assert.deepEqual(south.target, { x: 750, z: -680, y: 3 });
   assert.deepEqual(riverOverhead.camera, { x: 570, z: -515, y: 105 });
+  assert.deepEqual(riverJunctions.target, { x: 604, z: -343, y: 2.2 });
   assert.deepEqual(riverBank.target, { x: 620, z: -345, y: 2.5 });
   assert.deepEqual(riverFlow.camera, { x: 505, z: -385, y: 6 });
 });

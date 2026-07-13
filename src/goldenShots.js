@@ -99,6 +99,11 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 570, z: -515, y: 105 },
     target: { x: 590, z: -345, y: 3 },
   },
+  'river-junctions-overhead': {
+    player: { x: 604, z: -345 },
+    camera: { x: 604, z: -390, y: 72 },
+    target: { x: 604, z: -343, y: 2.2 },
+  },
   'river-reference-bank': {
     player: { x: 610, z: -360 },
     camera: { x: 600, z: -375, y: 7 },

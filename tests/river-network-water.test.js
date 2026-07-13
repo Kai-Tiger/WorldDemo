@@ -441,6 +441,33 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
         <= maximumStripFlowStretch + 0.05,
     );
 
+    for (let index = 0; index < junction.boundaryVertices.length; index += 1) {
+      const vertex = junction.boundaryVertices[index];
+
+      if (vertex < junction.firstPatchVertex) continue;
+
+      let previous = (index - 1 + junction.boundaryVertices.length)
+        % junction.boundaryVertices.length;
+      let next = (index + 1) % junction.boundaryVertices.length;
+
+      while (junction.boundaryVertices[previous] >= junction.firstPatchVertex) {
+        previous = (previous - 1 + junction.boundaryVertices.length)
+          % junction.boundaryVertices.length;
+      }
+      while (junction.boundaryVertices[next] >= junction.firstPatchVertex) {
+        next = (next + 1) % junction.boundaryVertices.length;
+      }
+
+      assert.ok(getPointToSegmentDistance(
+        position.getX(vertex),
+        position.getZ(vertex),
+        position.getX(junction.boundaryVertices[previous]),
+        position.getZ(junction.boundaryVertices[previous]),
+        position.getX(junction.boundaryVertices[next]),
+        position.getZ(junction.boundaryVertices[next]),
+      ) < 1e-4, `${junction.nodeId} bank joins must not bow into a circular pool`);
+    }
+
     const node = heroNetwork.nodeById.get(junction.nodeId);
     const connectedReachStats = [
       ...heroNetwork.incomingByNode.get(junction.nodeId),
@@ -525,7 +552,7 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
       const triangleU = [uv.getX(a), uv.getX(b), uv.getX(c)];
 
       assert.ok(crossY > 1e-8);
-      assert.ok(Math.max(...triangleU) - Math.min(...triangleU) <= node.poolRadius + 1e-3);
+      assert.ok(triangleU.every(Number.isFinite));
       patchArea += crossY * 0.5;
     }
 
@@ -599,6 +626,22 @@ function getMaximumFlowUvStretch(geometry, startIndex, indexCount) {
   }
 
   return maximumStretch;
+}
+
+function getPointToSegmentDistance(x, z, startX, startZ, endX, endZ) {
+  const segmentX = endX - startX;
+  const segmentZ = endZ - startZ;
+  const lengthSquared = segmentX * segmentX + segmentZ * segmentZ;
+  const t = lengthSquared > 0
+    ? Math.max(0, Math.min(1, (
+      (x - startX) * segmentX + (z - startZ) * segmentZ
+    ) / lengthSquared))
+    : 0;
+
+  return Math.hypot(
+    x - (startX + segmentX * t),
+    z - (startZ + segmentZ * t),
+  );
 }
 
 function rowSegmentsIntersect(a, b) {

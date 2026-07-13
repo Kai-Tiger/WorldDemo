@@ -38,7 +38,7 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.match(material.fragmentShader, /mix\(0\.03, 0\.05, centerMask\)/);
   assert.match(material.fragmentShader, /mix\(0\.08, 0\.11, centerMask\)/);
   assert.match(material.fragmentShader, /mix\(0\.1, 0\.38, fresnel\)/);
-  assert.match(material.fragmentShader, /float junctionSpecularScale = mix\(1\.0, 0\.18, junctionBlend\);/);
+  assert.doesNotMatch(material.fragmentShader, /junctionSpecularScale/);
   assert.match(material.fragmentShader, /float broadFlowTone = waterNoise/);
   assert.match(material.fragmentShader, /float localFlowTone = waterNoise2/);
   assert.match(material.fragmentShader, /float foamDriver = clamp/);
@@ -52,7 +52,7 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   material.dispose();
 });
 
-test('flowing river material hides radial junction topology and keeps foam inside the shore fade', () => {
+test('flowing river material keeps Y junctions continuous and foam inside the shore fade', () => {
   const material = createFlowingRiverMaterial();
 
   assert.match(material.vertexShader, /varying vec2 vJunctionFlowDirection;/);
@@ -67,8 +67,8 @@ test('flowing river material hides radial junction topology and keeps foam insid
   assert.doesNotMatch(material.fragmentShader, /normalize\(vFlowDirection\)/);
   assert.doesNotMatch(material.fragmentShader, /if \(vJunctionMask|junctionNormal|junctionFlowDomain|stripFlowDomain/);
   assert.match(material.fragmentShader, /float foam = foamDriver \* foamPattern \* shoreAlpha \* vWaterFade;/);
-  assert.match(material.fragmentShader, /color \*= mix\(1\.0, 0\.82, junctionBlend\);/);
-  assert.match(material.fragmentShader, /alpha \*= mix\(1\.0, 1\.12, junctionBlend\);/);
+  assert.doesNotMatch(material.fragmentShader, /color \*= mix\(1\.0, 0\.82, junctionBlend\);/);
+  assert.doesNotMatch(material.fragmentShader, /alpha \*= mix\(1\.0, 1\.12, junctionBlend\);/);
   assert.doesNotMatch(material.fragmentShader, /alpha = max\(alpha, foam \* 0\.62\);/);
 
   material.dispose();

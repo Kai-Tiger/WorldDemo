@@ -98,9 +98,13 @@ test('hero river water is one compiled DAG surface with metric downstream attrib
   }
 
   for (const junction of stats.junctions) {
-    assert.ok(flowSpeeds.getX(junction.centerVertex) < Math.max(
-      ...junction.boundaryVertices.map((vertex) => flowSpeeds.getX(vertex)),
-    ));
+    const outgoing = HERO_RIVER_NETWORK.outgoingByNode.get(junction.nodeId)[0];
+    const outgoingReach = HERO_RIVER_NETWORK.reachById.get(outgoing.id);
+
+    assert.ok(Math.abs(
+      flowSpeeds.getX(junction.centerVertex)
+        - outgoingReach.samples[0].flowSpeed,
+    ) < 1e-5);
   }
 
   geometry.dispose();
@@ -126,13 +130,15 @@ test('hero river material masks separate bed, wet bank, and dry gravel bank', ()
     center.center.x + center.side.x * gravelLateral,
     center.center.z + center.side.z * gravelLateral,
   );
-  const confluenceGap = getRiverMaterialFrame(0, 574.65, -332.02);
+  const confluenceCenter = getRiverMaterialFrame(0, 575, -336);
+  const confluenceWedge = getRiverMaterialFrame(0, 574.65, -332.02);
 
   assert.ok(bed.riverBedMask > 0.9);
   assert.ok(wet.riverMask > 0.5);
   assert.ok(gravel.riverGravelMask > 0.5);
-  assert.ok(confluenceGap.riverBedMask > 0.9);
-  assert.ok(confluenceGap.riverUnderwaterMask > 0.9);
+  assert.ok(confluenceCenter.riverBedMask > 0.9);
+  assert.ok(confluenceCenter.riverUnderwaterMask > 0.9);
+  assert.ok(confluenceWedge.riverBedMask < 0.9);
   assert.equal(isInRiverGrassExclusion(635, -300, 0), true);
   assert.equal(isInRiverGrassExclusion(780, -230, 0), false);
 });

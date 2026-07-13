@@ -212,11 +212,11 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
     { id: 'hero-east-source', type: 'source', position: [700, -270], waterLevel: 3.4 },
     {
       id: 'hero-j1', type: 'confluence', position: [575, -336], waterLevel: 2.2,
-      poolRadius: 10, poolDepth: 1.5, poolWidthScale: 1.4,
+      poolRadius: 10,
     },
     {
       id: 'hero-j2', type: 'confluence', position: [633, -349], waterLevel: 1.88,
-      poolRadius: 12, poolDepth: 1.35, poolWidthScale: 1.5,
+      poolRadius: 12,
     },
     { id: 'terminal-lake', type: 'lake', position: [690, -340], waterLevel: 1.6 },
   ],
@@ -345,8 +345,6 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       incoming: ['hero-main-upper', 'hero-west-tributary'],
       outgoing: 'hero-main-middle',
       poolRadius: 10,
-      poolDepth: 1.5,
-      poolWidthScale: 1.4,
     },
     {
       id: 'hero-j2',
@@ -355,8 +353,6 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       incoming: ['hero-main-middle', 'hero-east-tributary'],
       outgoing: 'hero-main-lower',
       poolRadius: 12,
-      poolDepth: 1.35,
-      poolWidthScale: 1.5,
     },
   ],
 });
@@ -448,6 +444,8 @@ const heroConfluenceMaterialMetadata = HERO_RIVER_NETWORK_DEFINITION.confluences
 
     return {
       ...confluence,
+      connectedReachIds: [...confluence.incoming, confluence.outgoing],
+      junctionDepth: interpolateRange(outgoing.depth, 0),
       tangentX: directionX / directionLength,
       tangentZ: directionZ / directionLength,
       materialDistance: heroMaterialDistanceOffsets.get(outgoing.id),
@@ -564,13 +562,9 @@ export function getHeroRiverConfluenceMask(x, z) {
   let mask = 0;
 
   for (const confluence of heroConfluenceMaterialMetadata) {
-    const distance = Math.hypot(x - confluence.position[0], z - confluence.position[1]);
-    const coreRadius = confluence.poolRadius * 0.58;
+    const shape = getHeroConfluenceYShape(confluence, x, z);
 
-    mask = Math.max(
-      mask,
-      1 - smoothstep(coreRadius - 1, coreRadius, distance),
-    );
+    mask = Math.max(mask, shape?.bedMask ?? 0);
   }
 
   return mask;
@@ -585,14 +579,15 @@ export function getHeroRiverConfluenceMaterialFrame(x, z) {
     const distance = Math.hypot(dx, dz);
 
     const blendWidth = confluence.materialBlendWidth;
+    const shape = getHeroConfluenceYShape(confluence, x, z);
 
-    if (distance > confluence.poolRadius + blendWidth) continue;
+    if (!shape || distance > confluence.poolRadius + blendWidth) continue;
 
-    const mask = 1 - smoothstep(
+    const mask = (1 - smoothstep(
       confluence.poolRadius,
       confluence.poolRadius + blendWidth,
       distance,
-    );
+    )) * shape.terrainMask;
     const candidate = {
       mask,
       riverDistance: confluence.materialDistance
@@ -604,6 +599,45 @@ export function getHeroRiverConfluenceMaterialFrame(x, z) {
   }
 
   return strongest;
+}
+
+function getHeroConfluenceYShape(confluence, x, z) {
+  const distance = Math.hypot(x - confluence.position[0], z - confluence.position[1]);
+  const outerRadius = confluence.poolRadius + 4;
+
+  if (distance > outerRadius) return null;
+
+  const radialFade = 1 - smoothstep(confluence.poolRadius, outerRadius, distance);
+  let bedMask = 0;
+  let terrainMask = 0;
+
+  for (const reachId of confluence.connectedReachIds) {
+    const frame = getHeroReachFrame(heroReachById.get(reachId), x, z);
+
+    if (!frame) continue;
+
+    bedMask = Math.max(
+      bedMask,
+      (1 - smoothstep(
+        frame.halfWidth + 2,
+        frame.halfWidth + 2.4,
+        frame.lateralDistance,
+      )) * frame.endpointCapFade,
+    );
+    terrainMask = Math.max(
+      terrainMask,
+      (1 - smoothstep(
+        frame.halfWidth + 0.5,
+        frame.halfWidth + 4,
+        frame.lateralDistance,
+      )) * frame.endpointCapFade,
+    );
+  }
+
+  return {
+    bedMask: bedMask * radialFade,
+    terrainMask: terrainMask * radialFade,
+  };
 }
 
 export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
@@ -755,14 +789,12 @@ export function getLowlandPlanStatistics() {
       const t = reach.waterLevels.length > 1 ? index / (reach.waterLevels.length - 1) : 0;
       return level - interpolateRange(reach.depth, t);
     }));
-  const confluenceMinimums = HERO_RIVER_NETWORK_DEFINITION.confluences
-    .map((confluence) => confluence.waterLevel - confluence.poolDepth);
   const lakeMinimums = waterFeatures.map((lake) => lake.waterLevel - lake.maxDepth);
 
   return {
     ...LOWLAND_BAKE_COUNTS,
-    minimumAuthoredBedHeight: Math.min(...reachMinimums, ...confluenceMinimums, ...lakeMinimums),
-    maximumAuthoredBedHeight: Math.max(...reachMinimums, ...confluenceMinimums, ...lakeMinimums),
+    minimumAuthoredBedHeight: Math.min(...reachMinimums, ...lakeMinimums),
+    maximumAuthoredBedHeight: Math.max(...reachMinimums, ...lakeMinimums),
     maximumBakedHeight: LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
   };
 }
@@ -929,9 +961,9 @@ function getHeroReachFrame(reach, x, z) {
   const gravelBankWidth = Math.max(
     0,
     (
-      baseGravelWidth * lerp(1, bendScale, confluenceBankBlend)
-      + gravelNoise * confluenceBankBlend
-    ) * corridorFade,
+      baseGravelWidth * bendScale
+      + gravelNoise
+    ) * confluenceBankBlend * corridorFade,
   );
   const waterOuter = halfWidth;
   const wetOuter = waterOuter + wetBankWidth;
@@ -1122,38 +1154,28 @@ function getHeroReachTerrainTarget(baseHeight, frame) {
 }
 
 function getHeroConfluenceTerrainTarget(baseHeight, confluence, x, z) {
-  const distance = Math.hypot(x - confluence.position[0], z - confluence.position[1]);
-  const terrainInnerRadius = confluence.poolRadius;
-  const terrainOuterRadius = terrainInnerRadius + 4;
+  const shape = getHeroConfluenceYShape(confluence, x, z);
 
-  if (distance > terrainOuterRadius) return null;
+  if (!shape || shape.terrainMask <= 0) return null;
 
-  const radialT = clamp(distance / confluence.poolRadius, 0, 1);
-  const edgeDepth = 0.2;
-  const depth = lerp(
-    confluence.poolDepth,
-    edgeDepth,
-    smoothstep(0.15, 1, radialT),
-  );
-  const bedHeight = Math.max(0, confluence.waterLevel - depth);
-  const mask = 1 - smoothstep(terrainInnerRadius, terrainOuterRadius, distance);
+  const bedHeight = Math.max(0, confluence.waterLevel - confluence.junctionDepth);
+  const bankHeight = Math.min(baseHeight, confluence.waterLevel + 0.12);
+  const targetHeight = lerp(bankHeight, bedHeight, shape.bedMask);
 
   return {
     featureType: 'hero-river-confluence',
     featureId: confluence.id,
-    region: 'scour-pool',
-    height: Math.min(baseHeight, lerp(baseHeight, bedHeight, mask)),
+    region: 'junction',
+    height: Math.min(baseHeight, lerp(baseHeight, targetHeight, shape.terrainMask)),
     bedHeight,
     waterLevel: confluence.waterLevel,
-    mask,
-    bedMask: mask,
+    mask: shape.terrainMask,
+    bedMask: shape.bedMask,
     wetMask: 0,
     gravelMask: 0,
-    vegetationMask: mask,
-    flowMask: mask,
-    rapidMask: mask * 0.6,
-    poolRadius: confluence.poolRadius,
-    poolWidthScale: confluence.poolWidthScale,
+    vegetationMask: shape.terrainMask,
+    flowMask: shape.bedMask,
+    rapidMask: 0,
   };
 }
 

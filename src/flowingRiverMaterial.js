@@ -199,7 +199,6 @@ export function createFlowingRiverMaterial() {
         float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
         color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
         color *= 1.0 + flowTone;
-        color *= mix(1.0, 0.82, junctionBlend);
 
         vec3 reflection = getTieredWaterReflection(
           mix(uHorizonReflectionColor, uReflectionColor, normal.y),
@@ -213,11 +212,9 @@ export function createFlowingRiverMaterial() {
         vec3 lightDirection = normalize(uSunDirection);
         vec3 halfDirection = normalize(lightDirection + viewDir);
         float specular = pow(max(dot(normal, halfDirection), 0.0), 96.0);
-        float junctionSpecularScale = mix(1.0, 0.18, junctionBlend);
         color += uSunReflectionColor
           * specular
-          * mix(0.08, 0.22, featureMask)
-          * junctionSpecularScale;
+          * mix(0.08, 0.22, featureMask);
 
         float foamDriver = clamp(
           max(max(vRapidMask * 0.92, vJunctionMask * 0.18), vDisturbanceMask),
@@ -230,7 +227,6 @@ export function createFlowingRiverMaterial() {
         float shallowAlpha = mix(0.16, 0.24, centerMask);
         float deepAlpha = mix(0.58, 0.68, centerMask);
         float alpha = mix(shallowAlpha, deepAlpha, depthMask) * shoreAlpha;
-        alpha *= mix(1.0, 1.12, junctionBlend);
         alpha = clamp(alpha + foam * (1.0 - alpha) * 0.62, 0.0, 1.0);
         float viewDistanceFade = 1.0 - smoothstep(
           max(vViewDistance - 55.0, 0.0),
