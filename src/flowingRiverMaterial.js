@@ -87,6 +87,7 @@ export function createFlowingRiverMaterial() {
       uniform vec3 uHorizonReflectionColor;
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
+      uniform float uSunIntensity;
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
@@ -124,6 +125,7 @@ export function createFlowingRiverMaterial() {
         vec2 primaryFlowDomain,
         vec2 detailFlowDomain,
         vec2 flowDirection,
+        vec3 geometricNormal,
         float strength
       ) {
         const float epsilon = 0.18;
@@ -141,16 +143,22 @@ export function createFlowingRiverMaterial() {
           primaryFlowDomain - vec2(0.0, epsilon),
           detailFlowDomain + vec2(0.0, epsilon)
         );
-        vec3 localNormal = normalize(vec3(
+        vec2 localSlope = vec2(
           slopeAlong * strength * 2.0,
-          1.0,
           slopeAcross * strength * 1.45
-        ));
+        );
         vec2 direction = normalize(flowDirection);
-        vec2 side = vec2(-direction.y, direction.x);
-        vec2 worldSlope = direction * localNormal.x + side * localNormal.z;
+        vec3 flowTangent = vec3(direction.x, 0.0, direction.y);
+        flowTangent = normalize(
+          flowTangent - geometricNormal * dot(flowTangent, geometricNormal)
+        );
+        vec3 flowBitangent = normalize(cross(flowTangent, geometricNormal));
 
-        return normalize(vec3(worldSlope.x, localNormal.y, worldSlope.y));
+        return normalize(
+          geometricNormal
+          + flowTangent * localSlope.x
+          + flowBitangent * localSlope.y
+        );
       }
 
       float getFlowTone(vec2 primaryFlowDomain, vec2 detailFlowDomain) {
@@ -165,9 +173,77 @@ export function createFlowingRiverMaterial() {
 
         return clamp(
           (broadFlowTone - 0.5) * 0.12 + (localFlowTone - 0.45) * 0.08,
-          -0.05,
-          0.08
+          -0.03,
+          0.04
         );
+      }
+
+      vec3 fresnelSchlick(float cosine, vec3 f0) {
+        float fresnelFactor = pow(1.0 - clamp(cosine, 0.0, 1.0), 5.0);
+        return f0 + (1.0 - f0) * fresnelFactor;
+      }
+
+      float distributionGGX(float nDotH, float roughness) {
+        float alpha = roughness * roughness;
+        float alphaSquared = alpha * alpha;
+        float denominator = nDotH * nDotH * (alphaSquared - 1.0) + 1.0;
+
+        return alphaSquared / max(3.14159265 * denominator * denominator, 0.0001);
+      }
+
+      float visibilitySmithGGXCorrelated(
+        float nDotV,
+        float nDotL,
+        float roughness
+      ) {
+        float alpha = roughness * roughness;
+        float alphaSquared = alpha * alpha;
+        float ggxV = nDotL * sqrt(
+          max(nDotV * nDotV * (1.0 - alphaSquared) + alphaSquared, 0.0001)
+        );
+        float ggxL = nDotV * sqrt(
+          max(nDotL * nDotL * (1.0 - alphaSquared) + alphaSquared, 0.0001)
+        );
+
+        return 0.5 / max(ggxV + ggxL, 0.0001);
+      }
+
+      float getSpecularAARoughness(vec3 normal, float roughness) {
+        vec3 normalDx = dFdx(normal);
+        vec3 normalDy = dFdy(normal);
+        float normalVariance = 0.5 * (
+          dot(normalDx, normalDx) + dot(normalDy, normalDy)
+        );
+        float kernelRoughnessSquared = min(normalVariance * 2.0, 0.25);
+
+        return clamp(
+          sqrt(roughness * roughness + kernelRoughnessSquared),
+          0.08,
+          0.8
+        );
+      }
+
+      vec3 evaluateWaterSpecular(
+        vec3 normal,
+        vec3 viewDirection,
+        vec3 lightDirection,
+        float roughness
+      ) {
+        vec3 halfDirection = normalize(lightDirection + viewDirection);
+        float nDotV = max(dot(normal, viewDirection), 0.0001);
+        float nDotL = max(dot(normal, lightDirection), 0.0);
+        float nDotH = max(dot(normal, halfDirection), 0.0);
+        float vDotH = max(dot(viewDirection, halfDirection), 0.0);
+        vec3 waterF0 = vec3(0.02037);
+        vec3 fresnel = fresnelSchlick(vDotH, waterF0);
+        float distribution = distributionGGX(nDotH, roughness);
+        float visibility = visibilitySmithGGXCorrelated(
+          nDotV,
+          nDotL,
+          roughness
+        );
+
+        return fresnel * distribution * visibility * nDotL;
       }
 
       float getFoamPattern(vec2 primaryFlowDomain, vec2 detailFlowDomain) {
@@ -226,45 +302,32 @@ export function createFlowingRiverMaterial() {
           mix(0.075, 0.095, centerMask),
           normalFeatureMask
         ) * flowIntensity;
+        vec3 geometricNormal = normalize(cross(
+          dFdx(vWorldPosition),
+          dFdy(vWorldPosition)
+        ));
+        if (geometricNormal.y < 0.0) {
+          geometricNormal = -geometricNormal;
+        }
         vec3 normal = getFlowNormal(
           primaryFlowDomain,
           detailFlowDomain,
           surfaceFlowDirection,
+          geometricNormal,
           normalStrength
         );
+        if (!gl_FrontFacing) {
+          normal = -normal;
+        }
         float flowTone = clamp(
           getFlowTone(primaryFlowDomain, detailFlowDomain) * flowIntensity,
-          -0.05,
-          0.08
+          -0.03,
+          0.04
         );
         float foamPattern = getFoamPattern(
           primaryFlowDomain,
           detailFlowDomain
         );
-
-        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        vec3 color = mix(uShallowColor, uDeepColor, depthMask);
-        float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
-        color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
-        color *= 1.0 + flowTone * mix(1.0, 0.55, depthMask);
-
-        vec3 reflection = getTieredWaterReflection(
-          mix(uHorizonReflectionColor, uReflectionColor, normal.y),
-          vWorldPosition,
-          normal,
-          viewDir
-        );
-        float reflectionMix = mix(0.1, 0.38, fresnel);
-        color = mix(color, reflection, reflectionMix);
-
-        vec3 lightDirection = normalize(uSunDirection);
-        vec3 halfDirection = normalize(lightDirection + viewDir);
-        float specular = pow(max(dot(normal, halfDirection), 0.0), 56.0);
-        color += uSunReflectionColor
-          * specular
-          * mix(0.06, 0.12, clamp(vRapidMask, 0.0, 1.0));
-
         float foamDriver = clamp(
           max(
             max(vRapidMask * 0.72, vJunctionMask * 0.10),
@@ -274,6 +337,51 @@ export function createFlowingRiverMaterial() {
           1.0
         );
         float foam = foamDriver * foamPattern * shoreAlpha * vWaterFade;
+
+        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+        float nDotV = max(dot(normal, viewDir), 0.0001);
+        vec3 waterFresnel = fresnelSchlick(nDotV, vec3(0.02037));
+        float foamSpecularAttenuation = 1.0 - foam * 0.9;
+        vec3 color = mix(uShallowColor, uDeepColor, depthMask);
+        float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
+        color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
+        color *= 1.0 + flowTone * mix(1.0, 0.55, depthMask);
+
+        vec3 reflection = getTieredWaterReflection(
+          mix(
+            uHorizonReflectionColor,
+            uReflectionColor,
+            clamp(abs(normal.y), 0.0, 1.0)
+          ),
+          vWorldPosition,
+          normal,
+          viewDir
+        );
+        vec3 reflectedEnergy = waterFresnel * foamSpecularAttenuation;
+        color = color * (1.0 - reflectedEnergy) + reflection * reflectedEnergy;
+
+        vec3 lightDirection = normalize(uSunDirection);
+        float calmRoughness = mix(0.24, 0.18, centerMask);
+        float rapidRoughness = mix(0.36, 0.28, centerMask);
+        float roughness = mix(
+          calmRoughness,
+          rapidRoughness,
+          clamp(vRapidMask, 0.0, 1.0)
+        );
+        roughness = mix(roughness, 0.72, foam);
+        roughness = getSpecularAARoughness(normal, roughness);
+        vec3 directSpecular = evaluateWaterSpecular(
+          normal,
+          viewDir,
+          lightDirection,
+          roughness
+        ) * uSunReflectionColor * uSunIntensity;
+        directSpecular = min(
+          directSpecular,
+          vec3(mix(0.18, 0.32, clamp(vRapidMask, 0.0, 1.0)))
+        );
+        color += directSpecular * foamSpecularAttenuation;
+
         color = mix(color, uFoamColor, foam * 0.58);
 
         float shallowAlpha = mix(0.16, 0.24, centerMask);

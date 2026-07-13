@@ -55,19 +55,24 @@ export const WATER_REFLECTION_GLSL = `
     vec3 viewDirection
   ) {
     vec3 reflectionDirection = reflect(-viewDirection, surfaceNormal);
-    vec3 environmentReflection = texture2D(
-      uWaterEnvironmentMap,
-      waterEquirectUv(reflectionDirection)
-    ).rgb;
-    vec3 probeReflection = textureCube(uWaterReflectionProbe, reflectionDirection).rgb;
-    vec4 planarCoord = uWaterPlanarTextureMatrix * vec4(worldPosition, 1.0);
-    vec3 planarReflection = texture2DProj(uWaterPlanarReflection, planarCoord).rgb;
-    vec3 tierReflection = environmentReflection;
+    vec3 tierReflection;
 
     if (uWaterReflectionMode > 1.5) {
-      tierReflection = planarReflection;
+      vec4 planarCoord = uWaterPlanarTextureMatrix * vec4(worldPosition, 1.0);
+      tierReflection = texture2DProj(
+        uWaterPlanarReflection,
+        planarCoord
+      ).rgb;
     } else if (uWaterReflectionMode > 0.5) {
-      tierReflection = probeReflection;
+      tierReflection = textureCube(
+        uWaterReflectionProbe,
+        reflectionDirection
+      ).rgb;
+    } else {
+      tierReflection = texture2D(
+        uWaterEnvironmentMap,
+        waterEquirectUv(reflectionDirection)
+      ).rgb;
     }
 
     return mix(fallbackColor, tierReflection, uWaterReflectionStrength);
@@ -86,6 +91,7 @@ export function createWaterUniforms(overrides = {}) {
     uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
     uSunReflectionColor: { value: toColor(VISUAL_ENVIRONMENT.sun.glowColor, WATER_SUN_REFLECTION_COLOR) },
     uSunDirection: { value: VISUAL_ENVIRONMENT.sun.direction.clone().normalize() },
+    uSunIntensity: { value: VISUAL_ENVIRONMENT.sun.intensity },
     uWaterFogColor: { value: toColor(VISUAL_ENVIRONMENT.fog.color, VISUAL_ENVIRONMENT.sky.horizonColor) },
     uWaterFogDensity: { value: VISUAL_ENVIRONMENT.fog.density },
     uWaterEnvironmentMap: { value: null },
