@@ -41,7 +41,7 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.doesNotMatch(material.fragmentShader, /uTime \* (?:vFlowSpeed|centerMask)/);
   assert.match(material.fragmentShader, /mix\(0\.03, 0\.05, centerMask\)/);
   assert.match(material.fragmentShader, /mix\(0\.075, 0\.095, centerMask\)/);
-  assert.match(material.fragmentShader, /vec3 reflectedEnergy = waterFresnel \* foamSpecularAttenuation;/);
+  assert.match(material.fragmentShader, /vec3 reflectedEnergy = waterFresnel \* foamSpecularAttenuation \* 0\.26;/);
   assert.match(material.fragmentShader, /color = color \* \(1\.0 - reflectedEnergy\) \+ reflection \* reflectedEnergy;/);
   assert.doesNotMatch(material.fragmentShader, /junctionSpecularScale/);
   assert.match(material.fragmentShader, /float broadFlowTone = waterNoise/);
@@ -78,7 +78,7 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.match(material.fragmentShader, /mix\(color, uFoamColor, foam \* 0\.58\)/);
   assert.match(material.fragmentShader, /foam \* \(1\.0 - alpha\) \* 0\.35/);
   assert.match(material.fragmentShader, /float foamSpecularAttenuation = 1\.0 - foam \* 0\.9;/);
-  assert.match(material.fragmentShader, /color \+= directSpecular \* foamSpecularAttenuation;/);
+  assert.match(material.fragmentShader, /color \+= directSpecular \* foamSpecularAttenuation \* 0\.40;/);
   assert.equal(material.fragmentShader.match(/vDisturbanceMask/g)?.length, 2);
   assert.doesNotMatch(material.fragmentShader, /float broad = sin|float detail = sin/);
   assert.doesNotMatch(material.fragmentShader, /staticShoreFoam|foamThreads/);
@@ -111,8 +111,9 @@ test('flowing river single-layer optics validates depth and precomposes coverage
   assert.match(fragmentShader, /float depthContinuity = 1\.0 - step\(/);
   assert.match(fragmentShader, /max\(vWaterDepth, 0\.0\) \/ surfaceFacing/);
   assert.match(fragmentShader, /0\.0,\s+6\.0/);
-  assert.match(fragmentShader, /vec3 absorption = vec3\(0\.32, 0\.14, 0\.08\);/);
-  assert.match(fragmentShader, /vec3 scattering = vec3\(0\.025, 0\.045, 0\.060\);/);
+  assert.match(fragmentShader, /vec3 absorption = vec3\(0\.28, 0\.11, 0\.055\);/);
+  assert.match(fragmentShader, /vec3 scattering = vec3\(0\.014, 0\.028, 0\.040\);/);
+  assert.match(fragmentShader, /mix\(uDeepColor, uShallowColor, 0\.50\)/);
   assert.match(fragmentShader, /transmittance = exp\(/);
   assert.match(fragmentShader, /const float phaseG = 0\.15;/);
   assert.match(fragmentShader, /return refractedScene \* transmittance/);
@@ -172,9 +173,9 @@ test('flowing river material uses the fixed forest river palette', () => {
   assert.equal(material.uniforms.uDeepColor.value.getHex(), FLOWING_RIVER_DEEP_COLOR);
   assert.equal(material.uniforms.uFoamColor.value.getHex(), FLOWING_RIVER_FOAM_COLOR);
   assert.equal(material.uniforms.uSedimentColor.value.getHex(), FLOWING_RIVER_SEDIMENT_COLOR);
-  assert.equal(FLOWING_RIVER_SHALLOW_COLOR, 0x61776c);
-  assert.equal(FLOWING_RIVER_DEEP_COLOR, 0x172f39);
-  assert.equal(FLOWING_RIVER_FOAM_COLOR, 0xd7e1dc);
+  assert.equal(FLOWING_RIVER_SHALLOW_COLOR, 0x4b756b);
+  assert.equal(FLOWING_RIVER_DEEP_COLOR, 0x123945);
+  assert.equal(FLOWING_RIVER_FOAM_COLOR, 0xd5e7e7);
   assert.equal(FLOWING_RIVER_SEDIMENT_COLOR, 0x858575);
 
   material.dispose();

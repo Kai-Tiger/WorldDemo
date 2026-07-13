@@ -367,8 +367,8 @@ export function createFlowingRiverMaterial() {
             validRefraction
           );
 
-          vec3 absorption = vec3(0.32, 0.14, 0.08);
-          vec3 scattering = vec3(0.025, 0.045, 0.060);
+          vec3 absorption = vec3(0.28, 0.11, 0.055);
+          vec3 scattering = vec3(0.014, 0.028, 0.040);
           vec3 transmittance = exp(
             -(absorption + scattering) * opticalPathLength
           );
@@ -391,7 +391,7 @@ export function createFlowingRiverMaterial() {
             0.65,
             1.35
           );
-          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.68);
+          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.50);
 
           return refractedScene * transmittance
             + scatteringColor * (1.0 - transmittance) * phase;
@@ -522,7 +522,7 @@ export function createFlowingRiverMaterial() {
           normal,
           viewDir
         );
-        vec3 reflectedEnergy = waterFresnel * foamSpecularAttenuation;
+        vec3 reflectedEnergy = waterFresnel * foamSpecularAttenuation * 0.26;
         color = color * (1.0 - reflectedEnergy) + reflection * reflectedEnergy;
 
         vec3 lightDirection = normalize(uSunDirection);
@@ -545,7 +545,7 @@ export function createFlowingRiverMaterial() {
           directSpecular,
           vec3(mix(0.18, 0.32, clamp(vRapidMask, 0.0, 1.0)))
         );
-        color += directSpecular * foamSpecularAttenuation;
+        color += directSpecular * foamSpecularAttenuation * 0.40;
 
         color = mix(color, uFoamColor, foam * 0.58);
 

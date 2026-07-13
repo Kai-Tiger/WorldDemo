@@ -4,8 +4,19 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 import { createSmallLakes } from '../src/smallLakes.js';
-import { createWaterRenderController } from '../src/waterContext.js';
+import {
+  createWaterRenderController,
+  createWaterUniforms,
+} from '../src/waterContext.js';
 import { createLakeSurfaceMaterial } from '../src/waterSystem.js';
+import {
+  FLOWING_RIVER_DEEP_COLOR,
+  FLOWING_RIVER_FOAM_COLOR,
+  FLOWING_RIVER_SHALLOW_COLOR,
+  WATER_DEEP_COLOR,
+  WATER_REFLECTION_COLOR,
+  WATER_SHALLOW_COLOR,
+} from '../src/waterPalette.js';
 
 const TERRAIN_STUB = {
   getBaseHeightAt: () => 8,
@@ -26,12 +37,55 @@ test('static lake material exposes bounded single-layer scene optics', () => {
   assert.match(shader, /vec2 safeMinimum = inverseResolution \* 0\.5;/);
   assert.match(shader, /float depthIsBehindWater = step\(/);
   assert.match(shader, /float depthContinuity = 1\.0 - step\(/);
-  assert.match(shader, /vec3 absorption = vec3\(0\.32, 0\.14, 0\.08\);/);
-  assert.match(shader, /vec3 scattering = vec3\(0\.025, 0\.045, 0\.060\);/);
+  assert.match(shader, /vec3 absorption = vec3\(0\.28, 0\.11, 0\.055\);/);
+  assert.match(shader, /vec3 scattering = vec3\(0\.014, 0\.028, 0\.040\);/);
+  assert.match(shader, /mix\(uDeepColor, uShallowColor, 0\.50\)/);
   assert.match(shader, /float waterFresnel = 0\.0204 \+ 0\.9796/);
   assert.match(shader, /mix\(undistortedScene, foggedWaterColor, coverage\)/);
 
   material.dispose();
+});
+
+test('lake and river share clear optics while the river keeps a restrained palette', async () => {
+  const [flowingRiverSource, waterContextSource] = await Promise.all([
+    readFile(new URL('../src/flowingRiverMaterial.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/waterContext.js', import.meta.url), 'utf8'),
+  ]);
+  const sharedOptics = [
+    /vec3 absorption = vec3\(0\.28, 0\.11, 0\.055\);/,
+    /vec3 scattering = vec3\(0\.014, 0\.028, 0\.040\);/,
+    /mix\(uDeepColor, uShallowColor, 0\.50\)/,
+  ];
+
+  assert.equal(WATER_SHALLOW_COLOR, 0x2f8588);
+  assert.equal(WATER_DEEP_COLOR, 0x073c52);
+  assert.equal(WATER_REFLECTION_COLOR, 0x3f7899);
+  assert.equal(FLOWING_RIVER_SHALLOW_COLOR, 0x4b756b);
+  assert.equal(FLOWING_RIVER_DEEP_COLOR, 0x123945);
+  assert.equal(FLOWING_RIVER_FOAM_COLOR, 0xd5e7e7);
+
+  for (const pattern of sharedOptics) {
+    assert.match(flowingRiverSource, pattern);
+  }
+  assert.match(
+    flowingRiverSource,
+    /vec3 waterFresnel = fresnelSchlick\(nDotV, vec3\(0\.02037\)\);/,
+  );
+  assert.match(
+    flowingRiverSource,
+    /vec3 reflectedEnergy = waterFresnel \* foamSpecularAttenuation \* 0\.26;/,
+  );
+  assert.match(
+    flowingRiverSource,
+    /color \+= directSpecular \* foamSpecularAttenuation \* 0\.40;/,
+  );
+
+  const uniforms = createWaterUniforms();
+  assert.equal(uniforms.uWaterReflectionStrength.value, 0.46);
+  assert.match(
+    waterContextSource,
+    /objectMode === 0\s*\? 0\.46\s*: objectMode === 1\s*\? 0\.64\s*: 0\.74;/,
+  );
 });
 
 test('water controller binds scene buffers and toggles static lake composition', () => {

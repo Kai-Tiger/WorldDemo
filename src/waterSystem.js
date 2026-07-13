@@ -1443,8 +1443,8 @@ export function createLakeSurfaceMaterial() {
             validRefraction
           ), 0.0, 6.0);
 
-          vec3 absorption = vec3(0.32, 0.14, 0.08);
-          vec3 scattering = vec3(0.025, 0.045, 0.060);
+          vec3 absorption = vec3(0.28, 0.11, 0.055);
+          vec3 scattering = vec3(0.014, 0.028, 0.040);
           vec3 transmittance = exp(
             -(absorption + scattering) * waterThickness
           );
@@ -1464,7 +1464,7 @@ export function createLakeSurfaceMaterial() {
             0.65,
             1.35
           );
-          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.68);
+          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.50);
 
           return refractedScene * transmittance
             + scatteringColor * (1.0 - transmittance) * phase;

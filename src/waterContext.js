@@ -99,7 +99,7 @@ export function createWaterUniforms(overrides = {}) {
     uWaterPlanarReflection: { value: null },
     uWaterPlanarTextureMatrix: { value: new THREE.Matrix4() },
     uWaterReflectionMode: { value: 0 },
-    uWaterReflectionStrength: { value: 0.56 },
+    uWaterReflectionStrength: { value: 0.46 },
     uDepthShorelineEnabled: { value: 0 },
     ...overrides,
   };
@@ -286,10 +286,10 @@ export function createWaterRenderController({
         uniforms.uWaterPlanarTextureMatrix.value = textureMatrix;
         uniforms.uWaterReflectionMode.value = objectMode;
         uniforms.uWaterReflectionStrength.value = objectMode === 0
-          ? 0.42
+          ? 0.46
           : objectMode === 1
-            ? 0.58
-            : 0.7;
+            ? 0.64
+            : 0.74;
         uniforms.uDepthShorelineEnabled.value = quality?.depthShoreline ? 1 : 0;
 
         if (uniforms.uSceneColor) {
