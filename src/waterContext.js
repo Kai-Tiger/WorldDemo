@@ -135,6 +135,7 @@ export function createWaterRenderController({
   });
   const textureMatrix = reflector.material.uniforms.textureMatrix.value;
   let quality = null;
+  let aerialPerspectiveEnabled = false;
   let probeReady = false;
   let disposed = false;
 
@@ -160,8 +161,9 @@ export function createWaterRenderController({
   applyUniforms();
 
   return {
-    applyQualityPreset(nextQuality) {
+    applyQualityPreset(nextQuality, { aerialPerspective = false } = {}) {
       quality = nextQuality;
+      aerialPerspectiveEnabled = aerialPerspective;
       applyUniforms();
       resize();
       if (quality.reflectionMode !== 'environment' && !probeReady) {
@@ -239,6 +241,11 @@ export function createWaterRenderController({
       root.traverse((object) => {
         const material = object.material;
         const uniforms = material?.uniforms;
+        if (uniforms?.uWaterFogDensity) {
+          uniforms.uWaterFogDensity.value = aerialPerspectiveEnabled
+            ? 0
+            : VISUAL_ENVIRONMENT.fog.density;
+        }
         if (!uniforms?.uWaterReflectionMode) return;
         const objectMode = Math.min(
           mode,

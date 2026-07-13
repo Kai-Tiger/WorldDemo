@@ -26,6 +26,17 @@ test('clear alpine fill lighting uses the calibrated clear-weather values', () =
   assert.equal(VISUAL_ENVIRONMENT.hemisphere.intensity, 1.42);
 });
 
+test('aerial perspective exposes one shared clear-air atmosphere profile', () => {
+  const atmosphere = VISUAL_ENVIRONMENT.atmosphere;
+
+  assert.equal(atmosphere.density, 0.00105);
+  assert.equal(atmosphere.heightFalloff, 0.0035);
+  assert.equal(atmosphere.sunScatter, 0.38);
+  assert.equal(atmosphere.maxOpacity, 0.58);
+  assert.equal(atmosphere.rayleighColor.isColor, true);
+  assert.equal(atmosphere.mieColor.isColor, true);
+});
+
 test('procedural environment keeps a readable lower hemisphere', () => {
   const environment = {
     ...VISUAL_ENVIRONMENT,

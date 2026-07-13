@@ -53,17 +53,19 @@ test('water quality switches single-layer optics only on flowing materials', () 
   controller.applyQualityPreset(performanceWater);
   assert.equal(flowingMaterial.blending, THREE.NormalBlending);
   assert.equal(flowingMaterial.defines.USE_SINGLE_LAYER_WATER, undefined);
+  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00045);
 
-  controller.applyQualityPreset(singleLayerWater);
+  controller.applyQualityPreset(singleLayerWater, { aerialPerspective: true });
   const enabledVersion = flowingMaterial.version;
   assert.equal(flowingMaterial.blending, THREE.NoBlending);
   assert.equal(flowingMaterial.defines.USE_SINGLE_LAYER_WATER, 1);
   assert.equal(flowingMaterial.uniforms.uRefractionPixels.value, 1.5);
   assert.equal(flowingMaterial.transparent, true);
   assert.equal(flowingMaterial.depthWrite, false);
+  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0);
   assert.equal(staticMaterial.blending, THREE.NormalBlending);
 
-  controller.applyQualityPreset(singleLayerWater);
+  controller.applyQualityPreset(singleLayerWater, { aerialPerspective: true });
   assert.equal(flowingMaterial.version, enabledVersion);
 
   const colorTexture = new THREE.Texture();
@@ -88,6 +90,7 @@ test('water quality switches single-layer optics only on flowing materials', () 
   assert.equal(flowingMaterial.defines.USE_SINGLE_LAYER_WATER, undefined);
   assert.equal(flowingMaterial.uniforms.uSceneColor.value, null);
   assert.equal(flowingMaterial.uniforms.uSceneDepth.value, null);
+  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00045);
 
   controller.dispose();
   flowingWater.geometry.dispose();

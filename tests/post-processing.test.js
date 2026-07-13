@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
+  AerialPerspectivePass,
+  applyAerialPerspectiveFog,
   createComposerRenderTarget,
   getGtaoExcludedRoots,
   getPhysicalRenderSize,
@@ -27,14 +29,14 @@ test('post-processing uses FXAA after output or SMAA before output and never use
       RENDER_QUALITY_PRESETS.balanced.postProcessing,
       RENDER_QUALITY_PRESETS.balanced.water.singleLayerWater,
     ),
-    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
+    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'AerialPerspectivePass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
   );
   assert.deepEqual(
     getPostProcessingPassOrder(
       RENDER_QUALITY_PRESETS.quality.postProcessing,
       RENDER_QUALITY_PRESETS.quality.water.singleLayerWater,
     ),
-    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
+    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'AerialPerspectivePass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
   );
 
   const source = await readFile(new URL('../src/postProcessing.js', import.meta.url), 'utf8');
@@ -184,6 +186,60 @@ test('water composite copies the current buffers and restores scene state', () =
   pass.dispose();
 });
 
+test('aerial perspective reuses base depth, reconstructs world position, and preserves sky', () => {
+  const camera = new THREE.PerspectiveCamera(60, 1.5, 0.25, 1800);
+  const depthTexture = new THREE.DepthTexture(64, 48);
+  const colorTexture = new THREE.Texture();
+  const writeBuffer = { name: 'write' };
+  const readBuffer = { texture: colorTexture };
+  const targets = [];
+  let renders = 0;
+
+  camera.position.set(12, 48, -20);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+
+  const pass = new AerialPerspectivePass(camera);
+  pass.bindSceneDepth(depthTexture);
+  pass.render({
+    setRenderTarget(target) {
+      targets.push(target);
+    },
+    render() {
+      renders += 1;
+    },
+  }, writeBuffer, readBuffer);
+
+  assert.deepEqual(targets, [writeBuffer]);
+  assert.equal(renders, 1);
+  assert.equal(pass.material.uniforms.tDiffuse.value, colorTexture);
+  assert.equal(pass.material.uniforms.tDepth.value, depthTexture);
+  assert.deepEqual(
+    pass.material.uniforms.uCameraPosition.value.toArray(),
+    camera.position.toArray(),
+  );
+  assert.match(pass.material.fragmentShader, /uProjectionMatrixInverse/);
+  assert.match(pass.material.fragmentShader, /uCameraWorldMatrix/);
+  assert.match(pass.material.fragmentShader, /depth >= 0\.99999/);
+  assert.match(pass.material.fragmentShader, /averageHeight/);
+  assert.match(pass.material.fragmentShader, /sunAlignment/);
+
+  pass.dispose();
+  depthTexture.dispose();
+  colorTexture.dispose();
+});
+
+test('aerial perspective disables Exp2 fog and performance restores it', () => {
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x9fb2ba, 0.00045);
+
+  applyAerialPerspectiveFog(scene, true);
+  assert.equal(scene.fog.density, 0);
+
+  applyAerialPerspectiveFog(scene, false);
+  assert.equal(scene.fog.density, 0.00045);
+});
+
 test('color-grade texel size follows scaled composer physical dimensions', () => {
   assert.deepEqual(getPhysicalTexelSize(100, 80, 1), { x: 1 / 100, y: 1 / 80 });
   assert.deepEqual(getPhysicalTexelSize(100, 80, 1.25), { x: 1 / 125, y: 1 / 100 });
@@ -252,6 +308,10 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
     [0, 0.20, 0.24],
   );
   assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.postProcessing.aerialPerspective),
+    [false, true, true],
+  );
+  assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.streamingBudgets.totalMs),
     [3, 4, 5],
   );
@@ -304,5 +364,7 @@ test('render entry gates capture buffers and adapts only internal resolution', a
   assert.match(source, /postProcessing\.setResolutionScale/);
   assert.match(source, /const waterRoots = \[water, waterSystem\.group, smallLakes\];/);
   assert.match(source, /bindWaterSceneBuffers: waterRenderController\.bindSceneBuffers/);
+  assert.match(source, /aerialPerspective: quality\.postProcessing\.aerialPerspective/);
+  assert.match(source, /Lighting the clear alpine morning/);
   assert.doesNotMatch(source, /renderer\.setPixelRatio\([^\n]*resolutionScale/);
 });

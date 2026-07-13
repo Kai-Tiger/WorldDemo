@@ -77,6 +77,94 @@ const COLOR_GRADE_SHADER = {
   `,
 };
 
+const AERIAL_PERSPECTIVE_SHADER = {
+  uniforms: {
+    tDiffuse: { value: null },
+    tDepth: { value: null },
+    uProjectionMatrixInverse: { value: new THREE.Matrix4() },
+    uCameraWorldMatrix: { value: new THREE.Matrix4() },
+    uCameraPosition: { value: new THREE.Vector3() },
+    uSunDirection: { value: VISUAL_ENVIRONMENT.sun.direction.clone() },
+    uDensity: { value: VISUAL_ENVIRONMENT.atmosphere.density },
+    uHeightFalloff: { value: VISUAL_ENVIRONMENT.atmosphere.heightFalloff },
+    uRayleighColor: { value: VISUAL_ENVIRONMENT.atmosphere.rayleighColor.clone() },
+    uMieColor: { value: VISUAL_ENVIRONMENT.atmosphere.mieColor.clone() },
+    uSunScatter: { value: VISUAL_ENVIRONMENT.atmosphere.sunScatter },
+    uMaxOpacity: { value: VISUAL_ENVIRONMENT.atmosphere.maxOpacity },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
+    uniform mat4 uProjectionMatrixInverse;
+    uniform mat4 uCameraWorldMatrix;
+    uniform vec3 uCameraPosition;
+    uniform vec3 uSunDirection;
+    uniform float uDensity;
+    uniform float uHeightFalloff;
+    uniform vec3 uRayleighColor;
+    uniform vec3 uMieColor;
+    uniform float uSunScatter;
+    uniform float uMaxOpacity;
+
+    varying vec2 vUv;
+
+    void main() {
+      vec4 sceneColor = texture2D(tDiffuse, vUv);
+      float depth = texture2D(tDepth, vUv).r;
+
+      if (depth >= 0.99999) {
+        gl_FragColor = sceneColor;
+        return;
+      }
+
+      vec4 viewPosition = uProjectionMatrixInverse * vec4(
+        vUv * 2.0 - 1.0,
+        depth * 2.0 - 1.0,
+        1.0
+      );
+      viewPosition /= viewPosition.w;
+      vec3 worldPosition = (
+        uCameraWorldMatrix * vec4(viewPosition.xyz, 1.0)
+      ).xyz;
+      vec3 viewRay = worldPosition - uCameraPosition;
+      float viewDistance = length(viewRay);
+      float averageHeight = max(
+        (uCameraPosition.y + worldPosition.y) * 0.5,
+        0.0
+      );
+      float heightDensity = mix(
+        0.35,
+        1.0,
+        exp(-averageHeight * uHeightFalloff)
+      );
+      float opticalDepth = uDensity * viewDistance * heightDensity;
+      float fogOpacity = min(1.0 - exp(-opticalDepth), uMaxOpacity);
+      float sunAlignment = dot(normalize(viewRay), normalize(uSunDirection));
+      float rayleighPhase = 0.75 * (1.0 + sunAlignment * sunAlignment);
+      float miePhase = pow(max(sunAlignment, 0.0), 12.0) * uSunScatter;
+      vec3 scatterColor = uRayleighColor * mix(
+        0.72,
+        1.0,
+        clamp(rayleighPhase * 0.6667, 0.0, 1.0)
+      );
+      scatterColor += uMieColor * miePhase;
+
+      gl_FragColor = vec4(
+        mix(sceneColor.rgb, scatterColor, fogOpacity),
+        sceneColor.a
+      );
+    }
+  `,
+};
+
 const COPY_COLOR_DEPTH_SHADER = {
   uniforms: {
     tColor: { value: null },
@@ -125,6 +213,7 @@ export function createPostProcessing(
   let resolutionScale = clampResolutionScale(1, activeQuality);
   let colorGradePass = null;
   let antiAliasingPass = null;
+  let aerialPerspectivePass = null;
 
   composer.setPixelRatio(basePixelRatio * resolutionScale);
   applyQualityPreset(quality);
@@ -185,6 +274,7 @@ export function createPostProcessing(
     clearPasses(composer);
     colorGradePass = null;
     antiAliasingPass = null;
+    aerialPerspectivePass = null;
     activeQuality = nextQuality;
     resolutionScale = clampResolutionScale(resolutionScale, activeQuality);
     const nextSingleLayerWaterEnabled = nextQuality.water?.singleLayerWater === true;
@@ -197,6 +287,8 @@ export function createPostProcessing(
     composer.setPixelRatio(basePixelRatio * resolutionScale);
 
     const settings = nextQuality.postProcessing;
+
+    applyAerialPerspectiveFog(scene, settings.aerialPerspective === true);
 
     for (const passName of getPostProcessingPassOrder(
       settings,
@@ -211,10 +303,17 @@ export function createPostProcessing(
           scene,
           camera,
           resolvedWaterRoots,
-          bindWaterSceneBuffers,
+          (frame) => {
+            bindWaterSceneBuffers?.(frame);
+            aerialPerspectivePass?.bindSceneDepth(frame.depthTexture);
+          },
         ));
       }
       if (passName === 'GTAOPass') composer.addPass(createGtaoPass(scene, camera, settings));
+      if (passName === 'AerialPerspectivePass') {
+        aerialPerspectivePass = new AerialPerspectivePass(camera);
+        composer.addPass(aerialPerspectivePass);
+      }
       if (passName === 'ColorGradePass') {
         colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
         colorGradePass.uniforms.uSharpenStrength.value = settings.sharpenStrength ?? 0;
@@ -282,6 +381,7 @@ export function getPostProcessingPassOrder(settings, singleLayerWater = false) {
       ? ['BaseRenderPass', 'WaterCompositePass']
       : ['RenderPass']),
     ...(settings.gtao ? ['GTAOPass'] : []),
+    ...(settings.aerialPerspective ? ['AerialPerspectivePass'] : []),
     'ColorGradePass',
     ...(settings.antiAliasing === 'smaa' ? ['SMAAPass'] : []),
     'OutputPass',
@@ -401,6 +501,50 @@ export class WaterCompositePass extends Pass {
     this.copyMaterial.dispose();
     this.fullScreenQuad.dispose();
   }
+}
+
+export class AerialPerspectivePass extends Pass {
+  constructor(camera) {
+    super();
+    this.camera = camera;
+    this.material = new THREE.ShaderMaterial({
+      ...AERIAL_PERSPECTIVE_SHADER,
+      uniforms: THREE.UniformsUtils.clone(AERIAL_PERSPECTIVE_SHADER.uniforms),
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.NoBlending,
+      toneMapped: false,
+    });
+    this.fullScreenQuad = new FullScreenQuad(this.material);
+    this.needsSwap = true;
+  }
+
+  bindSceneDepth(depthTexture) {
+    this.material.uniforms.tDepth.value = depthTexture;
+  }
+
+  render(renderer, writeBuffer, readBuffer) {
+    const uniforms = this.material.uniforms;
+
+    uniforms.tDiffuse.value = readBuffer.texture;
+    uniforms.uProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
+    uniforms.uCameraWorldMatrix.value.copy(this.camera.matrixWorld);
+    uniforms.uCameraPosition.value.setFromMatrixPosition(this.camera.matrixWorld);
+
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    if (this.clear) renderer.clear();
+    this.fullScreenQuad.render(renderer);
+  }
+
+  dispose() {
+    this.material.dispose();
+    this.fullScreenQuad.dispose();
+  }
+}
+
+export function applyAerialPerspectiveFog(scene, enabled) {
+  if (!scene.fog?.isFogExp2) return;
+  scene.fog.density = enabled ? 0 : VISUAL_ENVIRONMENT.fog.density;
 }
 
 export function getPhysicalTexelSize(width, height, effectivePixelRatio) {

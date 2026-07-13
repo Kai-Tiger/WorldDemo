@@ -10,6 +10,7 @@ import * as THREE from 'three';
  * @property {Object} sun
  * @property {Object} sky
  * @property {Object} fog
+ * @property {Object} atmosphere
  * @property {Object} hemisphere
  * @property {Object} environmentMap
  */
@@ -64,6 +65,14 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
     far: 1700,
     density: PERFORMANCE_FOG_DENSITY,
     heightFalloff: 0.018,
+  }),
+  atmosphere: Object.freeze({
+    density: 0.00105,
+    heightFalloff: 0.0035,
+    rayleighColor: new THREE.Color('#a9c7da'),
+    mieColor: new THREE.Color('#f3d7af'),
+    sunScatter: 0.38,
+    maxOpacity: 0.58,
   }),
   hemisphere: Object.freeze({
     skyColor: new THREE.Color('#9bbdca'),

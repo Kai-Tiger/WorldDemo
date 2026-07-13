@@ -102,7 +102,7 @@ const shadowController = createShadowController({
   lightDirection: SUN_LIGHT_DIRECTION,
   shadowProxyLayer: terrain.shadowProxyLayer,
 });
-loadingStatus.textContent = 'Lighting the cold morning';
+loadingStatus.textContent = 'Lighting the clear alpine morning';
 const environmentLighting = await applyEnvironmentLighting(renderer, scene, hemisphereLight);
 const waterRoots = [water, waterSystem.group, smallLakes];
 const waterRenderController = createWaterRenderController({
@@ -233,7 +233,9 @@ function applyRenderQuality(quality, rebuildPostProcessing = true) {
   terrain.setQualityPreset(quality.terrain);
   grassManager.setQualityPreset(quality);
   treeManager.setQualityPreset(quality);
-  waterRenderController.applyQualityPreset(quality.water);
+  waterRenderController.applyQualityPreset(quality.water, {
+    aerialPerspective: quality.postProcessing.aerialPerspective,
+  });
   clouds.setQualityPreset?.(quality);
   applyWaterAndTextureQuality(quality);
   shadowController.applyQualityPreset(quality.shadows);
