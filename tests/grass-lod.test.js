@@ -855,12 +855,14 @@ test('only the near grass material keeps sway uniforms', () => {
   const lods = variants.get(VARIANT_NAME).lods;
 
   assert.ok(lods[0][0].material.userData.grassUniforms);
-  assert.equal(lods[0][0].material.color.getHex(), 0xa5c77f);
+  assert.equal(lods[0][0].material.color.getHex(), 0x98b878);
+  assert.equal(lods[0][0].material.emissiveIntensity, 0.04);
   assert.equal(lods[0][0].material.userData.ribbonGrassMaps.translucency, texture);
   assert.equal(lods[1][0].material.userData.grassUniforms, null);
-  assert.equal(lods[1][0].material.color.getHex(), 0xa5c77f);
+  assert.equal(lods[1][0].material.color.getHex(), 0x98b878);
+  assert.equal(lods[1][0].material.emissiveIntensity, 0.04);
   assert.equal(lods[2][0].material.userData.grassUniforms, null);
-  assert.equal(lods[2][0].material.color.getHex(), 0x95b97a);
+  assert.equal(lods[2][0].material.color.getHex(), 0x84a56d);
   assert.equal(lods[2][0].material.isMeshLambertMaterial, true);
   assert.equal(lods[2][0].material.map, texture);
   assert.equal(lods[2][0].material.alphaMap, texture);
@@ -879,6 +881,9 @@ test('only the near grass material keeps sway uniforms', () => {
 
   lods[0][0].material.onBeforeCompile(nearShader);
   lods[1][0].material.onBeforeCompile(midShader);
+  assert.equal(nearShader.uniforms.uGrassSaturation.value, 0.90);
+  assert.equal(nearShader.uniforms.uGrassHighlightCompression.value, 0.18);
+  assert.equal(nearShader.uniforms.uGrassShadowLiftIntensity.value, 0.18);
   assert.match(nearShader.vertexShader, /attribute float aGrassHeightRatio;/);
   assert.match(nearShader.vertexShader, /smoothstep\(0\.08, 1\.0, grassHeightRatio\) \* grassHeightRatio/);
   assert.match(nearShader.vertexShader, /mat3\(modelMatrix\) \* mat3\(instanceMatrix\)/);

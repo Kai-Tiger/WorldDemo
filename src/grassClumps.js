@@ -55,15 +55,15 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SURFACE_NORMAL = new THREE.Vector3();
 const GRASS_ALPHA_TEST = 0.12;
 const GRASS_SHADOW_LIFT_COLOR = 0x647c4a;
-const GRASS_SHADOW_LIFT_INTENSITY = 0.24;
-const GRASS_EMISSIVE_INTENSITY = 0.06;
+const GRASS_SHADOW_LIFT_INTENSITY = 0.18;
+const GRASS_EMISSIVE_INTENSITY = 0.04;
 const GRASS_COLOR_GRADE = {
   brightness: 0.95,
-  saturation: 0.82,
-  highlightCompression: 0.28,
+  saturation: 0.90,
+  highlightCompression: 0.18,
 };
-const GRASS_NEAR_TINT = 0xa5c77f;
-const GRASS_FAR_TINT = 0x95b97a;
+const GRASS_NEAR_TINT = 0x98b878;
+const GRASS_FAR_TINT = 0x84a56d;
 const GRASS_GREEN_INSTANCE_COLOR = new THREE.Color(1, 1, 1);
 const GRASS_DRY_INSTANCE_COLOR = new THREE.Color(1.45, 0.72, 0.48);
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];

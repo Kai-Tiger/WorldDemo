@@ -53,7 +53,7 @@ test('water quality switches single-layer optics only on flowing materials', () 
   controller.applyQualityPreset(performanceWater);
   assert.equal(flowingMaterial.blending, THREE.NormalBlending);
   assert.equal(flowingMaterial.defines.USE_SINGLE_LAYER_WATER, undefined);
-  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00045);
+  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00030);
 
   controller.applyQualityPreset(singleLayerWater, { aerialPerspective: true });
   const enabledVersion = flowingMaterial.version;
@@ -90,7 +90,7 @@ test('water quality switches single-layer optics only on flowing materials', () 
   assert.equal(flowingMaterial.defines.USE_SINGLE_LAYER_WATER, undefined);
   assert.equal(flowingMaterial.uniforms.uSceneColor.value, null);
   assert.equal(flowingMaterial.uniforms.uSceneDepth.value, null);
-  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00045);
+  assert.equal(flowingMaterial.uniforms.uWaterFogDensity.value, 0.00030);
 
   controller.dispose();
   flowingWater.geometry.dispose();

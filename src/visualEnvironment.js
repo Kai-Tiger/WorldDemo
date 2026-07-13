@@ -26,11 +26,11 @@ const SUN_DIRECTION = new THREE.Vector3(
 );
 const SUN_COLOR = new THREE.Color('#ffe4bd');
 const SUN_GLOW_COLOR = new THREE.Color('#f8d5a7');
-const SKY_ZENITH_COLOR = new THREE.Color('#3f77b8');
-const SKY_HORIZON_COLOR = new THREE.Color('#9bbdd0');
+const SKY_ZENITH_COLOR = new THREE.Color('#236fc4');
+const SKY_HORIZON_COLOR = new THREE.Color('#67a9d6');
 const SKY_GROUND_COLOR = new THREE.Color('#6b776b');
-const FOG_COLOR = new THREE.Color('#9fb2ba');
-const PERFORMANCE_FOG_DENSITY = 0.00045;
+const FOG_COLOR = new THREE.Color('#719bb7');
+const PERFORMANCE_FOG_DENSITY = 0.00030;
 
 /** @type {VisualEnvironmentState} */
 export const VISUAL_ENVIRONMENT = Object.freeze({
@@ -49,15 +49,15 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
     direction: SUN_DIRECTION,
     color: SUN_COLOR,
     glowColor: SUN_GLOW_COLOR,
-    intensity: 3.1,
+    intensity: 3.25,
   }),
   sky: Object.freeze({
     zenithColor: SKY_ZENITH_COLOR,
     horizonColor: SKY_HORIZON_COLOR,
     groundColor: SKY_GROUND_COLOR,
-    cloudColor: new THREE.Color('#e2e6e4'),
-    cloudShadowColor: new THREE.Color('#89979c'),
-    cloudCover: 0.43,
+    cloudColor: new THREE.Color('#e8eef2'),
+    cloudShadowColor: new THREE.Color('#7890a0'),
+    cloudCover: 0.48,
   }),
   fog: Object.freeze({
     color: FOG_COLOR,
@@ -67,17 +67,20 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
     heightFalloff: 0.018,
   }),
   atmosphere: Object.freeze({
-    density: 0.00105,
-    heightFalloff: 0.0035,
-    rayleighColor: new THREE.Color('#a9c7da'),
-    mieColor: new THREE.Color('#f3d7af'),
-    sunScatter: 0.38,
-    maxOpacity: 0.58,
+    density: 0.00048,
+    heightFalloff: 0.004,
+    minimumHeightDensity: 0.18,
+    nearClearDistance: 180,
+    fullDensityDistance: 900,
+    rayleighColor: new THREE.Color('#73a3c5'),
+    mieColor: new THREE.Color('#e6c38f'),
+    sunScatter: 0.20,
+    maxOpacity: 0.32,
   }),
   hemisphere: Object.freeze({
     skyColor: new THREE.Color('#9bbdca'),
     groundColor: new THREE.Color('#687568'),
-    intensity: 2.15,
+    intensity: 2.05,
   }),
   environmentMap: Object.freeze({
     width: ENVIRONMENT_MAP_WIDTH,

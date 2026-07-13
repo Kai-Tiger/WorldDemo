@@ -314,8 +314,8 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
     const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
 
     assert.ok(gradeStart >= 0);
-    assert.match(gradeSource, /mix\(vec3\(luminance\), baseColor, 0\.58\)/);
-    assert.match(gradeSource, /vec3\(0\.92, 1\.04, 0\.76\)/);
+    assert.match(gradeSource, /mix\(vec3\(luminance\), baseColor, 0\.70\)/);
+    assert.match(gradeSource, /vec3\(0\.96, 1\.04, 0\.86\)/);
     assert.match(gradeSource, /forestTint \* 1\.16 \+ vec3\(0\.006, 0\.010, 0\.003\)/);
     assert.doesNotMatch(gradeSource, /texture2D|sampleTerrainLayer/);
     assert.equal((mapFragment.match(/gradeTerrainForestFloor\(/g) ?? []).length, 2);

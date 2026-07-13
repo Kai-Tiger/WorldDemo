@@ -20,21 +20,41 @@ test('clear alpine lighting keeps the authored azimuth at a 48 degree elevation'
 
 test('clear alpine fill lighting uses the calibrated clear-weather values', () => {
   assert.equal(VISUAL_ENVIRONMENT.exposure, 1.14);
-  assert.equal(VISUAL_ENVIRONMENT.fog.density, 0.00045);
-  assert.equal(VISUAL_ENVIRONMENT.sky.cloudCover, 0.43);
+  assert.equal(VISUAL_ENVIRONMENT.sun.intensity, 3.25);
+  assert.equal(VISUAL_ENVIRONMENT.fog.density, 0.00030);
+  assert.equal(VISUAL_ENVIRONMENT.fog.color.getHexString(), '719bb7');
+  assert.equal(VISUAL_ENVIRONMENT.sky.zenithColor.getHexString(), '236fc4');
+  assert.equal(VISUAL_ENVIRONMENT.sky.horizonColor.getHexString(), '67a9d6');
+  assert.equal(VISUAL_ENVIRONMENT.sky.cloudColor.getHexString(), 'e8eef2');
+  assert.equal(VISUAL_ENVIRONMENT.sky.cloudShadowColor.getHexString(), '7890a0');
+  assert.equal(VISUAL_ENVIRONMENT.sky.cloudCover, 0.48);
   assert.equal(VISUAL_ENVIRONMENT.environmentMap.intensity, 1.20);
-  assert.equal(VISUAL_ENVIRONMENT.hemisphere.intensity, 2.15);
+  assert.equal(VISUAL_ENVIRONMENT.hemisphere.intensity, 2.05);
 });
 
 test('aerial perspective exposes one shared clear-air atmosphere profile', () => {
   const atmosphere = VISUAL_ENVIRONMENT.atmosphere;
 
-  assert.equal(atmosphere.density, 0.00105);
-  assert.equal(atmosphere.heightFalloff, 0.0035);
-  assert.equal(atmosphere.sunScatter, 0.38);
-  assert.equal(atmosphere.maxOpacity, 0.58);
+  assert.equal(atmosphere.density, 0.00048);
+  assert.equal(atmosphere.heightFalloff, 0.004);
+  assert.equal(atmosphere.minimumHeightDensity, 0.18);
+  assert.equal(atmosphere.nearClearDistance, 180);
+  assert.equal(atmosphere.fullDensityDistance, 900);
+  assert.equal(atmosphere.sunScatter, 0.20);
+  assert.equal(atmosphere.maxOpacity, 0.32);
+  assert.equal(atmosphere.rayleighColor.getHexString(), '73a3c5');
+  assert.equal(atmosphere.mieColor.getHexString(), 'e6c38f');
   assert.equal(atmosphere.rayleighColor.isColor, true);
   assert.equal(atmosphere.mieColor.isColor, true);
+});
+
+test('sky shader restrains horizon haze and the broad solar Mie halo', async () => {
+  const source = await readFile(new URL('../src/clouds.js', import.meta.url), 'utf8');
+
+  assert.match(source, /uHorizonColor \* 1\.01/);
+  assert.match(source, /pow\(1\.0 - h, 3\.0\) \* 0\.24/);
+  assert.match(source, /pow\(sunDot, 7\.0\) \* 0\.25/);
+  assert.match(source, /pow\(sunDot, 260\.0\) \* 0\.9/);
 });
 
 test('procedural environment keeps a readable lower hemisphere', () => {

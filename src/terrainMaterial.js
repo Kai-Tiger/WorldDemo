@@ -331,8 +331,8 @@ vec3 sampleTerrainForestFloorNormal(
 
 vec3 gradeTerrainForestFloor(vec3 baseColor) {
   float luminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
-  vec3 desaturated = mix(vec3(luminance), baseColor, 0.58);
-  vec3 forestTint = desaturated * vec3(0.92, 1.04, 0.76);
+  vec3 desaturated = mix(vec3(luminance), baseColor, 0.70);
+  vec3 forestTint = desaturated * vec3(0.96, 1.04, 0.86);
   return forestTint * 1.16 + vec3(0.006, 0.010, 0.003);
 }
 

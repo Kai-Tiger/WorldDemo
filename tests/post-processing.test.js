@@ -223,6 +223,14 @@ test('aerial perspective reuses base depth, reconstructs world position, and pre
   assert.match(pass.material.fragmentShader, /depth >= 0\.99999/);
   assert.match(pass.material.fragmentShader, /averageHeight/);
   assert.match(pass.material.fragmentShader, /sunAlignment/);
+  assert.equal(pass.material.uniforms.uNearClearDistance.value, 180);
+  assert.equal(pass.material.uniforms.uFullDensityDistance.value, 900);
+  assert.equal(pass.material.uniforms.uMinimumHeightDensity.value, 0.18);
+  assert.match(pass.material.fragmentShader, /smoothstep\(\s*uNearClearDistance,\s*uFullDensityDistance,\s*viewDistance/);
+  assert.match(pass.material.fragmentShader, /max\(viewDistance - uNearClearDistance, 0\.0\)/);
+  assert.match(pass.material.fragmentShader, /uMaxOpacity \* \(\s*1\.0 - exp\(-opticalDepth \/ max\(uMaxOpacity, 0\.0001\)\)/);
+  assert.match(pass.material.fragmentShader, /mix\(scatterColor, uMieColor, mieWeight\)/);
+  assert.doesNotMatch(pass.material.fragmentShader, /scatterColor \+= uMieColor/);
 
   pass.dispose();
   depthTexture.dispose();
@@ -231,13 +239,13 @@ test('aerial perspective reuses base depth, reconstructs world position, and pre
 
 test('aerial perspective disables Exp2 fog and performance restores it', () => {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x9fb2ba, 0.00045);
+  scene.fog = new THREE.FogExp2(0x719bb7, 0.00030);
 
   applyAerialPerspectiveFog(scene, true);
   assert.equal(scene.fog.density, 0);
 
   applyAerialPerspectiveFog(scene, false);
-  assert.equal(scene.fog.density, 0.00045);
+  assert.equal(scene.fog.density, 0.00030);
 });
 
 test('color-grade texel size follows scaled composer physical dimensions', () => {
@@ -251,7 +259,8 @@ test('pre-tonemap grading preserves terrain shadows with neutral contrast and re
   const source = await readFile(new URL('../src/postProcessing.js', import.meta.url), 'utf8');
 
   assert.match(source, /uContrast:\s*\{ value: 1\.0 \}/);
-  assert.match(source, /uShadowLift:\s*\{ value: 0\.015 \}/);
+  assert.match(source, /uSaturation:\s*\{ value: 1\.03 \}/);
+  assert.match(source, /uShadowLift:\s*\{ value: 0\.012 \}/);
   assert.match(source, /uShadowTint:\s*\{ value: new THREE\.Color\(0xf8fbff\) \}/);
   assert.match(source, /uHighlightTint:\s*\{ value: new THREE\.Color\(0xfffaf2\) \}/);
   assert.match(source, /uVignetteStrength:\s*\{ value: 0\.03 \}/);

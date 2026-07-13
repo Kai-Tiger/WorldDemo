@@ -128,8 +128,8 @@ function createSkyCloudMaterial() {
 
         vec3 sky = mix(uHorizonColor, uZenithColor, pow(h, 0.50));
         float sunDot = max(dot(dir, sd), 0.0);
-        sky = mix(sky, uHorizonColor * 1.05, pow(1.0 - h, 3.0) * 0.45);
-        float mie = pow(sunDot, 7.0) * 0.45 + pow(sunDot, 260.0) * 0.9;
+        sky = mix(sky, uHorizonColor * 1.01, pow(1.0 - h, 3.0) * 0.24);
+        float mie = pow(sunDot, 7.0) * 0.25 + pow(sunDot, 260.0) * 0.9;
         sky += uSunGlowColor * mie;
 
         float horizonFade = smoothstep(0.02, 0.20, dir.y);

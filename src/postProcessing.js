@@ -13,10 +13,10 @@ const COLOR_GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null },
     uContrast: { value: 1.0 },
-    uSaturation: { value: 1.02 },
+    uSaturation: { value: 1.03 },
     uShadowTint: { value: new THREE.Color(0xf8fbff) },
     uHighlightTint: { value: new THREE.Color(0xfffaf2) },
-    uShadowLift: { value: 0.015 },
+    uShadowLift: { value: 0.012 },
     uTexelSize: { value: new THREE.Vector2(1, 1) },
     uSharpenStrength: { value: 0.08 },
     uBloomStrength: { value: 0.06 },
@@ -87,6 +87,9 @@ const AERIAL_PERSPECTIVE_SHADER = {
     uSunDirection: { value: VISUAL_ENVIRONMENT.sun.direction.clone() },
     uDensity: { value: VISUAL_ENVIRONMENT.atmosphere.density },
     uHeightFalloff: { value: VISUAL_ENVIRONMENT.atmosphere.heightFalloff },
+    uMinimumHeightDensity: { value: VISUAL_ENVIRONMENT.atmosphere.minimumHeightDensity },
+    uNearClearDistance: { value: VISUAL_ENVIRONMENT.atmosphere.nearClearDistance },
+    uFullDensityDistance: { value: VISUAL_ENVIRONMENT.atmosphere.fullDensityDistance },
     uRayleighColor: { value: VISUAL_ENVIRONMENT.atmosphere.rayleighColor.clone() },
     uMieColor: { value: VISUAL_ENVIRONMENT.atmosphere.mieColor.clone() },
     uSunScatter: { value: VISUAL_ENVIRONMENT.atmosphere.sunScatter },
@@ -109,6 +112,9 @@ const AERIAL_PERSPECTIVE_SHADER = {
     uniform vec3 uSunDirection;
     uniform float uDensity;
     uniform float uHeightFalloff;
+    uniform float uMinimumHeightDensity;
+    uniform float uNearClearDistance;
+    uniform float uFullDensityDistance;
     uniform vec3 uRayleighColor;
     uniform vec3 uMieColor;
     uniform float uSunScatter;
@@ -141,21 +147,36 @@ const AERIAL_PERSPECTIVE_SHADER = {
         0.0
       );
       float heightDensity = mix(
-        0.35,
+        uMinimumHeightDensity,
         1.0,
         exp(-averageHeight * uHeightFalloff)
       );
-      float opticalDepth = uDensity * viewDistance * heightDensity;
-      float fogOpacity = min(1.0 - exp(-opticalDepth), uMaxOpacity);
+      float distanceRamp = smoothstep(
+        uNearClearDistance,
+        uFullDensityDistance,
+        viewDistance
+      );
+      float effectiveDistance = max(viewDistance - uNearClearDistance, 0.0);
+      float opticalDepth = uDensity
+        * effectiveDistance
+        * heightDensity
+        * distanceRamp;
+      float fogOpacity = uMaxOpacity * (
+        1.0 - exp(-opticalDepth / max(uMaxOpacity, 0.0001))
+      );
       float sunAlignment = dot(normalize(viewRay), normalize(uSunDirection));
       float rayleighPhase = 0.75 * (1.0 + sunAlignment * sunAlignment);
-      float miePhase = pow(max(sunAlignment, 0.0), 12.0) * uSunScatter;
+      float mieWeight = clamp(
+        pow(max(sunAlignment, 0.0), 12.0) * uSunScatter,
+        0.0,
+        0.20
+      );
       vec3 scatterColor = uRayleighColor * mix(
         0.72,
         1.0,
         clamp(rayleighPhase * 0.6667, 0.0, 1.0)
       );
-      scatterColor += uMieColor * miePhase;
+      scatterColor = mix(scatterColor, uMieColor, mieWeight);
 
       gl_FragColor = vec4(
         mix(sceneColor.rgb, scatterColor, fogOpacity),
