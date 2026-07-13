@@ -6,6 +6,7 @@ import {
   PLUNGE_POOL,
   getBakedLowlandHeight,
 } from '../src/lowlandHeightPlan.js';
+import { createRiverWaterMesh } from '../src/riverChannel.js';
 import {
   applyWaterSystemMacroTerrain,
   applyWaterSystemTerrain,
@@ -79,6 +80,112 @@ test('water system exposes one merged tributary surface and keeps the compatibil
   assert.equal(tributaries.material.uniforms.uTime.value, 4.25);
   assert.deepEqual(tributaries.material.uniforms.uCameraPosition.value.toArray(), [12, 34, 56]);
 
+  disposeSystem(system);
+});
+
+test('all flowing water meshes share one probe-capped material and update it once per frame', () => {
+  const system = createWaterSystem(createTerrainStub());
+  const flowingMeshes = [
+    system.outletStream,
+    system.tributaries,
+    ...system.lowlands.streams,
+  ];
+  const sharedMaterial = system.tributaries.material;
+
+  assert.equal(flowingMeshes.length, 3);
+  assert.ok(flowingMeshes.every((mesh) => mesh.material === sharedMaterial));
+  assert.ok(flowingMeshes.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
+  for (const mesh of flowingMeshes) {
+    for (const [attribute, itemSize] of [
+      ['waterDepth', 1],
+      ['shoreDistance', 1],
+      ['flowSpeed', 1],
+      ['rapidMask', 1],
+      ['flowDirection', 2],
+      ['disturbanceMask', 1],
+      ['waterFade', 1],
+      ['junctionMask', 1],
+      ['viewDistance', 1],
+    ]) {
+      assert.equal(mesh.geometry.getAttribute(attribute).itemSize, itemSize);
+    }
+  }
+
+  const positions = system.tributaries.geometry.getAttribute('position');
+  const waterDepths = system.tributaries.geometry.getAttribute('waterDepth');
+
+  for (let vertex = 0; vertex < positions.count; vertex += 17) {
+    assert.ok(Math.abs(
+      waterDepths.getX(vertex) - Math.max(positions.getY(vertex) - 24, 0)
+    ) < 1e-5);
+  }
+
+  const lowlandPositions = system.lowlands.stream.geometry.getAttribute('position');
+  const lowlandDepths = system.lowlands.stream.geometry.getAttribute('waterDepth');
+
+  for (let vertex = 0; vertex < lowlandPositions.count; vertex += 11) {
+    assert.ok(Math.abs(
+      lowlandDepths.getX(vertex) - Math.max(lowlandPositions.getY(vertex) - 24, 0)
+    ) < 1e-5);
+  }
+
+  const outletUvs = system.outletStream.geometry.getAttribute('uv');
+  const outletLastRow = 90 * 11;
+
+  assert.equal(outletUvs.getX(0), 0);
+  assert.ok(outletUvs.getX(outletLastRow) > 50);
+  assert.equal(outletUvs.getX(outletLastRow), outletUvs.getX(outletLastRow + 10));
+
+  let timeWrites = 0;
+  let cameraWrites = 0;
+  let elapsedTime = 0;
+
+  Object.defineProperty(sharedMaterial.uniforms.uTime, 'value', {
+    configurable: true,
+    get: () => elapsedTime,
+    set: (value) => {
+      elapsedTime = value;
+      timeWrites += 1;
+    },
+  });
+  sharedMaterial.uniforms.uCameraPosition.value = {
+    copy() {
+      cameraWrites += 1;
+    },
+  };
+
+  updateWaterSystemVisuals(system, new THREE.PerspectiveCamera(), 3.5);
+
+  assert.equal(timeWrites, 1);
+  assert.equal(cameraWrites, 1);
+  assert.ok(flowingMeshes.reduce(
+    (triangles, mesh) => triangles + mesh.geometry.index.count / 3,
+    0,
+  ) < 40000);
+
+  disposeSystem(system);
+});
+
+test('all flowing river surfaces stay within the shared draw-call and triangle budgets', () => {
+  const terrain = createTerrainStub();
+  const system = createWaterSystem(terrain);
+  const heroRiver = createRiverWaterMesh(terrain);
+  const flowingMeshes = [
+    heroRiver,
+    system.outletStream,
+    system.tributaries,
+    ...system.lowlands.streams,
+  ];
+
+  assert.ok(flowingMeshes.length <= 5);
+  assert.ok(new Set(flowingMeshes.map((mesh) => mesh.material)).size <= 2);
+  assert.ok(flowingMeshes.reduce(
+    (triangles, mesh) => triangles + mesh.geometry.index.count / 3,
+    0,
+  ) < 40000);
+
+  heroRiver.geometry.dispose();
+  heroRiver.material.dispose();
   disposeSystem(system);
 });
 

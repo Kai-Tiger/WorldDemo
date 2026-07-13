@@ -94,6 +94,21 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 955, z: -500, y: 110 },
     target: { x: 750, z: -680, y: 3 },
   },
+  'river-reference-overhead': {
+    player: { x: 590, z: -345 },
+    camera: { x: 570, z: -515, y: 105 },
+    target: { x: 590, z: -345, y: 3 },
+  },
+  'river-reference-bank': {
+    player: { x: 610, z: -360 },
+    camera: { x: 600, z: -375, y: 7 },
+    target: { x: 620, z: -345, y: 2.5 },
+  },
+  'river-reference-flow': {
+    player: { x: 535, z: -360 },
+    camera: { x: 505, z: -385, y: 6 },
+    target: { x: 635, z: -345, y: 2 },
+  },
 });
 
 export function getGoldenShotFromLocation(location = window.location) {

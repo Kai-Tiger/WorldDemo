@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const DEFAULT_SAMPLE_SPACING = 2;
 const DEFAULT_SPATIAL_CELL_SIZE = 64;
+const DEFAULT_FLOW_SPEED = 1;
 const ENDPOINT_EPSILON = 1e-4;
 const WATER_LEVEL_EPSILON = 1e-6;
 
@@ -407,6 +408,14 @@ function buildGraph(definition) {
     if (!node.id || nodeById.has(node.id)) throw new Error(`Duplicate river node: ${node.id}`);
     if (!isPoint(node.position)) throw new Error(`River node ${node.id} has an invalid position.`);
     if (!Number.isFinite(node.waterLevel)) throw new Error(`River node ${node.id} has an invalid water level.`);
+    validateOptionalNonNegative(node.poolRadius, `River node ${node.id} pool radius`);
+    validateOptionalNonNegative(node.poolDepth, `River node ${node.id} pool depth`);
+    if (
+      node.poolWidthScale !== undefined
+      && (!Number.isFinite(node.poolWidthScale) || node.poolWidthScale <= 0)
+    ) {
+      throw new Error(`River node ${node.id} pool width scale must be greater than zero.`);
+    }
 
     nodeById.set(node.id, node);
     incomingByNode.set(node.id, []);
@@ -454,6 +463,12 @@ function buildGraph(definition) {
     if (from.waterLevel + WATER_LEVEL_EPSILON < to.waterLevel) {
       throw new Error(`River reach ${reach.id} rises downstream.`);
     }
+    validateOptionalRange(reach.wetBankWidth, `River reach ${reach.id} wet bank width`);
+    validateOptionalRange(reach.gravelBankWidth, `River reach ${reach.id} gravel bank width`);
+    validateOptionalRange(reach.terrainBlendWidth, `River reach ${reach.id} terrain blend width`);
+    validateOptionalRange(reach.flowSpeed, `River reach ${reach.id} flow speed`);
+    validateRiffles(reach.riffles, reach.id);
+    validateDisturbances(reach.disturbances, reach.id);
 
     incomingByNode.get(to.id).push(reach);
     outgoingByNode.get(from.id).push(reach);
@@ -524,6 +539,24 @@ function compileReach(reach, nodeById, sampleSpacing) {
     reach.vegetationBuffer ?? 0,
     `River reach ${reach.id} vegetation buffer`,
   );
+  const wetBankWidth = normalizeRange(
+    reach.wetBankWidth ?? 0,
+    `River reach ${reach.id} wet bank width`,
+  );
+  const gravelBankWidth = normalizeRange(
+    reach.gravelBankWidth ?? 0,
+    `River reach ${reach.id} gravel bank width`,
+  );
+  const terrainBlendWidth = normalizeRange(
+    reach.terrainBlendWidth ?? 0,
+    `River reach ${reach.id} terrain blend width`,
+  );
+  const flowSpeed = normalizeRange(
+    reach.flowSpeed ?? DEFAULT_FLOW_SPEED,
+    `River reach ${reach.id} flow speed`,
+  );
+  const riffles = reach.riffles ?? [];
+  const disturbances = reach.disturbances ?? [];
   const waterLevelProfile = createWaterLevelProfile(reach, from, to);
   const sampleCount = Math.max(1, Math.ceil(curve.getLength() / sampleSpacing));
   const samples = [];
@@ -543,7 +576,21 @@ function compileReach(reach, nodeById, sampleSpacing) {
       depth: THREE.MathUtils.lerp(depth[0], depth[1], t),
       influence: THREE.MathUtils.lerp(influence[0], influence[1], t),
       vegetationBuffer: THREE.MathUtils.lerp(vegetationBuffer[0], vegetationBuffer[1], t),
+      wetBankWidth: THREE.MathUtils.lerp(wetBankWidth[0], wetBankWidth[1], t),
+      gravelBankWidth: THREE.MathUtils.lerp(gravelBankWidth[0], gravelBankWidth[1], t),
+      terrainBlendWidth: THREE.MathUtils.lerp(terrainBlendWidth[0], terrainBlendWidth[1], t),
     });
+  }
+
+  for (const riffle of riffles) {
+    if (riffle.endM > distance + ENDPOINT_EPSILON) {
+      throw new Error(`River reach ${reach.id} riffle extends beyond the compiled reach.`);
+    }
+  }
+  for (const disturbance of disturbances) {
+    if (disturbance.distanceM > distance + ENDPOINT_EPSILON) {
+      throw new Error(`River reach ${reach.id} disturbance lies beyond the compiled reach.`);
+    }
   }
 
   for (let index = 0; index < samples.length; index += 1) {
@@ -551,8 +598,12 @@ function compileReach(reach, nodeById, sampleSpacing) {
     const distanceT = distance > 0 ? sample.distance / distance : 0;
     const authoredLevel = sampleProfile(waterLevelProfile, distanceT);
     const previousLevel = index > 0 ? samples[index - 1].waterLevel : from.waterLevel;
+    const baseFlowSpeed = THREE.MathUtils.lerp(flowSpeed[0], flowSpeed[1], distanceT);
+    const riffleSample = sampleRiffles(riffles, sample.distance, baseFlowSpeed);
 
     sample.waterLevel = THREE.MathUtils.clamp(authoredLevel, to.waterLevel, previousLevel);
+    sample.flowSpeed = riffleSample.flowSpeed;
+    sample.rapidMask = riffleSample.rapidMask;
   }
   samples[0].waterLevel = from.waterLevel;
   samples.at(-1).waterLevel = to.waterLevel;
@@ -561,11 +612,21 @@ function compileReach(reach, nodeById, sampleSpacing) {
     ...samples.map((sample) => Math.max(
       sample.influence,
       sample.width * 0.5 + sample.vegetationBuffer,
+      sample.width * 0.5
+        + sample.wetBankWidth
+        + sample.gravelBankWidth
+        + sample.terrainBlendWidth,
     )),
   );
 
   return {
     ...reach,
+    wetBankWidth,
+    gravelBankWidth,
+    terrainBlendWidth,
+    flowSpeed,
+    riffles,
+    disturbances,
     curve,
     samples,
     length: distance,
@@ -621,6 +682,19 @@ function getClosestReachFrame(reach, x, z) {
         end.vegetationBuffer,
         segmentT,
       ),
+      wetBankWidth: THREE.MathUtils.lerp(start.wetBankWidth, end.wetBankWidth, segmentT),
+      gravelBankWidth: THREE.MathUtils.lerp(
+        start.gravelBankWidth,
+        end.gravelBankWidth,
+        segmentT,
+      ),
+      terrainBlendWidth: THREE.MathUtils.lerp(
+        start.terrainBlendWidth,
+        end.terrainBlendWidth,
+        segmentT,
+      ),
+      flowSpeed: THREE.MathUtils.lerp(start.flowSpeed, end.flowSpeed, segmentT),
+      rapidMask: THREE.MathUtils.lerp(start.rapidMask, end.rapidMask, segmentT),
     };
   }
 
@@ -744,6 +818,91 @@ function normalizeRange(value, label) {
   return range;
 }
 
+function validateOptionalRange(value, label) {
+  if (value !== undefined) normalizeRange(value, label);
+}
+
+function validateOptionalNonNegative(value, label) {
+  if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+}
+
+function validateRiffles(riffles, reachId) {
+  if (riffles === undefined) return;
+  if (!Array.isArray(riffles)) {
+    throw new Error(`River reach ${reachId} riffles must be an array.`);
+  }
+
+  for (const riffle of riffles) {
+    if (
+      !riffle
+      || !Number.isFinite(riffle.startM)
+      || !Number.isFinite(riffle.endM)
+      || riffle.startM < 0
+      || riffle.endM <= riffle.startM
+    ) {
+      throw new Error(`River reach ${reachId} has an invalid riffle distance range.`);
+    }
+    if (!Number.isFinite(riffle.strength) || riffle.strength < 0 || riffle.strength > 1) {
+      throw new Error(`River reach ${reachId} riffle strength must be between zero and one.`);
+    }
+    if (!Number.isFinite(riffle.speed) || riffle.speed < 0) {
+      throw new Error(`River reach ${reachId} riffle speed must be a non-negative number.`);
+    }
+  }
+}
+
+function validateDisturbances(disturbances, reachId) {
+  if (disturbances === undefined) return;
+  if (!Array.isArray(disturbances)) {
+    throw new Error(`River reach ${reachId} disturbances must be an array.`);
+  }
+
+  for (const disturbance of disturbances) {
+    if (
+      !disturbance
+      || !Number.isFinite(disturbance.distanceM)
+      || disturbance.distanceM < 0
+    ) {
+      throw new Error(`River reach ${reachId} has an invalid disturbance distance.`);
+    }
+    if (
+      !Number.isFinite(disturbance.lateral)
+      || disturbance.lateral < -1
+      || disturbance.lateral > 1
+    ) {
+      throw new Error(`River reach ${reachId} disturbance lateral must be between -1 and one.`);
+    }
+    if (!Number.isFinite(disturbance.radius) || disturbance.radius <= 0) {
+      throw new Error(`River reach ${reachId} disturbance radius must be greater than zero.`);
+    }
+    if (
+      !Number.isFinite(disturbance.strength)
+      || disturbance.strength < 0
+      || disturbance.strength > 1
+    ) {
+      throw new Error(`River reach ${reachId} disturbance strength must be between zero and one.`);
+    }
+  }
+}
+
+function sampleRiffles(riffles, distance, baseFlowSpeed) {
+  let flowSpeed = baseFlowSpeed;
+  let rapidMask = 0;
+
+  for (const riffle of riffles) {
+    const transition = Math.min(2, (riffle.endM - riffle.startM) * 0.25);
+    const window = smoothstep(riffle.startM, riffle.startM + transition, distance)
+      * (1 - smoothstep(riffle.endM - transition, riffle.endM, distance));
+
+    rapidMask = Math.max(rapidMask, riffle.strength * window);
+    flowSpeed = Math.max(flowSpeed, THREE.MathUtils.lerp(baseFlowSpeed, riffle.speed, window));
+  }
+
+  return { flowSpeed, rapidMask };
+}
+
 function createWaterLevelProfile(reach, from, to) {
   if (!reach.waterLevels) {
     return [
@@ -811,10 +970,36 @@ function freezeReach(reach) {
     depth: Object.freeze([...reach.depth]),
     influence: Object.freeze([...reach.influence]),
     vegetationBuffer: Object.freeze([...reach.vegetationBuffer]),
+    ...(reach.wetBankWidth !== undefined
+      ? { wetBankWidth: freezeRange(reach.wetBankWidth) }
+      : {}),
+    ...(reach.gravelBankWidth !== undefined
+      ? { gravelBankWidth: freezeRange(reach.gravelBankWidth) }
+      : {}),
+    ...(reach.terrainBlendWidth !== undefined
+      ? { terrainBlendWidth: freezeRange(reach.terrainBlendWidth) }
+      : {}),
+    ...(reach.flowSpeed !== undefined
+      ? { flowSpeed: freezeRange(reach.flowSpeed) }
+      : {}),
+    ...(reach.riffles
+      ? { riffles: Object.freeze(reach.riffles.map((riffle) => Object.freeze({ ...riffle }))) }
+      : {}),
+    ...(reach.disturbances
+      ? {
+        disturbances: Object.freeze(
+          reach.disturbances.map((disturbance) => Object.freeze({ ...disturbance })),
+        ),
+      }
+      : {}),
     ...(reach.waterLevels
       ? { waterLevels: Object.freeze([...reach.waterLevels]) }
       : {}),
   });
+}
+
+function freezeRange(value) {
+  return Object.freeze(Array.isArray(value) ? [...value] : [value, value]);
 }
 
 function smoothstep(edge0, edge1, value) {

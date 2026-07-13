@@ -4,6 +4,7 @@ import {
   RIVER_NETWORK,
   RIVER_NETWORK_DEFINITION,
   applyRiverNetworkTerrain,
+  compileRiverNetwork,
   getNearestRiverReach,
   getRiverNetworkFeatureBounds,
   getRiverNetworkTerrainTarget,
@@ -86,6 +87,75 @@ test('compiled curves run from authored upstream nodes to downstream nodes with 
   assert.ok(northwestValley.waterLevel > 105 && northwestValley.waterLevel < 110);
 });
 
+test('optional channel ranges, confluence pools, and smooth riffles survive compilation', () => {
+  const definition = createExtendedDefinition();
+  const network = compileRiverNetwork(definition, { sampleSpacing: 0.25 });
+  const confluence = network.nodeById.get('junction');
+  const reach = network.reachById.get('source-a-junction');
+  const rapidSample = reach.samples.reduce((closest, sample) => (
+    Math.abs(sample.distance - 10) < Math.abs(closest.distance - 10) ? sample : closest
+  ));
+  const nearest = getNearestRiverReach(
+    rapidSample.point.x,
+    rapidSample.point.z,
+    1,
+    network,
+  );
+
+  assert.equal(confluence.poolRadius, 7);
+  assert.equal(confluence.poolDepth, 1.4);
+  assert.equal(confluence.poolWidthScale, 1.6);
+  assert.deepEqual(reach.wetBankWidth, [1, 2]);
+  assert.deepEqual(reach.gravelBankWidth, [3, 5]);
+  assert.deepEqual(reach.terrainBlendWidth, [2, 4]);
+  assert.deepEqual(reach.flowSpeed, [0.6, 0.8]);
+  assert.deepEqual(reach.riffles, [
+    { startM: 5, endM: 15, strength: 0.8, speed: 1.6 },
+  ]);
+  assert.deepEqual(reach.disturbances, [
+    { distanceM: 12, lateral: -0.25, radius: 1.5, strength: 0.7 },
+  ]);
+  assert.equal(reach.samples[0].rapidMask, 0);
+  assert.equal(reach.samples.at(-1).rapidMask, 0);
+  assert.ok(rapidSample.rapidMask > 0.79 && rapidSample.rapidMask <= 0.8);
+  assert.ok(rapidSample.flowSpeed > 1.5 && rapidSample.flowSpeed <= 1.6);
+  assert.equal(nearest.rapidMask, rapidSample.rapidMask);
+  assert.equal(nearest.flowSpeed, rapidSample.flowSpeed);
+  assert.ok(nearest.wetBankWidth > 1 && nearest.wetBankWidth < 2);
+  assert.ok(nearest.gravelBankWidth > 3 && nearest.gravelBankWidth < 5);
+  assert.ok(nearest.terrainBlendWidth > 2 && nearest.terrainBlendWidth < 4);
+});
+
+test('legacy reaches receive neutral flow and bank defaults', () => {
+  for (const reach of RIVER_NETWORK.reaches) {
+    assert.deepEqual(reach.wetBankWidth, [0, 0]);
+    assert.deepEqual(reach.gravelBankWidth, [0, 0]);
+    assert.deepEqual(reach.terrainBlendWidth, [0, 0]);
+    assert.deepEqual(reach.flowSpeed, [1, 1]);
+    assert.deepEqual(reach.riffles, []);
+    assert.deepEqual(reach.disturbances, []);
+
+    for (const sample of reach.samples) {
+      assert.equal(sample.flowSpeed, 1);
+      assert.equal(sample.rapidMask, 0);
+    }
+  }
+});
+
+test('optional river parameters reject invalid ranges and riffles', () => {
+  const invalidRange = createExtendedDefinition();
+  const invalidRiffle = createExtendedDefinition();
+  const invalidDisturbance = createExtendedDefinition();
+
+  invalidRange.reaches[0].flowSpeed = [-1, 1];
+  invalidRiffle.reaches[0].riffles[0].strength = 1.1;
+  invalidDisturbance.reaches[0].disturbances[0].lateral = 1.1;
+
+  assert.throws(() => compileRiverNetwork(invalidRange), /flow speed/);
+  assert.throws(() => compileRiverNetwork(invalidRiffle), /strength/);
+  assert.throws(() => compileRiverNetwork(invalidDisturbance), /lateral/);
+});
+
 test('confluences share one water level and nearest-reach ties favor the wider downstream reach', () => {
   for (const node of RIVER_NETWORK_DEFINITION.nodes.filter((entry) => entry.type === 'confluence')) {
     const incoming = RIVER_NETWORK.incomingByNode.get(node.id);
@@ -132,3 +202,61 @@ test('spatial queries find channels and lakes without affecting terrain away fro
   assert.ok(RIVER_NETWORK.bounds.maxX >= 356);
   assert.ok(RIVER_NETWORK.bounds.minZ < -680);
 });
+
+function createExtendedDefinition() {
+  const nodes = [
+    { id: 'source-a', type: 'source', position: [-20, -5], waterLevel: 10 },
+    { id: 'source-b', type: 'source', position: [-20, 5], waterLevel: 9 },
+    {
+      id: 'junction',
+      type: 'confluence',
+      position: [0, 0],
+      waterLevel: 5,
+      poolRadius: 7,
+      poolDepth: 1.4,
+      poolWidthScale: 1.6,
+    },
+    { id: 'lake', type: 'lake', position: [40, 0], waterLevel: 0 },
+  ];
+  const channelDefaults = {
+    style: 'headwater',
+    width: [2, 3],
+    depth: [0.4, 0.8],
+    influence: [4, 6],
+    vegetationBuffer: [1, 2],
+  };
+
+  return {
+    nodes,
+    reaches: [
+      {
+        ...channelDefaults,
+        id: 'source-a-junction',
+        from: 'source-a',
+        to: 'junction',
+        points: [[-20, -5], [-10, -2], [0, 0]],
+        wetBankWidth: [1, 2],
+        gravelBankWidth: [3, 5],
+        terrainBlendWidth: [2, 4],
+        flowSpeed: [0.6, 0.8],
+        riffles: [{ startM: 5, endM: 15, strength: 0.8, speed: 1.6 }],
+        disturbances: [{ distanceM: 12, lateral: -0.25, radius: 1.5, strength: 0.7 }],
+      },
+      {
+        ...channelDefaults,
+        id: 'source-b-junction',
+        from: 'source-b',
+        to: 'junction',
+        points: [[-20, 5], [-10, 2], [0, 0]],
+      },
+      {
+        ...channelDefaults,
+        id: 'junction-lake',
+        from: 'junction',
+        to: 'lake',
+        style: 'trunk',
+        points: [[0, 0], [20, 2], [40, 0]],
+      },
+    ],
+  };
+}

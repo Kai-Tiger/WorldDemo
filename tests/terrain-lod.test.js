@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { getLowlandMinimumSegmentsForBounds } from '../src/lowlandLandforms.js';
 import { Terrain } from '../src/terrain.js';
 
 function createTerrain(options = {}) {
@@ -22,6 +23,7 @@ function createTerrain(options = {}) {
     forestFloorNormal: texture,
     riverBank: texture,
     riverBed: texture,
+    riverGravel: texture,
   }, {
     minimumSegmentsForChunk: () => 0,
     ...options,
@@ -193,6 +195,26 @@ test('feature floors keep the existing water and the tree river network at full 
   assert.equal(getSegmentsAt(640, -640), 256);
   assert.equal(getSegmentsAt(-384, -384), 256);
   assert.equal(getSegmentsAt(-640, 640), 256);
+});
+
+test('hero tributaries and their full bank corridors receive only local terrain detail floors', () => {
+  const getPointBounds = (x, z) => ({
+    minX: x - 0.25,
+    maxX: x + 0.25,
+    minZ: z - 0.25,
+    maxZ: z + 0.25,
+  });
+
+  assert.equal(getLowlandMinimumSegmentsForBounds(getPointBounds(635, -300)), 256);
+  assert.equal(getLowlandMinimumSegmentsForBounds(getPointBounds(700, -270)), 256);
+  assert.equal(getLowlandMinimumSegmentsForBounds(getPointBounds(710.5, -270)), 256);
+  assert.equal(getLowlandMinimumSegmentsForBounds(getPointBounds(606, -349)), 256);
+  assert.equal(getLowlandMinimumSegmentsForBounds({
+    minX: 512,
+    maxX: 768,
+    minZ: -256,
+    maxZ: 0,
+  }), 0);
 });
 
 test('build priorities order center recovery before visible, upgrades, and downgrades', () => {

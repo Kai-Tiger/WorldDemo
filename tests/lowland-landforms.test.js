@@ -198,7 +198,7 @@ test('lowland LOD promotes every lake and stream locally without filling unrelat
   }), 0);
 });
 
-test('water system renders three bounded watersheds through the shared lake material pipeline', () => {
+test('water system batches three bounded watersheds through the shared river material pipeline', () => {
   const system = createWaterSystem({ getHeightAt: () => -4 });
   const {
     stream, streams, lakes, group,
@@ -208,24 +208,24 @@ test('water system renders three bounded watersheds through the shared lake mate
 
   assert.equal(group.name, 'LowlandWaterFeatures');
   assert.equal(stream.name, 'LowlandStreamSurface');
-  assert.equal(streams.length, 3);
+  assert.equal(streams.length, 1);
   assert.equal(lakes.length, 3);
   assert.equal(lakes[0].name, 'LowlandLake_east-meadow-pond');
-  assert.equal(group.children.length, 6);
+  assert.equal(group.children.length, 4);
   assert.ok(streams.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
   assert.equal(
     streams.reduce((total, mesh) => total + mesh.userData.riverNetworkStats.reachCount, 0),
     5,
   );
-  assert.ok(streams.every((mesh) => mesh.userData.riverNetworkStats.triangleCount < 3000));
+  assert.ok(streams.every((mesh) => mesh.userData.riverNetworkStats.triangleCount < 6000));
   assert.ok(stats.triangleCount > 0 && stats.triangleCount < 1000);
   assert.ok(waterFrame.lakeBedMask > 0.99);
   assert.equal(isInWaterSystemVegetationExclusion(820, -260), true);
   assert.match(stream.material.vertexShader, /attribute float junctionMask/);
-  assertStreamHiddenInsideLake(streams[1], -520, 720);
-  assertStreamHiddenInsideLake(streams[1], -120, 800);
-  assertStreamHiddenInsideLake(streams[2], 755, -657);
-  assertStreamHiddenInsideLake(streams[2], 717, -751);
+  assertStreamHiddenInsideLake(stream, -520, 720);
+  assertStreamHiddenInsideLake(stream, -120, 800);
+  assertStreamHiddenInsideLake(stream, 755, -657);
+  assertStreamHiddenInsideLake(stream, 717, -751);
 
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');
@@ -300,6 +300,7 @@ test('tracked bake keeps every visible lowland water surface above runtime terra
     forestFloorNormal: texture,
     riverBank: texture,
     riverBed: texture,
+    riverGravel: texture,
   });
   const system = createWaterSystem(terrain);
   const smallLakes = createSmallLakes(terrain);
@@ -336,6 +337,9 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   const north = getGoldenShotFromLocation({ search: '?shot=lowland-north-overview' });
   const east = getGoldenShotFromLocation({ search: '?shot=lowland-east-overview' });
   const south = getGoldenShotFromLocation({ search: '?shot=lowland-south-overview' });
+  const riverOverhead = getGoldenShotFromLocation({ search: '?shot=river-reference-overhead' });
+  const riverBank = getGoldenShotFromLocation({ search: '?shot=river-reference-bank' });
+  const riverFlow = getGoldenShotFromLocation({ search: '?shot=river-reference-flow' });
 
   assert.ok(names.includes('lowland-creek'));
   assert.ok(names.includes('lowland-lake'));
@@ -343,12 +347,18 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   assert.ok(names.includes('lowland-north-overview'));
   assert.ok(names.includes('lowland-east-overview'));
   assert.ok(names.includes('lowland-south-overview'));
+  assert.ok(names.includes('river-reference-overhead'));
+  assert.ok(names.includes('river-reference-bank'));
+  assert.ok(names.includes('river-reference-flow'));
   assert.deepEqual(creek.target, { x: 735, z: -308, y: 2.395 });
   assert.deepEqual(lake.target, { x: 820, z: -260, y: 3.245 });
   assert.deepEqual(hills.target, { x: -650, z: 510, y: 16.1 });
   assert.deepEqual(north.target, { x: -320, z: 760, y: 4 });
   assert.deepEqual(east.target, { x: 755, z: -310, y: 3 });
   assert.deepEqual(south.target, { x: 750, z: -680, y: 3 });
+  assert.deepEqual(riverOverhead.camera, { x: 570, z: -515, y: 105 });
+  assert.deepEqual(riverBank.target, { x: 620, z: -345, y: 2.5 });
+  assert.deepEqual(riverFlow.camera, { x: 505, z: -385, y: 6 });
 });
 
 function disposeSystem(system) {

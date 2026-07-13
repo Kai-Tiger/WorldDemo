@@ -203,6 +203,169 @@ export const LOWLAND_STREAM_PLAN = deepFreeze({
   reaches: LOWLAND_STREAM_DEFINITIONS.flatMap((basin) => basin.reaches),
 });
 
+export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
+  id: 'hero-river-network',
+  terminalLakeId: 'terminal-lake',
+  nodes: [
+    { id: 'hero-plunge-outlet', type: 'source', position: [420, -423], waterLevel: 3.2 },
+    { id: 'hero-west-source', type: 'source', position: [635, -300], waterLevel: 3.15 },
+    { id: 'hero-east-source', type: 'source', position: [700, -270], waterLevel: 3.4 },
+    {
+      id: 'hero-j1', type: 'confluence', position: [575, -336], waterLevel: 2.2,
+      poolRadius: 10, poolDepth: 1.5, poolWidthScale: 1.4,
+    },
+    {
+      id: 'hero-j2', type: 'confluence', position: [633, -349], waterLevel: 1.88,
+      poolRadius: 12, poolDepth: 1.35, poolWidthScale: 1.5,
+    },
+    { id: 'terminal-lake', type: 'lake', position: [690, -340], waterLevel: 1.6 },
+  ],
+  reaches: [
+    {
+      id: 'hero-main-upper',
+      role: 'main',
+      style: 'trunk',
+      from: 'hero-plunge-outlet',
+      to: 'hero-j1',
+      points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336]],
+      waterLevels: [3.2, 3.05, 2.9, 2.72, 2.55, 2.38, 2.2],
+      width: [5.2, 7],
+      depth: [0.8, 1],
+      wetBankWidth: [1.2, 1.8],
+      gravelBankWidth: [2, 8],
+      terrainBlendWidth: [5, 5],
+      flowSpeed: [0.55, 0.75],
+      riffles: [
+        { startM: 32, endM: 55, strength: 0.82, speed: 1.55 },
+        { startM: 112, endM: 137, strength: 0.72, speed: 1.4 },
+      ],
+      disturbances: [
+        { distanceM: 41, lateral: -0.78, radius: 1.8, strength: 0.75, model: 'rock_05.glb', height: 1.4, yaw: 0.4 },
+        { distanceM: 86, lateral: 0.92, radius: 2.1, strength: 0.62, model: 'rock_02.glb', height: 1.6, yaw: 2.1 },
+        { distanceM: 124, lateral: -0.66, radius: 2.4, strength: 0.85, model: 'rock_08.glb', height: 1.9, yaw: -0.8 },
+      ],
+      networkDistanceOffset: 0,
+      influence: [10.8, 23.5],
+      vegetationBuffer: [3.2, 9.8],
+    },
+    {
+      id: 'hero-main-middle',
+      role: 'main',
+      style: 'trunk',
+      from: 'hero-j1',
+      to: 'hero-j2',
+      points: [[575, -336], [604, -337], [633, -349]],
+      waterLevels: [2.2, 2.05, 1.88],
+      width: [7, 8.2],
+      depth: [1, 1.15],
+      wetBankWidth: [1.8, 2],
+      gravelBankWidth: [8, 10],
+      terrainBlendWidth: [5, 5],
+      flowSpeed: [0.65, 0.8],
+      riffles: [{ startM: 9, endM: 31, strength: 0.88, speed: 1.7 }],
+      disturbances: [
+        { distanceM: 18, lateral: 0.72, radius: 2.2, strength: 0.9, model: 'rock_08.glb', height: 2, yaw: 1.3 },
+        { distanceM: 42, lateral: -0.9, radius: 1.7, strength: 0.68, model: 'rock_02.glb', height: 1.3, yaw: -1.7 },
+      ],
+      networkDistanceOffset: 179,
+      influence: [23.5, 27.3],
+      vegetationBuffer: [9.8, 12],
+    },
+    {
+      id: 'hero-main-lower',
+      role: 'main',
+      style: 'trunk',
+      from: 'hero-j2',
+      to: 'terminal-lake',
+      points: [[633, -349], [662, -351], [690, -340]],
+      waterLevels: [1.88, 1.72, 1.6],
+      width: [8.2, 6.4],
+      depth: [1.15, 1],
+      wetBankWidth: [2, 1.5],
+      gravelBankWidth: [10, 6],
+      terrainBlendWidth: [5, 5],
+      flowSpeed: [0.7, 0.55],
+      riffles: [],
+      disturbances: [
+        { distanceM: 31, lateral: 0.84, radius: 2, strength: 0.7, model: 'rock_05.glb', height: 1.7, yaw: 0.9 },
+      ],
+      networkDistanceOffset: 240,
+      influence: [27.3, 19.9],
+      vegetationBuffer: [12, 7.5],
+    },
+    {
+      id: 'hero-west-tributary',
+      role: 'tributary',
+      style: 'headwater',
+      from: 'hero-west-source',
+      to: 'hero-j1',
+      points: [[635, -300], [625, -315], [610, -326], [592, -334], [575, -336]],
+      waterLevels: [3.15, 2.95, 2.68, 2.38, 2.2],
+      width: [2, 3.3],
+      depth: [0.35, 0.65],
+      wetBankWidth: [0.7, 1.2],
+      gravelBankWidth: [3, 5],
+      terrainBlendWidth: [3, 3],
+      flowSpeed: [0.75, 1],
+      riffles: [{ startM: 12, endM: 32, strength: 0.78, speed: 1.55 }],
+      disturbances: [
+        { distanceM: 24, lateral: -0.73, radius: 1.6, strength: 0.72, model: 'rock_02.glb', height: 1.2, yaw: -0.3 },
+      ],
+      networkDistanceOffset: 0,
+      influence: [9.8, 13.95],
+      vegetationBuffer: [3.7, 6.2],
+    },
+    {
+      id: 'hero-east-tributary',
+      role: 'tributary',
+      style: 'headwater',
+      from: 'hero-east-source',
+      to: 'hero-j2',
+      points: [[700, -270], [690, -292], [675, -315], [655, -337], [633, -349]],
+      waterLevels: [3.4, 3.1, 2.68, 2.18, 1.88],
+      width: [2.2, 3.6],
+      depth: [0.4, 0.75],
+      wetBankWidth: [0.8, 1.3],
+      gravelBankWidth: [3.5, 5.5],
+      terrainBlendWidth: [3, 3],
+      flowSpeed: [0.7, 1],
+      riffles: [
+        { startM: 28, endM: 55, strength: 0.8, speed: 1.6 },
+        { startM: 72, endM: 91, strength: 0.72, speed: 1.45 },
+      ],
+      disturbances: [
+        { distanceM: 41, lateral: 0.78, radius: 2.1, strength: 0.82, model: 'rock_08.glb', height: 1.8, yaw: 2.5 },
+        { distanceM: 70, lateral: -0.88, radius: 1.8, strength: 0.74, model: 'rock_05.glb', height: 1.5, yaw: -2.2 },
+      ],
+      networkDistanceOffset: 0,
+      influence: [10.75, 14.95],
+      vegetationBuffer: [4.3, 6.8],
+    },
+  ],
+  confluences: [
+    {
+      id: 'hero-j1',
+      position: [575, -336],
+      waterLevel: 2.2,
+      incoming: ['hero-main-upper', 'hero-west-tributary'],
+      outgoing: 'hero-main-middle',
+      poolRadius: 10,
+      poolDepth: 1.5,
+      poolWidthScale: 1.4,
+    },
+    {
+      id: 'hero-j2',
+      position: [633, -349],
+      waterLevel: 1.88,
+      incoming: ['hero-main-middle', 'hero-east-tributary'],
+      outgoing: 'hero-main-lower',
+      poolRadius: 12,
+      poolDepth: 1.35,
+      poolWidthScale: 1.5,
+    },
+  ],
+});
+
 export const MAIN_RIVER_CHANNEL = deepFreeze({
   id: 'main-river-channel',
   points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336], [604, -337], [633, -349], [662, -351], [690, -340]],
@@ -235,6 +398,10 @@ export const LOWLAND_BAKE_COUNTS = deepFreeze({
   southernLakes: SOUTHERN_LOWLAND_LAKES.length,
   streamBasins: LOWLAND_STREAM_DEFINITIONS.length,
   streamReaches: LOWLAND_STREAM_PLAN.reaches.length,
+  heroRiverReaches: HERO_RIVER_NETWORK_DEFINITION.reaches.length,
+  heroRiverConfluences: HERO_RIVER_NETWORK_DEFINITION.confluences.length,
+  heroRiverDisturbances: HERO_RIVER_NETWORK_DEFINITION.reaches
+    .reduce((count, reach) => count + reach.disturbances.length, 0),
 });
 
 const hillBounds = LOWLAND_HILLS.map((hill) => ({
@@ -244,7 +411,11 @@ const hillBounds = LOWLAND_HILLS.map((hill) => ({
   maxZ: hill.cz + Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
 }));
 const reachMetadata = new WeakMap(
-  [MAIN_RIVER_CHANNEL, ...LOWLAND_STREAM_PLAN.reaches].map((reach) => [
+  [
+    MAIN_RIVER_CHANNEL,
+    ...LOWLAND_STREAM_PLAN.reaches,
+    ...HERO_RIVER_NETWORK_DEFINITION.reaches,
+  ].map((reach) => [
     reach,
     createReachMetadata(reach),
   ]),
@@ -276,13 +447,85 @@ export function getLowlandTerrainHeight(x, z) {
   );
 }
 
+export function getHeroRiverCorridorFrame(baseHeightOrX, xOrZ, maybeZ) {
+  const x = maybeZ === undefined ? baseHeightOrX : xOrZ;
+  const z = maybeZ === undefined ? xOrZ : maybeZ;
+  let strongest = null;
+  let disturbanceMask = 0;
+  let bedMask = 0;
+  let wetBankMask = 0;
+  let gravelBankMask = 0;
+  let underwaterMask = 0;
+  let vegetationMask = 0;
+
+  for (const reach of HERO_RIVER_NETWORK_DEFINITION.reaches) {
+    const frame = getHeroReachFrame(reach, x, z);
+
+    if (!frame) continue;
+    disturbanceMask = Math.max(disturbanceMask, frame.disturbanceMask);
+    bedMask = Math.max(bedMask, frame.bedMask);
+    wetBankMask = Math.max(wetBankMask, frame.wetBankMask);
+    gravelBankMask = Math.max(gravelBankMask, frame.gravelBankMask);
+    underwaterMask = Math.max(underwaterMask, frame.underwaterMask);
+    vegetationMask = Math.max(vegetationMask, frame.vegetationMask);
+    const strength = Math.max(
+      frame.bedMask,
+      frame.wetMask,
+      frame.gravelMask,
+      frame.vegetationMask,
+    );
+
+    if (
+      !strongest
+      || strength > strongest.strength
+      || (strength === strongest.strength && Math.abs(frame.signedLateral) < Math.abs(strongest.frame.signedLateral))
+    ) strongest = { frame, strength };
+  }
+
+  return strongest
+    ? {
+      ...strongest.frame,
+      bedMask,
+      wetMask: wetBankMask,
+      wetBankMask,
+      gravelMask: gravelBankMask,
+      gravelBankMask,
+      underwaterMask,
+      vegetationMask,
+      flowMask: underwaterMask,
+      disturbanceMask,
+    }
+    : null;
+}
+
+export function getHeroRiverTerrainTarget(baseHeight, x, z) {
+  let target = null;
+
+  for (const reach of HERO_RIVER_NETWORK_DEFINITION.reaches) {
+    const frame = getHeroReachFrame(reach, x, z);
+
+    if (!frame) continue;
+
+    const candidate = getHeroReachTerrainTarget(baseHeight, frame);
+
+    if (!candidate) continue;
+    if (!target || candidate.height < target.height) target = candidate;
+  }
+
+  for (const confluence of HERO_RIVER_NETWORK_DEFINITION.confluences) {
+    const candidate = getHeroConfluenceTerrainTarget(baseHeight, confluence, x, z);
+
+    if (!candidate) continue;
+    if (!target || candidate.height < target.height) target = candidate;
+  }
+
+  return target;
+}
+
 export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
   let height = baseHeight;
   let strongest = null;
-  const reaches = [
-    MAIN_RIVER_CHANNEL,
-    ...LOWLAND_STREAM_PLAN.reaches,
-  ];
+  const reaches = LOWLAND_STREAM_PLAN.reaches;
 
   for (const reach of reaches) {
     const frame = getReachFrame(reach, x, z);
@@ -316,6 +559,13 @@ export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
 
     height = Math.min(height, target.height);
     strongest = chooseStrongerTarget(strongest, target);
+  }
+
+  const heroRiver = getHeroRiverTerrainTarget(height, x, z);
+
+  if (heroRiver) {
+    height = Math.min(height, heroRiver.height);
+    strongest = chooseStrongerTarget(strongest, heroRiver);
   }
 
   if (!strongest) return null;
@@ -408,17 +658,22 @@ export function getLowlandPlanStatistics() {
     ...LOWLAND_LAKES,
     ...SOUTHERN_LOWLAND_LAKES,
   ];
-  const reachMinimums = [MAIN_RIVER_CHANNEL, ...LOWLAND_STREAM_PLAN.reaches]
+  const reachMinimums = [
+    ...HERO_RIVER_NETWORK_DEFINITION.reaches,
+    ...LOWLAND_STREAM_PLAN.reaches,
+  ]
     .flatMap((reach) => reach.waterLevels.map((level, index) => {
       const t = reach.waterLevels.length > 1 ? index / (reach.waterLevels.length - 1) : 0;
       return level - interpolateRange(reach.depth, t);
     }));
+  const confluenceMinimums = HERO_RIVER_NETWORK_DEFINITION.confluences
+    .map((confluence) => confluence.waterLevel - confluence.poolDepth);
   const lakeMinimums = waterFeatures.map((lake) => lake.waterLevel - lake.maxDepth);
 
   return {
     ...LOWLAND_BAKE_COUNTS,
-    minimumAuthoredBedHeight: Math.min(...reachMinimums, ...lakeMinimums),
-    maximumAuthoredBedHeight: Math.max(...reachMinimums, ...lakeMinimums),
+    minimumAuthoredBedHeight: Math.min(...reachMinimums, ...confluenceMinimums, ...lakeMinimums),
+    maximumAuthoredBedHeight: Math.max(...reachMinimums, ...confluenceMinimums, ...lakeMinimums),
     maximumBakedHeight: LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
   };
 }
@@ -471,6 +726,350 @@ function getLakeTerrainTarget(lake, baseHeight, x, z) {
     bedHeight,
     waterLevel: lake.waterLevel,
   };
+}
+
+function getHeroReachFrame(reach, x, z) {
+  const metadata = reachMetadata.get(reach);
+
+  if (
+    !metadata
+    || x < metadata.minX
+    || x > metadata.maxX
+    || z < metadata.minZ
+    || z > metadata.maxZ
+  ) return null;
+
+  let closest = null;
+
+  for (let index = 0; index < metadata.samples.length - 1; index += 1) {
+    const start = metadata.samples[index];
+    const end = metadata.samples[index + 1];
+    const segmentX = end.x - start.x;
+    const segmentZ = end.z - start.z;
+    const segmentLengthSq = segmentX * segmentX + segmentZ * segmentZ;
+    const segmentT = segmentLengthSq > 0
+      ? clamp(((x - start.x) * segmentX + (z - start.z) * segmentZ) / segmentLengthSq, 0, 1)
+      : 0;
+    const centerX = start.x + segmentX * segmentT;
+    const centerZ = start.z + segmentZ * segmentT;
+    const offsetX = x - centerX;
+    const offsetZ = z - centerZ;
+    const distanceToCenterline = Math.hypot(offsetX, offsetZ);
+
+    if (closest && distanceToCenterline >= closest.distanceToCenterline) continue;
+
+    let tangentX = lerp(start.tangentX, end.tangentX, segmentT);
+    let tangentZ = lerp(start.tangentZ, end.tangentZ, segmentT);
+    const tangentLength = Math.hypot(tangentX, tangentZ) || 1;
+
+    tangentX /= tangentLength;
+    tangentZ /= tangentLength;
+    const sideX = -tangentZ;
+    const sideZ = tangentX;
+    const signedLateral = offsetX * sideX + offsetZ * sideZ;
+    const distance = lerp(start.distance, end.distance, segmentT);
+    const t = metadata.length > 0 ? distance / metadata.length : 0;
+
+    closest = {
+      centerX,
+      centerZ,
+      tangentX,
+      tangentZ,
+      sideX,
+      sideZ,
+      signedLateral,
+      distanceToCenterline,
+      distance,
+      t,
+      waterLevel: lerp(start.waterLevel, end.waterLevel, segmentT),
+      curvature: lerp(start.curvature, end.curvature, segmentT),
+    };
+  }
+
+  if (!closest) return null;
+
+  const waterWidth = interpolateRange(reach.width, closest.t);
+  const halfWidth = waterWidth * 0.5;
+  const wetBankWidth = interpolateRange(reach.wetBankWidth, closest.t);
+  const baseGravelWidth = interpolateRange(reach.gravelBankWidth, closest.t);
+  const terrainBlendWidth = interpolateRange(reach.terrainBlendWidth, closest.t);
+  const authoredDepth = interpolateRange(reach.depth, closest.t);
+  const waterLevel = closest.waterLevel;
+  const sideSign = closest.signedLateral >= 0 ? 1 : -1;
+  const bendStrength = smoothstep(0.0015, 0.02, Math.abs(closest.curvature));
+  const bendSide = Math.sign(closest.curvature);
+  const bendScale = bendSide === 0
+    ? 1
+    : lerp(1, sideSign === bendSide ? 1.5 : 0.7, bendStrength);
+  const noiseAmplitude = reach.role === 'main' ? 1.2 : 0.6;
+  const gravelNoise = getDeterministicBankNoise(
+    reach.id,
+    closest.distance,
+    sideSign,
+    noiseAmplitude,
+  );
+  const networkDistance = (reach.networkDistanceOffset ?? 0) + closest.distance;
+  const corridorFade = reach.role === 'main'
+    ? smoothstep(12, 38, networkDistance)
+    : 1;
+  const gravelBankWidth = Math.max(
+    0,
+    (baseGravelWidth * bendScale + gravelNoise) * corridorFade,
+  );
+  const waterOuter = halfWidth;
+  const wetOuter = waterOuter + wetBankWidth;
+  const gravelOuter = wetOuter + gravelBankWidth;
+  const blendOuter = gravelOuter + terrainBlendWidth;
+  const lateralDistance = Math.abs(closest.signedLateral);
+
+  if (lateralDistance > blendOuter + 0.5) return null;
+
+  const waterMask = 1 - smoothstep(halfWidth - 0.2, halfWidth + 0.15, lateralDistance);
+  const wetGravelOverlap = Math.min(1.6, Math.max(0.45, gravelBankWidth * 0.22));
+  const wetMask = getBandMask(
+    lateralDistance,
+    waterOuter - 0.3,
+    wetOuter + wetGravelOverlap,
+    clamp(wetBankWidth * 0.45, 0.45, 1.1),
+  );
+  const gravelMaterialInner = wetOuter + wetGravelOverlap * 0.35;
+  const gravelBandMask = gravelBankWidth > 0
+    ? getBandMask(
+      lateralDistance,
+      gravelMaterialInner,
+      gravelOuter,
+      clamp(gravelBankWidth * 0.28, 0.8, 2.4),
+    )
+    : 0;
+  const gravelCoverage = 0.3
+    + valueNoise2D(x / 48, z / 48, 0x3571b2c9) * 0.32
+    + valueNoise2D(x / 19, z / 19, 0x71a23dc5) * 0.18;
+  const gravelMask = gravelBandMask * gravelCoverage;
+  const vegetationMask = 1 - smoothstep(
+    gravelOuter,
+    gravelOuter + Math.min(terrainBlendWidth, 1.5),
+    lateralDistance,
+  );
+  const baseFlowSpeed = interpolateRange(reach.flowSpeed, closest.t);
+  const riffleSample = getRiffleSample(reach.riffles, closest.distance, baseFlowSpeed);
+  const longitudinalRapidMask = riffleSample.rapidMask;
+  const rapidMask = longitudinalRapidMask * waterMask;
+  const disturbanceMask = getHeroDisturbanceMask(
+    reach,
+    closest.distance,
+    closest.signedLateral,
+    waterWidth,
+  ) * waterMask;
+  const depth = authoredDepth * (1 - 0.4 * longitudinalRapidMask);
+  const edgeDepth = lerp(0.15, 0.25, clamp(authoredDepth / 1.5, 0, 1));
+  const curvatureScale = clamp(closest.curvature * 35, -1, 1);
+  const thalwegOffset = -curvatureScale * waterWidth * 0.25;
+  const thalwegSpan = closest.signedLateral >= thalwegOffset
+    ? halfWidth - thalwegOffset
+    : halfWidth + thalwegOffset;
+  const crossT = clamp(
+    Math.abs(closest.signedLateral - thalwegOffset) / Math.max(thalwegSpan, 0.001),
+    0,
+    1,
+  );
+  const waterDepth = lateralDistance <= halfWidth
+    ? lerp(depth, edgeDepth, smoothstep(0.05, 1, crossT))
+    : 0;
+
+  return {
+    featureType: 'hero-river-reach',
+    featureId: reach.id,
+    reachId: reach.id,
+    reach,
+    center: { x: closest.centerX, z: closest.centerZ },
+    tangent: { x: closest.tangentX, z: closest.tangentZ },
+    side: { x: closest.sideX, z: closest.sideZ },
+    distance: closest.distance,
+    distanceM: closest.distance,
+    networkDistance,
+    normalizedDistance: closest.t,
+    signedLateral: closest.signedLateral,
+    lateralM: closest.signedLateral,
+    lateralDistance,
+    curvature: closest.curvature,
+    waterLevel,
+    waterWidth,
+    halfWidth,
+    authoredDepth,
+    depth,
+    waterDepth,
+    edgeDepth,
+    wetBankWidth,
+    gravelBankWidth,
+    terrainBlendWidth,
+    corridorFade,
+    corridorOuter: blendOuter,
+    corridorHalfWidth: gravelOuter,
+    absLateralM: lateralDistance,
+    signedCorridorDistance: lateralDistance - gravelOuter,
+    thalwegOffset,
+    shoreDistance: halfWidth - lateralDistance,
+    flowDirection: { x: closest.tangentX, z: closest.tangentZ },
+    flowSpeed: riffleSample.flowSpeed,
+    bedMask: waterMask,
+    wetMask,
+    wetBankMask: wetMask,
+    gravelMask,
+    gravelBankMask: gravelMask,
+    underwaterMask: waterMask,
+    vegetationMask,
+    flowMask: waterMask,
+    rapidMask,
+    disturbanceMask,
+  };
+}
+
+function getHeroReachTerrainTarget(baseHeight, frame) {
+  const lateralDistance = frame.lateralDistance;
+  const wetOuter = frame.halfWidth + frame.wetBankWidth;
+  const gravelOuter = wetOuter + frame.gravelBankWidth;
+  let height;
+  let region;
+
+  if (lateralDistance <= frame.halfWidth) {
+    height = Math.max(0, frame.waterLevel - frame.waterDepth);
+    region = 'bed';
+  } else if (lateralDistance <= wetOuter) {
+    const wetT = frame.wetBankWidth > 0
+      ? (lateralDistance - frame.halfWidth) / frame.wetBankWidth
+      : 1;
+
+    height = lerp(
+      frame.waterLevel - frame.edgeDepth,
+      frame.waterLevel + 0.12,
+      smoothstep(0, 1, wetT),
+    );
+    region = 'wet-bank';
+  } else if (lateralDistance <= gravelOuter && frame.gravelBankWidth > 0) {
+    const gravelT = (lateralDistance - wetOuter) / frame.gravelBankWidth;
+
+    height = lerp(
+      frame.waterLevel + 0.12,
+      frame.waterLevel + 1.35,
+      smoothstep(0, 1, gravelT),
+    );
+    region = 'gravel-bank';
+  } else {
+    const blendT = frame.terrainBlendWidth > 0
+      ? (lateralDistance - gravelOuter) / frame.terrainBlendWidth
+      : 1;
+    const bankCrest = frame.waterLevel + (frame.gravelBankWidth > 0 ? 1.35 : 0.12);
+
+    height = lerp(bankCrest, baseHeight, smoothstep(0, 1, blendT));
+    region = 'terrain-blend';
+  }
+
+  height = Math.min(baseHeight, Math.max(0, height));
+
+  return {
+    featureType: frame.featureType,
+    featureId: frame.featureId,
+    region,
+    height,
+    bedHeight: height,
+    waterLevel: frame.waterLevel,
+    mask: Math.max(frame.bedMask, frame.wetMask, frame.gravelMask, frame.vegetationMask),
+    bedMask: frame.bedMask,
+    wetMask: frame.wetMask,
+    gravelMask: frame.gravelMask,
+    vegetationMask: frame.vegetationMask,
+    flowMask: frame.flowMask,
+    rapidMask: frame.rapidMask,
+    disturbanceMask: frame.disturbanceMask,
+    frame,
+  };
+}
+
+function getHeroConfluenceTerrainTarget(baseHeight, confluence, x, z) {
+  const distance = Math.hypot(x - confluence.position[0], z - confluence.position[1]);
+
+  if (distance > confluence.poolRadius) return null;
+
+  const radialT = clamp(distance / confluence.poolRadius, 0, 1);
+  const edgeDepth = 0.2;
+  const depth = lerp(
+    confluence.poolDepth,
+    edgeDepth,
+    smoothstep(0.15, 1, radialT),
+  );
+  const bedHeight = Math.max(0, confluence.waterLevel - depth);
+  const mask = 1 - smoothstep(confluence.poolRadius - 1, confluence.poolRadius, distance);
+
+  return {
+    featureType: 'hero-river-confluence',
+    featureId: confluence.id,
+    region: 'scour-pool',
+    height: Math.min(baseHeight, lerp(baseHeight, bedHeight, mask)),
+    bedHeight,
+    waterLevel: confluence.waterLevel,
+    mask,
+    bedMask: mask,
+    wetMask: 0,
+    gravelMask: 0,
+    vegetationMask: mask,
+    flowMask: mask,
+    rapidMask: mask * 0.6,
+    poolRadius: confluence.poolRadius,
+    poolWidthScale: confluence.poolWidthScale,
+  };
+}
+
+function getRiffleSample(riffles, distance, baseFlowSpeed) {
+  let rapidMask = 0;
+  let flowSpeed = baseFlowSpeed;
+
+  for (const riffle of riffles ?? []) {
+    const transition = Math.min(2, (riffle.endM - riffle.startM) * 0.25);
+    const window = smoothstep(riffle.startM, riffle.startM + transition, distance)
+      * (1 - smoothstep(riffle.endM - transition, riffle.endM, distance));
+    const mask = window * riffle.strength;
+
+    rapidMask = Math.max(rapidMask, mask);
+    flowSpeed = Math.max(flowSpeed, lerp(baseFlowSpeed, riffle.speed, window));
+  }
+
+  return { rapidMask, flowSpeed };
+}
+
+function getHeroDisturbanceMask(reach, distance, lateral, width) {
+  let mask = 0;
+
+  for (const disturbance of reach.disturbances ?? []) {
+    const along = distance - disturbance.distanceM;
+    const alongExtent = along < 0 ? disturbance.radius : disturbance.radius * 3;
+    const alongMask = 1 - smoothstep(0, alongExtent, Math.abs(along));
+    const disturbanceLateral = disturbance.lateral * width * 0.5;
+    const lateralMask = 1 - smoothstep(
+      0,
+      disturbance.radius,
+      Math.abs(lateral - disturbanceLateral),
+    );
+
+    mask = Math.max(mask, disturbance.strength * alongMask * lateralMask);
+  }
+
+  return clamp(mask, 0, 1);
+}
+
+function getBandMask(distance, start, end, feather) {
+  if (end <= start) return 0;
+
+  return smoothstep(start - feather, start + feather, distance)
+    * (1 - smoothstep(end - feather, end + feather, distance));
+}
+
+function getDeterministicBankNoise(id, distance, sideSign, amplitude) {
+  const phase = stringHash(`${id}:${sideSign}`) / 0xffffffff * Math.PI * 2;
+
+  return amplitude * (
+    Math.sin(distance / 18 * Math.PI * 2 + phase) * 0.6
+    + Math.sin(distance / 43 * Math.PI * 2 - phase * 0.73) * 0.4
+  );
 }
 
 function getReachFrame(reach, x, z) {
@@ -536,9 +1135,32 @@ function createReachMetadata(reach) {
   for (let index = 0; index <= sampleCount; index += 1) {
     const t = index / sampleCount;
     const point = curve.getPointAt(t);
+    const tangent = curve.getTangentAt(t).normalize();
 
     if (index > 0) distance += point.distanceTo(samples[index - 1].point);
-    samples.push({ point, x: point.x, z: point.z, t, distance });
+    samples.push({
+      point,
+      x: point.x,
+      z: point.z,
+      t,
+      distance,
+      tangentX: tangent.x,
+      tangentZ: tangent.z,
+    });
+  }
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const previous = samples[Math.max(0, index - 1)];
+    const next = samples[Math.min(samples.length - 1, index + 1)];
+    const cross = previous.tangentX * next.tangentZ - previous.tangentZ * next.tangentX;
+    const dot = clamp(
+      previous.tangentX * next.tangentX + previous.tangentZ * next.tangentZ,
+      -1,
+      1,
+    );
+    const arcLength = Math.max(next.distance - previous.distance, 0.001);
+
+    samples[index].curvature = Math.atan2(cross, dot) / arcLength;
   }
 
   const levelProfile = createReachLevelProfile(reach);
@@ -559,6 +1181,7 @@ function createReachMetadata(reach) {
   return {
     length: distance,
     samples,
+    levelProfile,
     minX: Math.min(...samples.map((sample) => sample.x)) - padding,
     maxX: Math.max(...samples.map((sample) => sample.x)) + padding,
     minZ: Math.min(...samples.map((sample) => sample.z)) - padding,
@@ -629,6 +1252,17 @@ function hash2D(x, z, seed) {
   value = Math.imul(value ^ (value >>> 16), 0x45d9f3b) >>> 0;
   value ^= value >>> 16;
   return (value >>> 0) / 0xffffffff;
+}
+
+function stringHash(value) {
+  let hash = 0x811c9dc5;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return hash >>> 0;
 }
 
 function smoothstep(edge0, edge1, value) {

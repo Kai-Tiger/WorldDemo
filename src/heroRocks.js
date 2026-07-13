@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { HERO_RIVER_NETWORK_DEFINITION } from './lowlandHeightPlan.js';
 
 const ROCK_PATHS = Array.from(
   { length: 9 },
@@ -21,7 +22,103 @@ const HERO_ROCK_LAYOUT = [
   { model: 0, x: 316, z: -365, height: 1.8, yaw: 5.6 },
 ];
 
+export const HERO_RIVER_ROCK_SEED = 'hero-river-20260712';
+
+const HERO_RIVER_MODEL_INDEX = Object.freeze({
+  'rock_02.glb': 1,
+  'rock_05.glb': 4,
+  'rock_08.glb': 7,
+});
+
 const loader = new GLTFLoader();
+
+export function getHeroRiverRockPlacements() {
+  const placements = [];
+
+  for (const reach of HERO_RIVER_NETWORK_DEFINITION.reaches) {
+    if (!reach.disturbances?.length) continue;
+
+    const curve = new THREE.CatmullRomCurve3(
+      reach.points.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+      false,
+      'centripetal',
+    );
+    const length = curve.getLength();
+
+    for (const disturbance of reach.disturbances) {
+      const t = THREE.MathUtils.clamp(disturbance.distanceM / length, 0, 1);
+      const center = curve.getPointAt(t);
+      const tangent = curve.getTangentAt(t).normalize();
+      const side = new THREE.Vector3(-tangent.z, 0, tangent.x);
+      const width = THREE.MathUtils.lerp(reach.width[0], reach.width[1], t);
+      const lateralOffset = disturbance.lateral * width * 0.5;
+
+      placements.push({
+        seed: HERO_RIVER_ROCK_SEED,
+        reachId: reach.id,
+        distanceM: disturbance.distanceM,
+        model: disturbance.model,
+        modelIndex: HERO_RIVER_MODEL_INDEX[disturbance.model],
+        x: center.x + side.x * lateralOffset,
+        z: center.z + side.z * lateralOffset,
+        height: disturbance.height,
+        yaw: disturbance.yaw,
+      });
+    }
+  }
+
+  return placements;
+}
+
+export function createHeroRiverRockInstances(assets, terrain) {
+  const group = new THREE.Group();
+  const placementsByModel = new Map();
+
+  for (const placement of getHeroRiverRockPlacements()) {
+    const placements = placementsByModel.get(placement.modelIndex) ?? [];
+
+    placements.push(placement);
+    placementsByModel.set(placement.modelIndex, placements);
+  }
+
+  group.name = 'HeroRiverRockSetDressing';
+
+  for (const [modelIndex, placements] of placementsByModel) {
+    const { geometry, material, height } = createInstancedRockPrototype(
+      assets[modelIndex].scene,
+    );
+    const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+
+    mesh.name = `HeroRiverRockInstances_${String(modelIndex + 1).padStart(2, '0')}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    for (let index = 0; index < placements.length; index += 1) {
+      const placement = placements[index];
+      const uniformScale = placement.height / height;
+
+      position.set(
+        placement.x,
+        terrain.getHeightAt(placement.x, placement.z),
+        placement.z,
+      );
+      quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, placement.yaw);
+      scale.setScalar(uniformScale);
+      matrix.compose(position, quaternion, scale);
+      mesh.setMatrixAt(index, matrix);
+    }
+
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    group.add(mesh);
+  }
+
+  return group;
+}
 
 export async function createHeroRocks(terrain) {
   const assets = await Promise.all(ROCK_PATHS.map((path) => loader.loadAsync(path)));
@@ -62,5 +159,40 @@ export async function createHeroRocks(terrain) {
     group.add(instance);
   }
 
+  group.add(createHeroRiverRockInstances(assets, terrain));
+
   return group;
+}
+
+function createInstancedRockPrototype(scene) {
+  let sourceMesh = null;
+
+  scene.updateMatrixWorld(true);
+  scene.traverse((child) => {
+    if (!sourceMesh && child.isMesh) sourceMesh = child;
+  });
+
+  const geometry = sourceMesh.geometry.clone();
+  const material = cloneRiverRockMaterial(sourceMesh.material);
+
+  geometry.applyMatrix4(sourceMesh.matrixWorld);
+  geometry.computeBoundingBox();
+
+  const box = geometry.boundingBox;
+  const center = box.getCenter(new THREE.Vector3());
+  const height = Math.max(box.max.y - box.min.y, 0.001);
+
+  geometry.translate(-center.x, -box.min.y, -center.z);
+
+  return { geometry, material, height };
+}
+
+function cloneRiverRockMaterial(source) {
+  if (Array.isArray(source)) return source.map(cloneRiverRockMaterial);
+
+  const material = source.clone();
+
+  if ('roughness' in material) material.roughness = Math.max(material.roughness, 0.72);
+  if ('metalness' in material) material.metalness = 0;
+  return material;
 }

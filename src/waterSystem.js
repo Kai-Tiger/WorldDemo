@@ -1,9 +1,6 @@
 import * as THREE from 'three';
-import {
-  WATER_DEEP_COLOR,
-  WATER_FOAM_COLOR,
-  WATER_SHALLOW_COLOR,
-} from './waterPalette.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { createFlowingRiverMaterial } from './flowingRiverMaterial.js';
 import {
   WATER_DUAL_WAVE_GLSL,
   WATER_FOG_FRAGMENT_GLSL,
@@ -204,14 +201,15 @@ function createEmptyWaterSystemMaterialFrame() {
 }
 
 export function createWaterSystem(terrain) {
+  const flowingRiverMaterial = createFlowingRiverMaterial();
   const lake = createLakeWater(terrain);
-  const outletStream = createOutletStream(terrain);
-  const tributaries = createRiverNetworkWaterSurface();
+  const outletStream = createOutletStream(terrain, flowingRiverMaterial);
+  const tributaries = createRiverNetworkWaterSurface(terrain, flowingRiverMaterial);
   const cirqueTarn = createCirqueTarn(terrain);
   const waterfall = createWaterfallGroup(terrain);
   const waterfallLipFoam = createWaterfallLipFoam(terrain);
   const confluence = createConfluenceFoam();
-  const lowlands = createLowlandWaterFeatures(terrain);
+  const lowlands = createLowlandWaterFeatures(terrain, flowingRiverMaterial);
   const group = new THREE.Group();
 
   group.name = 'WaterSystem';
@@ -333,17 +331,9 @@ function createLakeWater(terrain) {
   return lake;
 }
 
-function createRiverNetworkWaterSurface() {
-  const { geometry, stats } = createRiverNetworkWaterGeometry();
-  const water = new THREE.Mesh(geometry, createStreamMaterial({
-    shallow: WATER_SHALLOW_COLOR,
-    deep: WATER_DEEP_COLOR,
-    foam: WATER_FOAM_COLOR,
-    speed: 0.5,
-    alpha: 0.38,
-    foamStrength: 0.42,
-    mode: 'network',
-  }));
+function createRiverNetworkWaterSurface(terrain, material) {
+  const { geometry, stats } = createRiverNetworkWaterGeometry(RIVER_NETWORK, terrain);
+  const water = new THREE.Mesh(geometry, material);
 
   water.name = 'AlpineRiverNetworkSurface';
   water.renderOrder = WATER_RENDER_ORDER.surface;
@@ -353,30 +343,38 @@ function createRiverNetworkWaterSurface() {
   return water;
 }
 
-function createLowlandWaterFeatures(terrain) {
-  const streamMaterial = createStreamMaterial({
-    shallow: WATER_SHALLOW_COLOR,
-    deep: WATER_DEEP_COLOR,
-    foam: WATER_FOAM_COLOR,
-    speed: 0.28,
-    alpha: 0.4,
-    foamStrength: 0.2,
-    mode: 'network',
-  });
-  const streams = LOWLAND_STREAM_NETWORKS.map((network, index) => {
-    const { geometry, stats } = createRiverNetworkWaterGeometry(network);
+function createLowlandWaterFeatures(terrain, streamMaterial) {
+  const streamParts = LOWLAND_STREAM_NETWORKS.map((network) => {
+    const { geometry, stats } = createRiverNetworkWaterGeometry(network, terrain);
+    const surfaceOffset = LOWLAND_LAKES[0].surfaceOffset;
+    const positions = geometry.getAttribute('position');
+    const waterDepths = geometry.getAttribute('waterDepth');
 
-    geometry.translate(0, LOWLAND_LAKES[0].surfaceOffset, 0);
+    geometry.translate(0, surfaceOffset, 0);
+    for (let vertex = 0; vertex < waterDepths.count; vertex += 1) {
+      waterDepths.setX(vertex, Math.max(
+        positions.getY(vertex) - terrain.getHeightAt(positions.getX(vertex), positions.getZ(vertex)),
+        0,
+      ));
+    }
+    waterDepths.needsUpdate = true;
     blendLowlandStreamIntoLakes(geometry);
 
-    const mesh = new THREE.Mesh(geometry, streamMaterial);
-
-    mesh.name = index === 0 ? 'LowlandStreamSurface' : `LowlandStreamSurface_${index}`;
-    mesh.renderOrder = WATER_RENDER_ORDER.surface;
-    mesh.userData.waterReflectionModeCap = 1;
-    mesh.userData.riverNetworkStats = stats;
-    return mesh;
+    return { geometry, stats };
   });
+  const streamGeometry = mergeGeometries(
+    streamParts.map((part) => part.geometry),
+    false,
+  );
+  const stream = new THREE.Mesh(streamGeometry, streamMaterial);
+  const streams = [stream];
+
+  stream.name = 'LowlandStreamSurface';
+  stream.renderOrder = WATER_RENDER_ORDER.surface;
+  stream.userData.waterReflectionModeCap = 1;
+  stream.userData.riverNetworkStats = mergeRiverNetworkStats(streamParts);
+  streamParts.forEach((part) => part.geometry.dispose());
+
   const lakeMaterial = createLakeSurfaceMaterial();
   const lakes = LOWLAND_LAKES.map((lake) => {
     const mesh = new THREE.Mesh(
@@ -394,7 +392,53 @@ function createLowlandWaterFeatures(terrain) {
   group.name = 'LowlandWaterFeatures';
   group.add(...streams, ...lakes);
 
-  return { group, stream: streams[0], streams, lakes };
+  return { group, stream, streams, lakes };
+}
+
+function mergeRiverNetworkStats(parts) {
+  let vertexOffset = 0;
+  let indexOffset = 0;
+  const reaches = [];
+  const junctions = [];
+
+  for (const part of parts) {
+    reaches.push(...part.stats.reaches.map((reach) => ({
+      ...reach,
+      startVertex: reach.startVertex + vertexOffset,
+      startIndex: reach.startIndex + indexOffset,
+    })));
+    junctions.push(...part.stats.junctions.map((junction) => ({
+      ...junction,
+      centerVertex: junction.centerVertex + vertexOffset,
+      boundaryVertices: junction.boundaryVertices.map((vertex) => vertex + vertexOffset),
+      startIndex: junction.startIndex + indexOffset,
+    })));
+    vertexOffset += part.stats.vertexCount;
+    indexOffset += part.stats.triangleCount * 3;
+  }
+
+  return {
+    reachCount: reaches.length,
+    junctionCount: junctions.length,
+    vertexCount: vertexOffset,
+    triangleCount: parts.reduce((total, part) => total + part.stats.triangleCount, 0),
+    stripTriangleCount: parts.reduce((total, part) => total + part.stats.stripTriangleCount, 0),
+    junctionTriangleCount: parts.reduce(
+      (total, part) => total + part.stats.junctionTriangleCount,
+      0,
+    ),
+    hiddenRowCount: parts.reduce((total, part) => total + part.stats.hiddenRowCount, 0),
+    transitionRowCount: parts.reduce(
+      (total, part) => total + part.stats.transitionRowCount,
+      0,
+    ),
+    maxTriangleBudget: parts.reduce(
+      (total, part) => total + part.stats.maxTriangleBudget,
+      0,
+    ),
+    reaches,
+    junctions,
+  };
 }
 
 function blendLowlandStreamIntoLakes(geometry) {
@@ -682,7 +726,7 @@ function writeLakeVertex(
   lakeBedVisibilities[attributeOffset] = THREE.MathUtils.clamp(bedVisibility, 0, 1);
 }
 
-function createOutletStream(terrain) {
+function createOutletStream(terrain, material) {
   const geometry = createPathStripGeometry(
     outletCurve,
     terrain,
@@ -690,18 +734,17 @@ function createOutletStream(terrain) {
     90,
     10,
     (x, z, _t, terrain) => getOutletSurfaceHeight(terrain, x, z),
-    (_x, _z, t) => smoothstep(0.08, 0.24, t),
+    (_x, _z, t) => smoothstep(0.08, 0.24, t) * (1 - smoothstep(0.93, 1, t)),
+    {
+      flowSpeed: 0.9,
+      getRapidMask: (_x, _z, t) => smoothstep(0.58, 0.94, t),
+    },
   );
-  const stream = new THREE.Mesh(geometry, createStreamMaterial({
-    shallow: WATER_SHALLOW_COLOR,
-    deep: WATER_DEEP_COLOR,
-    foam: WATER_FOAM_COLOR,
-    speed: 0.9,
-    alpha: 0.48,
-  }));
+  const stream = new THREE.Mesh(geometry, material);
 
   stream.name = 'LakeOutletStream';
   stream.renderOrder = WATER_RENDER_ORDER.surface;
+  stream.userData.waterReflectionModeCap = 1;
 
   return stream;
 }
@@ -843,15 +886,31 @@ function createPathStripGeometry(
   lateralSegments,
   getHeight,
   getFade = () => 1,
+  {
+    flowSpeed = 0.5,
+    getRapidMask = () => 0,
+    getDisturbanceMask = () => 0,
+    viewDistance = 260,
+  } = {},
 ) {
   const verticesPerRow = lateralSegments + 1;
+  const vertexCount = (longitudinalSegments + 1) * verticesPerRow;
   const positions = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 3);
   const uvs = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 2);
-  const waterFades = new Float32Array((longitudinalSegments + 1) * verticesPerRow);
+  const waterDepths = new Float32Array(vertexCount);
+  const shoreDistances = new Float32Array(vertexCount);
+  const flowSpeeds = new Float32Array(vertexCount);
+  const rapidMasks = new Float32Array(vertexCount);
+  const flowDirections = new Float32Array(vertexCount * 2);
+  const disturbanceMasks = new Float32Array(vertexCount);
+  const waterFades = new Float32Array(vertexCount);
+  const junctionMasks = new Float32Array(vertexCount);
+  const viewDistances = new Float32Array(vertexCount);
   const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
+  const pathLength = curve.getLength();
   let positionOffset = 0;
   let uvOffset = 0;
-  let fadeOffset = 0;
+  let attributeOffset = 0;
 
   for (let i = 0; i <= longitudinalSegments; i += 1) {
     const t = i / longitudinalSegments;
@@ -862,7 +921,8 @@ function createPathStripGeometry(
 
     for (let j = 0; j <= lateralSegments; j += 1) {
       const lateralT = j / lateralSegments;
-      const lateral = (lateralT - 0.5) * (width + edgeNoise);
+      const localWidth = width + edgeNoise;
+      const lateral = (lateralT - 0.5) * localWidth;
       const x = center.x + side.x * lateral;
       const z = center.z + side.z * lateral;
       const y = getHeight(x, z, t, terrain);
@@ -873,12 +933,27 @@ function createPathStripGeometry(
       positions[positionOffset + 2] = z;
       positionOffset += 3;
 
-      uvs[uvOffset] = t * 8;
+      uvs[uvOffset] = t * pathLength;
       uvs[uvOffset + 1] = lateralT;
       uvOffset += 2;
 
-      waterFades[fadeOffset] = THREE.MathUtils.clamp(fade, 0, 1);
-      fadeOffset += 1;
+      waterDepths[attributeOffset] = Math.max(y - terrain.getHeightAt(x, z), 0);
+      shoreDistances[attributeOffset] = (
+        1 - Math.abs(lateralT * 2 - 1)
+      ) * localWidth * 0.5;
+      flowSpeeds[attributeOffset] = flowSpeed;
+      rapidMasks[attributeOffset] = THREE.MathUtils.clamp(getRapidMask(x, z, t), 0, 1);
+      flowDirections[attributeOffset * 2] = tangent.x;
+      flowDirections[attributeOffset * 2 + 1] = tangent.z;
+      disturbanceMasks[attributeOffset] = THREE.MathUtils.clamp(
+        getDisturbanceMask(x, z, t),
+        0,
+        1,
+      );
+      waterFades[attributeOffset] = THREE.MathUtils.clamp(fade, 0, 1);
+      junctionMasks[attributeOffset] = 0;
+      viewDistances[attributeOffset] = viewDistance;
+      attributeOffset += 1;
     }
   }
 
@@ -903,7 +978,15 @@ function createPathStripGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('waterDepth', new THREE.BufferAttribute(waterDepths, 1));
+  geometry.setAttribute('shoreDistance', new THREE.BufferAttribute(shoreDistances, 1));
+  geometry.setAttribute('flowSpeed', new THREE.BufferAttribute(flowSpeeds, 1));
+  geometry.setAttribute('rapidMask', new THREE.BufferAttribute(rapidMasks, 1));
+  geometry.setAttribute('flowDirection', new THREE.BufferAttribute(flowDirections, 2));
+  geometry.setAttribute('disturbanceMask', new THREE.BufferAttribute(disturbanceMasks, 1));
   geometry.setAttribute('waterFade', new THREE.BufferAttribute(waterFades, 1));
+  geometry.setAttribute('junctionMask', new THREE.BufferAttribute(junctionMasks, 1));
+  geometry.setAttribute('viewDistance', new THREE.BufferAttribute(viewDistances, 1));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
@@ -1261,192 +1344,6 @@ export function createLakeSurfaceMaterial() {
         float alpha = edgeAlpha * mix(0.12, 1.0, max(depthOpacity, basinCenter * 0.4));
         alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
         alpha = max(alpha, shoreFoam * 0.28);
-
-        gl_FragColor = vec4(color, alpha);
-        ${WATER_FOG_FRAGMENT_GLSL}
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `,
-  });
-}
-
-function createStreamMaterial(options) {
-  const networkMode = options.mode === 'network';
-  const networkVertexAttributes = networkMode
-    ? `attribute float waterEdge;
-      attribute float junctionMask;
-      attribute float viewDistance;
-      varying float vWaterEdge;
-      varying float vJunctionMask;
-      varying float vViewDistance;`
-    : '';
-  const networkVertexAssignments = networkMode
-    ? `vWaterEdge = waterEdge;
-        vJunctionMask = junctionMask;
-        vViewDistance = viewDistance;`
-    : '';
-  const networkFragmentVaryings = networkMode
-    ? `varying float vWaterEdge;
-      varying float vJunctionMask;
-      varying float vViewDistance;`
-    : '';
-  const edgeExpression = networkMode
-    ? 'clamp(vWaterEdge * 0.5, 0.0, 0.5)'
-    : 'min(vUv.y, 1.0 - vUv.y)';
-  const lipExpression = networkMode
-    ? `float lipFade = 0.0;
-        float lipAlpha = 1.0;`
-    : `float lipFade = smoothstep(6.9, 8.0, vUv.x);
-        float lipAlpha = 1.0 - smoothstep(7.45, 8.0, vUv.x);`;
-  const junctionFoamExpression = networkMode
-    ? `vJunctionMask
-          * smoothstep(0.5, 0.84, fbm(vWorldPosition.xz * 0.42 - vec2(uTime * 0.16, 0.0)))
-          * 0.22`
-    : '0.0';
-  const viewDistanceFadeExpression = networkMode
-    ? `1.0 - smoothstep(
-          max(vViewDistance - 55.0, 0.0),
-          vViewDistance,
-          distance(uCameraPosition.xz, vWorldPosition.xz)
-        )`
-    : '1.0';
-
-  return new THREE.ShaderMaterial({
-    side: THREE.DoubleSide,
-    transparent: true,
-    forceSinglePass: true,
-    depthWrite: false,
-    depthTest: true,
-    uniforms: createWaterUniforms({
-      uShallowColor: { value: new THREE.Color(options.shallow) },
-      uDeepColor: { value: new THREE.Color(options.deep) },
-      uFoamColor: { value: new THREE.Color(options.foam) },
-      uFlowSpeed: { value: options.speed },
-      uBaseAlpha: { value: options.alpha },
-      uFoamStrength: { value: options.foamStrength ?? 1 },
-    }),
-    vertexShader: `
-      attribute float waterFade;
-      ${networkVertexAttributes}
-
-      varying vec2 vUv;
-      varying vec3 vWorldPosition;
-      varying float vWaterFade;
-      ${WATER_FOG_VERTEX_PARS_GLSL}
-
-      void main() {
-        vUv = uv;
-        vWaterFade = waterFade;
-        ${networkVertexAssignments}
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPosition.xyz;
-        ${WATER_FOG_VERTEX_GLSL}
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime;
-      uniform float uFlowSpeed;
-      uniform float uBaseAlpha;
-      uniform float uFoamStrength;
-      uniform vec3 uShallowColor;
-      uniform vec3 uDeepColor;
-      uniform vec3 uFoamColor;
-      uniform vec3 uReflectionColor;
-      uniform vec3 uHorizonReflectionColor;
-      uniform vec3 uBankReflectionColor;
-      uniform vec3 uSunReflectionColor;
-      uniform vec3 uSunDirection;
-      uniform vec3 uCameraPosition;
-
-      varying vec2 vUv;
-      varying vec3 vWorldPosition;
-      varying float vWaterFade;
-      ${networkFragmentVaryings}
-      ${WATER_FOG_FRAGMENT_PARS_GLSL}
-
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
-
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        vec2 u = f * f * (3.0 - 2.0 * f);
-
-        return mix(a, b, u.x)
-          + (c - a) * u.y * (1.0 - u.x)
-          + (d - b) * u.x * u.y;
-      }
-
-      float fbm(vec2 p) {
-        float value = 0.0;
-        float amplitude = 0.68;
-        for (int i = 0; i < 2; i += 1) {
-          value += noise(p) * amplitude;
-          p = p * 2.03 + vec2(11.7, 4.8);
-          amplitude *= 0.47;
-        }
-        return value;
-      }
-
-      ${WATER_DUAL_WAVE_GLSL}
-      ${WATER_REFLECTION_GLSL}
-
-      vec3 getWaterNormal(vec2 flowUv, vec2 worldUv, float strength) {
-        return getDualWaveNormal(flowUv, worldUv, uTime, strength);
-      }
-
-      void main() {
-        float edge = ${edgeExpression};
-        float viewDistanceFade = ${viewDistanceFadeExpression};
-        float center = smoothstep(0.03, 0.45, edge);
-        float localFlowSpeed = uFlowSpeed * mix(0.38, 1.0, center);
-        vec2 flowUv = vec2(vUv.x - uTime * localFlowSpeed, vUv.y);
-        ${lipExpression}
-        float streak = smoothstep(0.46, 0.88, fbm(flowUv * vec2(7.5, 26.0)));
-        float foamBand = smoothstep(0.012, 0.04, edge) * (1.0 - smoothstep(0.06, 0.16, edge));
-        float foamLarge = smoothstep(0.42, 0.78, fbm(flowUv * vec2(7.0, 34.0)));
-        float foamFine = smoothstep(0.58, 0.88, noise(flowUv * vec2(24.0, 82.0) + vec2(-uTime * 0.11, 0.0)));
-        float foamEdge = foamBand * max(foamLarge * 0.8, foamFine * 0.48) * vWaterFade;
-        float junctionFoam = ${junctionFoamExpression};
-        vec3 color = mix(uShallowColor, uDeepColor, center);
-        vec3 normal = getWaterNormal(flowUv, vWorldPosition.xz * 0.18, mix(0.58, 1.0, center));
-        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        vec3 skyReflection = getTieredWaterReflection(
-          mix(uHorizonReflectionColor, uReflectionColor, smoothstep(0.18, 0.92, normal.y)),
-          vWorldPosition,
-          normal,
-          viewDir
-        );
-        color = mix(color, skyReflection, 0.12 + fresnel * 0.32);
-        float bankNoise = fbm(vWorldPosition.xz * 0.18 + vec2(uTime * 0.018, -uTime * 0.012));
-        float bankReflection = (1.0 - center) * smoothstep(0.32, 0.86, bankNoise);
-        color = mix(color, uBankReflectionColor, bankReflection * 0.14);
-
-        vec3 lightDir = normalize(uSunDirection);
-        vec3 halfDir = normalize(lightDir + viewDir);
-        float spec = pow(max(dot(normal, halfDir), 0.0), 110.0);
-        float sparkle = smoothstep(0.52, 0.9, fbm(vWorldPosition.xz * 0.82 + vec2(-uTime * 0.34, uTime * 0.06)));
-        color += uSunReflectionColor * spec * sparkle * 0.46;
-        color = mix(
-          color,
-          uFoamColor,
-          max(max(foamEdge * 0.72, streak * 0.1 * vWaterFade), junctionFoam)
-            * uFoamStrength
-        );
-        color = mix(color, uFoamColor, lipFade * (0.28 + streak * 0.22));
-        float alpha = uBaseAlpha * smoothstep(0.012, 0.16, edge);
-        alpha = max(alpha, fresnel * 0.22 * smoothstep(0.04, 0.2, edge));
-        alpha = max(alpha, foamEdge * 0.38 * uFoamStrength);
-        alpha = max(alpha, junctionFoam * 0.24);
-        alpha *= vWaterFade * viewDistanceFade * mix(1.0, 0.42, lipFade) * lipAlpha;
 
         gl_FragColor = vec4(color, alpha);
         ${WATER_FOG_FRAGMENT_GLSL}
@@ -1830,14 +1727,22 @@ function getPathFrame(samples, x, z) {
 }
 
 function updateShaderGroup(object, camera, elapsedTime) {
-  object.traverse((child) => {
-    if (!child.material?.uniforms) return;
+  const materials = new Set();
 
-    if (child.material.uniforms.uTime) {
-      child.material.uniforms.uTime.value = elapsedTime;
+  object.traverse((child) => {
+    const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
+
+    childMaterials.forEach((material) => {
+      if (material?.uniforms) materials.add(material);
+    });
+  });
+
+  materials.forEach((material) => {
+    if (material.uniforms.uTime) {
+      material.uniforms.uTime.value = elapsedTime;
     }
-    if (child.material.uniforms.uCameraPosition) {
-      child.material.uniforms.uCameraPosition.value.copy(camera.position);
+    if (material.uniforms.uCameraPosition) {
+      material.uniforms.uCameraPosition.value.copy(camera.position);
     }
   });
 }

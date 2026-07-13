@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { RIVER_NETWORK } from './riverNetwork.js';
 
 const MAX_TRIANGLES = 12000;
-const METERS_PER_U = 24;
 const SLOPE_FADE_START = 18;
 const SLOPE_HIDDEN = 32;
 const STYLE_TESSELLATION = {
+  trunk: { spacing: 0.75, lateralSegments: 8 },
   headwater: { spacing: 2.5, lateralSegments: 3 },
   collector: { spacing: 2, lateralSegments: 4 },
   'lake-outlet': { spacing: 1.75, lateralSegments: 4 },
@@ -13,16 +13,26 @@ const STYLE_TESSELLATION = {
 };
 const DEFAULT_TESSELLATION = { spacing: 2, lateralSegments: 4 };
 const STYLE_VIEW_DISTANCE = {
+  trunk: 300,
   headwater: 180,
   collector: 260,
   'lake-outlet': 260,
   'lake-inlet': 300,
 };
 const DEFAULT_VIEW_DISTANCE = 260;
+const CONFLUENCE_ARM_CLEARANCE = 0.75;
+const CONFLUENCE_TRIM_STEP = 1;
+const CONFLUENCE_ARC_STEP = Math.PI / 24;
+const CONFLUENCE_SHOULDER_ANGLE = Math.PI / 10;
+const CONFLUENCE_RADIAL_SPACING = 4;
+const MAX_CONFLUENCE_RADIAL_SEGMENTS = 6;
 
-export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK) {
+export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain) {
   if (!network?.reaches?.length || !network.nodeById) {
     throw new Error('Compiled river network is required to build water geometry.');
+  }
+  if (terrain && typeof terrain.getHeightAt !== 'function') {
+    throw new Error('River water terrain must provide getHeightAt(x, z).');
   }
 
   const data = {
@@ -32,6 +42,12 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK) {
     waterEdges: [],
     junctionMasks: [],
     viewDistances: [],
+    waterDepths: [],
+    shoreDistances: [],
+    flowSpeeds: [],
+    rapidMasks: [],
+    flowDirections: [],
+    disturbanceMasks: [],
     indices: [],
   };
   const confluenceEndpoints = new Map();
@@ -79,16 +95,26 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK) {
       for (let lateralIndex = 0; lateralIndex <= tessellation.lateralSegments; lateralIndex += 1) {
         const lateralT = lateralIndex / tessellation.lateralSegments;
         const lateral = (lateralT - 0.5) * frame.width;
+        const x = frame.x + sideX * lateral;
+        const z = frame.z + sideZ * lateral;
+        const waterEdge = 1 - Math.abs(lateralT * 2 - 1);
         const vertexIndex = pushVertex(data, {
-          x: frame.x + sideX * lateral,
+          x,
           y: frame.waterLevel,
-          z: frame.z + sideZ * lateral,
-          u: (nodeFlowCoordinates.get(reach.from) + distance) / METERS_PER_U,
+          z,
+          u: nodeFlowCoordinates.get(reach.from) + distance,
           v: lateralT,
           waterFade: rowFade,
-          waterEdge: 1 - Math.abs(lateralT * 2 - 1),
+          waterEdge,
           junctionMask: 0,
           viewDistance,
+          waterDepth: getWaterDepth(frame, waterEdge, x, z, terrain),
+          shoreDistance: frame.width * 0.5 * waterEdge,
+          flowSpeed: frame.flowSpeed,
+          rapidMask: frame.rapidMask,
+          flowDirectionX: tangent.x,
+          flowDirectionZ: tangent.z,
+          disturbanceMask: getDisturbanceMask(reach, distance, lateral, frame.width),
         });
 
         rowVertices.push(vertexIndex);
@@ -157,6 +183,7 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK) {
     network,
     confluenceEndpoints,
     nodeFlowCoordinates,
+    terrain,
   );
   const triangleCount = data.indices.length / 3;
 
@@ -172,6 +199,15 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK) {
   geometry.setAttribute('waterEdge', new THREE.Float32BufferAttribute(data.waterEdges, 1));
   geometry.setAttribute('junctionMask', new THREE.Float32BufferAttribute(data.junctionMasks, 1));
   geometry.setAttribute('viewDistance', new THREE.Float32BufferAttribute(data.viewDistances, 1));
+  geometry.setAttribute('waterDepth', new THREE.Float32BufferAttribute(data.waterDepths, 1));
+  geometry.setAttribute('shoreDistance', new THREE.Float32BufferAttribute(data.shoreDistances, 1));
+  geometry.setAttribute('flowSpeed', new THREE.Float32BufferAttribute(data.flowSpeeds, 1));
+  geometry.setAttribute('rapidMask', new THREE.Float32BufferAttribute(data.rapidMasks, 1));
+  geometry.setAttribute('flowDirection', new THREE.Float32BufferAttribute(data.flowDirections, 2));
+  geometry.setAttribute(
+    'disturbanceMask',
+    new THREE.Float32BufferAttribute(data.disturbanceMasks, 1),
+  );
   geometry.setIndex(data.indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
@@ -209,7 +245,7 @@ function createReachTrims(network) {
 
       return atStart ? reach.samples[0].width : reach.samples.at(-1).width;
     }));
-    const trimRadius = Math.max(4, maxWidth * 1.5);
+    const trimRadius = Math.max(4, node.poolRadius ?? maxWidth * (node.poolWidthScale ?? 1.5));
 
     for (const reach of connected) {
       const reachTrim = trims.get(reach.id);
@@ -233,6 +269,8 @@ function createReachTrims(network) {
     }
   }
 
+  separateConfluenceEndpointRows(network, trims);
+
   for (const reach of network.reaches) {
     const trim = trims.get(reach.id);
     const length = getReachLength(reach);
@@ -248,7 +286,117 @@ function createReachTrims(network) {
   return trims;
 }
 
-function createJunctionPatches(data, network, confluenceEndpoints, nodeFlowCoordinates) {
+function separateConfluenceEndpointRows(network, trims) {
+  const confluences = network.definition.nodes.filter((entry) => entry.type === 'confluence');
+
+  for (const node of confluences) {
+    const authoredReaches = [
+      ...(network.incomingByNode.get(node.id) ?? []),
+      ...(network.outgoingByNode.get(node.id) ?? []),
+    ];
+    const connected = authoredReaches.map((reach) => network.reachById.get(reach.id));
+
+    for (let iteration = 0; iteration < 64; iteration += 1) {
+      const endpoints = connected.map((reach) => getTrimmedEndpointDescriptor(
+        node,
+        reach,
+        trims.get(reach.id),
+      ));
+      const conflicting = new Set();
+
+      for (let left = 0; left < endpoints.length - 1; left += 1) {
+        for (let right = left + 1; right < endpoints.length; right += 1) {
+          if (!endpointRowsConflict(endpoints[left], endpoints[right])) continue;
+
+          conflicting.add(endpoints[left]);
+          conflicting.add(endpoints[right]);
+        }
+      }
+
+      if (conflicting.size === 0) break;
+
+      let adjusted = false;
+
+      for (const endpoint of conflicting) {
+        const trim = trims.get(endpoint.reach.id);
+        const current = endpoint.end === 'start' ? trim.start : trim.end;
+        const opposite = endpoint.end === 'start' ? trim.end : trim.start;
+        const length = getReachLength(endpoint.reach);
+        const maximum = Math.max(0, Math.min(
+          length * 0.45,
+          length * 0.7 - opposite,
+        ));
+        const next = Math.min(current + CONFLUENCE_TRIM_STEP, maximum);
+
+        if (next <= current + 1e-6) continue;
+
+        trim[endpoint.end] = next;
+        adjusted = true;
+      }
+
+      if (!adjusted) break;
+    }
+  }
+}
+
+function getTrimmedEndpointDescriptor(node, reach, trim) {
+  const end = reach.from === node.id ? 'start' : 'end';
+  const distance = end === 'start'
+    ? trim.start
+    : getReachLength(reach) - trim.end;
+  const frame = sampleReachAtDistance(reach, distance);
+  const tangent = getReachTangent(reach, distance);
+  const sideX = -tangent.z;
+  const sideZ = tangent.x;
+  const halfWidth = frame.width * 0.5;
+  const centerAngle = Math.atan2(
+    frame.z - node.position[1],
+    frame.x - node.position[0],
+  );
+  const edgeAngles = [-1, 1].map((side) => Math.atan2(
+    frame.z + sideZ * halfWidth * side - node.position[1],
+    frame.x + sideX * halfWidth * side - node.position[0],
+  ));
+
+  return {
+    reach,
+    end,
+    frame,
+    centerAngle,
+    centerRadius: Math.hypot(
+      frame.x - node.position[0],
+      frame.z - node.position[1],
+    ),
+    halfAngle: Math.max(
+      ...edgeAngles.map((angle) => Math.abs(normalizeAngleDelta(angle - centerAngle))),
+    ),
+  };
+}
+
+function endpointRowsConflict(a, b) {
+  const centerSeparation = Math.hypot(
+    a.frame.x - b.frame.x,
+    a.frame.z - b.frame.z,
+  );
+  const requiredSeparation = (a.frame.width + b.frame.width) * 0.5
+    + CONFLUENCE_ARM_CLEARANCE;
+  const angleSeparation = Math.abs(normalizeAngleDelta(a.centerAngle - b.centerAngle));
+  const angularClearance = Math.atan2(
+    CONFLUENCE_ARM_CLEARANCE,
+    Math.max(Math.min(a.centerRadius, b.centerRadius), 1e-6),
+  );
+
+  return centerSeparation < requiredSeparation
+    || angleSeparation < a.halfAngle + b.halfAngle + angularClearance;
+}
+
+function createJunctionPatches(
+  data,
+  network,
+  confluenceEndpoints,
+  nodeFlowCoordinates,
+  terrain,
+) {
   const stats = [];
 
   for (const node of network.definition.nodes.filter((entry) => entry.type === 'confluence')) {
@@ -258,35 +406,72 @@ function createJunctionPatches(data, network, confluenceEndpoints, nodeFlowCoord
       throw new Error(`River confluence ${node.id} requires three trimmed water reaches.`);
     }
 
-    const boundaryVertices = endpoints
-      .flatMap((endpoint) => endpoint.vertices)
-      .sort((a, b) => getVertexAngle(data, a, node) - getVertexAngle(data, b, node));
     const startIndex = data.indices.length;
     const centerFade = Math.max(...endpoints.map((endpoint) => endpoint.waterFade));
     const viewDistance = Math.max(...endpoints.map((endpoint) => endpoint.viewDistance));
+    const outgoingDefinition = network.outgoingByNode.get(node.id)?.[0];
+    const outgoingReach = network.reachById.get(outgoingDefinition?.id);
+
+    if (!outgoingReach) {
+      throw new Error(`River confluence ${node.id} requires one downstream reach.`);
+    }
+
+    const outgoingFrame = sampleReachAtDistance(outgoingReach, 0);
+    const outgoingDirection = getReachTangent(outgoingReach, 0);
+    const centerDepth = node.poolDepth ?? outgoingFrame.depth;
+    const centerShoreDistance = node.poolRadius
+      ?? outgoingFrame.width * (node.poolWidthScale ?? 1.5) * 0.5;
+    const firstPatchVertex = getVertexCount(data);
     const centerVertex = pushVertex(data, {
       x: node.position[0],
       y: node.waterLevel,
       z: node.position[1],
-      u: nodeFlowCoordinates.get(node.id) / METERS_PER_U,
+      u: nodeFlowCoordinates.get(node.id),
       v: 0.5,
       waterFade: centerFade,
       waterEdge: 1,
       junctionMask: 1,
       viewDistance,
+      waterDepth: terrain
+        ? Math.max(node.waterLevel - terrain.getHeightAt(node.position[0], node.position[1]), 0)
+        : centerDepth,
+      shoreDistance: centerShoreDistance,
+      flowSpeed: node.poolDepth ? outgoingFrame.flowSpeed * 0.55 : outgoingFrame.flowSpeed,
+      rapidMask: outgoingFrame.rapidMask,
+      flowDirectionX: outgoingDirection.x,
+      flowDirectionZ: outgoingDirection.z,
+      disturbanceMask: 0,
     });
+    const boundary = createJunctionBoundary(data, node, endpoints, {
+      u: nodeFlowCoordinates.get(node.id),
+      waterFade: centerFade,
+      viewDistance,
+      waterDepth: centerDepth,
+      flowSpeed: node.poolDepth ? outgoingFrame.flowSpeed * 0.55 : outgoingFrame.flowSpeed,
+      rapidMask: outgoingFrame.rapidMask,
+      flowDirectionX: outgoingDirection.x,
+      flowDirectionZ: outgoingDirection.z,
+    }, terrain);
+    const radialSegments = createJunctionRadialMesh(
+      data,
+      centerVertex,
+      boundary.vertices,
+      outgoingDirection,
+    );
 
-    for (let index = 0; index < boundaryVertices.length; index += 1) {
-      const current = boundaryVertices[index];
-      const next = boundaryVertices[(index + 1) % boundaryVertices.length];
-
-      pushUpwardTriangle(data, centerVertex, current, next);
-    }
+    const patchVertexCount = getVertexCount(data) - firstPatchVertex;
 
     stats.push({
       nodeId: node.id,
       centerVertex,
-      boundaryVertices,
+      boundaryVertices: boundary.vertices,
+      endpointBoundaryVertexCount: boundary.endpointVertexCount,
+      coreBoundaryVertexCount: boundary.coreVertices.length,
+      coreRadius: boundary.coreRadius,
+      maxBoundaryAngleStep: boundary.maxAngleStep,
+      radialSegments,
+      firstPatchVertex,
+      patchVertexCount,
       startIndex,
       indexCount: data.indices.length - startIndex,
       triangleCount: (data.indices.length - startIndex) / 3,
@@ -294,6 +479,283 @@ function createJunctionPatches(data, network, confluenceEndpoints, nodeFlowCoord
   }
 
   return stats;
+}
+
+function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
+  const arms = orderEndpointArms(data, node, endpoints);
+  const minimumEndpointRadius = Math.min(...arms.map((arm) => arm.centerRadius));
+  const maximumWidth = Math.max(...arms.map((arm) => arm.width));
+  const desiredCoreRadius = node.poolRadius !== undefined
+    ? node.poolRadius * 0.58
+    : Math.max(1.5, maximumWidth * 0.72);
+  const coreRadius = Math.max(1, Math.min(
+    desiredCoreRadius,
+    minimumEndpointRadius * 0.7,
+  ));
+  const vertices = [];
+  const coreVertices = [];
+
+  for (let armIndex = 0; armIndex < arms.length; armIndex += 1) {
+    const arm = arms[armIndex];
+    const next = arms[(armIndex + 1) % arms.length];
+    const nextStartAngle = armIndex === arms.length - 1
+      ? next.startAngle + Math.PI * 2
+      : next.startAngle;
+    const gap = Math.max(nextStartAngle - arm.endAngle, 0);
+    const gapSegments = Math.max(1, Math.ceil(gap / CONFLUENCE_ARC_STEP));
+    const startRadius = getVertexRadius(data, arm.vertices.at(-1), node);
+    const endRadius = getVertexRadius(data, next.vertices[0], node);
+
+    vertices.push(...arm.vertices);
+
+    for (let segment = 1; segment < gapSegments; segment += 1) {
+      const gapT = segment / gapSegments;
+      const angle = arm.endAngle + gap * gapT;
+      const fromStart = gap * gapT;
+      const fromEnd = gap * (1 - gapT);
+      const startShoulder = 1 - smoothstep(
+        0,
+        Math.min(CONFLUENCE_SHOULDER_ANGLE, gap * 0.45),
+        fromStart,
+      );
+      const endShoulder = 1 - smoothstep(
+        0,
+        Math.min(CONFLUENCE_SHOULDER_ANGLE, gap * 0.45),
+        fromEnd,
+      );
+      const radius = Math.max(
+        coreRadius,
+        THREE.MathUtils.lerp(coreRadius, startRadius, startShoulder),
+        THREE.MathUtils.lerp(coreRadius, endRadius, endShoulder),
+      );
+      const x = node.position[0] + Math.cos(angle) * radius;
+      const z = node.position[1] + Math.sin(angle) * radius;
+      const vertex = pushVertex(data, {
+        x,
+        y: node.waterLevel,
+        z,
+        u: attributes.u,
+        v: 0.5,
+        waterFade: attributes.waterFade,
+        waterEdge: 0,
+        junctionMask: 1,
+        viewDistance: attributes.viewDistance,
+        waterDepth: terrain
+          ? Math.max(node.waterLevel - terrain.getHeightAt(x, z), 0)
+          : attributes.waterDepth * 0.2,
+        shoreDistance: 0,
+        flowSpeed: attributes.flowSpeed,
+        rapidMask: attributes.rapidMask,
+        flowDirectionX: attributes.flowDirectionX,
+        flowDirectionZ: attributes.flowDirectionZ,
+        disturbanceMask: 0,
+      });
+
+      vertices.push(vertex);
+      coreVertices.push(vertex);
+    }
+  }
+
+  return {
+    vertices,
+    coreVertices,
+    coreRadius,
+    endpointVertexCount: endpoints.reduce((count, endpoint) => count + endpoint.vertices.length, 0),
+    maxAngleStep: getMaximumBoundaryAngleStep(data, vertices, node),
+  };
+}
+
+function orderEndpointArms(data, node, endpoints) {
+  const arms = endpoints.map((endpoint) => {
+    const center = endpoint.vertices.reduce((sum, vertex) => ({
+      x: sum.x + data.positions[vertex * 3],
+      z: sum.z + data.positions[vertex * 3 + 2],
+    }), { x: 0, z: 0 });
+
+    center.x /= endpoint.vertices.length;
+    center.z /= endpoint.vertices.length;
+
+    return {
+      endpoint,
+      center,
+      centerAngle: normalizePositiveAngle(Math.atan2(
+        center.z - node.position[1],
+        center.x - node.position[0],
+      )),
+    };
+  }).sort((a, b) => a.centerAngle - b.centerAngle);
+  let largestGap = -Infinity;
+  let cutAngle = 0;
+
+  for (let index = 0; index < arms.length; index += 1) {
+    const current = arms[index].centerAngle;
+    const next = index === arms.length - 1
+      ? arms[0].centerAngle + Math.PI * 2
+      : arms[index + 1].centerAngle;
+    const gap = next - current;
+
+    if (gap <= largestGap) continue;
+
+    largestGap = gap;
+    cutAngle = current + gap * 0.5;
+  }
+
+  for (const arm of arms) {
+    arm.centerAngle = unwrapAngle(arm.centerAngle, cutAngle);
+    const ordered = arm.endpoint.vertices.map((vertex) => {
+      const rawAngle = Math.atan2(
+        data.positions[vertex * 3 + 2] - node.position[1],
+        data.positions[vertex * 3] - node.position[0],
+      );
+
+      return {
+        vertex,
+        angle: arm.centerAngle + normalizeAngleDelta(rawAngle - arm.centerAngle),
+      };
+    }).sort((a, b) => a.angle - b.angle);
+
+    arm.vertices = ordered.map((entry) => entry.vertex);
+    arm.startAngle = ordered[0].angle;
+    arm.endAngle = ordered.at(-1).angle;
+    arm.centerRadius = Math.hypot(
+      arm.center.x - node.position[0],
+      arm.center.z - node.position[1],
+    );
+    arm.width = arm.endpoint.frame.width;
+  }
+
+  arms.sort((a, b) => a.centerAngle - b.centerAngle);
+
+  return arms;
+}
+
+function createJunctionRadialMesh(data, centerVertex, boundaryVertices, outgoingDirection) {
+  const centerX = data.positions[centerVertex * 3];
+  const centerZ = data.positions[centerVertex * 3 + 2];
+  const maximumRadius = Math.max(...boundaryVertices.map((vertex) => Math.hypot(
+    data.positions[vertex * 3] - centerX,
+    data.positions[vertex * 3 + 2] - centerZ,
+  )));
+  const radialSegments = THREE.MathUtils.clamp(
+    Math.ceil(maximumRadius / CONFLUENCE_RADIAL_SPACING),
+    2,
+    MAX_CONFLUENCE_RADIAL_SEGMENTS,
+  );
+  let previousRing = null;
+
+  for (let radialIndex = 1; radialIndex < radialSegments; radialIndex += 1) {
+    const radialT = radialIndex / radialSegments;
+    const ring = boundaryVertices.map((boundaryVertex) => pushInterpolatedJunctionVertex(
+      data,
+      centerVertex,
+      boundaryVertex,
+      radialT,
+      outgoingDirection,
+    ));
+
+    if (!previousRing) {
+      for (let index = 0; index < ring.length; index += 1) {
+        pushUpwardTriangle(data, centerVertex, ring[index], ring[(index + 1) % ring.length]);
+      }
+    } else {
+      connectJunctionRings(data, previousRing, ring);
+    }
+
+    previousRing = ring;
+  }
+
+  connectJunctionRings(data, previousRing, boundaryVertices);
+
+  return radialSegments;
+}
+
+function connectJunctionRings(data, inner, outer) {
+  for (let index = 0; index < inner.length; index += 1) {
+    const next = (index + 1) % inner.length;
+
+    pushUpwardTriangle(data, inner[index], inner[next], outer[index]);
+    pushUpwardTriangle(data, inner[next], outer[next], outer[index]);
+  }
+}
+
+function pushInterpolatedJunctionVertex(
+  data,
+  centerVertex,
+  boundaryVertex,
+  t,
+  outgoingDirection,
+) {
+  const centerPosition = centerVertex * 3;
+  const boundaryPosition = boundaryVertex * 3;
+  const centerUv = centerVertex * 2;
+  const boundaryUv = boundaryVertex * 2;
+
+  return pushVertex(data, {
+    x: THREE.MathUtils.lerp(
+      data.positions[centerPosition],
+      data.positions[boundaryPosition],
+      t,
+    ),
+    y: THREE.MathUtils.lerp(
+      data.positions[centerPosition + 1],
+      data.positions[boundaryPosition + 1],
+      t,
+    ),
+    z: THREE.MathUtils.lerp(
+      data.positions[centerPosition + 2],
+      data.positions[boundaryPosition + 2],
+      t,
+    ),
+    u: THREE.MathUtils.lerp(data.uvs[centerUv], data.uvs[boundaryUv], t),
+    v: THREE.MathUtils.lerp(data.uvs[centerUv + 1], data.uvs[boundaryUv + 1], t),
+    waterFade: THREE.MathUtils.lerp(
+      data.waterFades[centerVertex],
+      data.waterFades[boundaryVertex],
+      t,
+    ),
+    waterEdge: THREE.MathUtils.lerp(
+      data.waterEdges[centerVertex],
+      data.waterEdges[boundaryVertex],
+      t,
+    ),
+    junctionMask: THREE.MathUtils.lerp(
+      data.junctionMasks[centerVertex],
+      data.junctionMasks[boundaryVertex],
+      t,
+    ),
+    viewDistance: THREE.MathUtils.lerp(
+      data.viewDistances[centerVertex],
+      data.viewDistances[boundaryVertex],
+      t,
+    ),
+    waterDepth: THREE.MathUtils.lerp(
+      data.waterDepths[centerVertex],
+      data.waterDepths[boundaryVertex],
+      t,
+    ),
+    shoreDistance: THREE.MathUtils.lerp(
+      data.shoreDistances[centerVertex],
+      data.shoreDistances[boundaryVertex],
+      t,
+    ),
+    flowSpeed: THREE.MathUtils.lerp(
+      data.flowSpeeds[centerVertex],
+      data.flowSpeeds[boundaryVertex],
+      t,
+    ),
+    rapidMask: THREE.MathUtils.lerp(
+      data.rapidMasks[centerVertex],
+      data.rapidMasks[boundaryVertex],
+      t,
+    ),
+    flowDirectionX: outgoingDirection.x,
+    flowDirectionZ: outgoingDirection.z,
+    disturbanceMask: THREE.MathUtils.lerp(
+      data.disturbanceMasks[centerVertex],
+      data.disturbanceMasks[boundaryVertex],
+      t,
+    ),
+  });
 }
 
 function createNodeFlowCoordinates(network) {
@@ -325,6 +787,7 @@ function addConfluenceEndpoint(target, node, reach, end, row) {
   endpoints.push({
     reachId: reach.id,
     end,
+    frame: row.frame,
     vertices: row.vertices,
     waterFade: row.waterFade,
     viewDistance: row.viewDistance,
@@ -411,6 +874,9 @@ function sampleReachAtDistance(reach, distance) {
     z: THREE.MathUtils.lerp(start.point.z, end.point.z, t),
     waterLevel: THREE.MathUtils.lerp(start.waterLevel, end.waterLevel, t),
     width: THREE.MathUtils.lerp(start.width, end.width, t),
+    depth: THREE.MathUtils.lerp(start.depth ?? 0.5, end.depth ?? 0.5, t),
+    flowSpeed: THREE.MathUtils.lerp(start.flowSpeed ?? 1, end.flowSpeed ?? 1, t),
+    rapidMask: THREE.MathUtils.lerp(start.rapidMask ?? 0, end.rapidMask ?? 0, t),
   };
 }
 
@@ -420,7 +886,36 @@ function sampleToFrame(sample) {
     z: sample.point.z,
     waterLevel: sample.waterLevel,
     width: sample.width,
+    depth: sample.depth ?? 0.5,
+    flowSpeed: sample.flowSpeed ?? 1,
+    rapidMask: sample.rapidMask ?? 0,
   };
+}
+
+function getWaterDepth(frame, waterEdge, x, z, terrain) {
+  if (terrain) return Math.max(frame.waterLevel - terrain.getHeightAt(x, z), 0);
+
+  return Math.max(frame.depth * THREE.MathUtils.lerp(0.2, 1, waterEdge), 0);
+}
+
+function getDisturbanceMask(reach, distance, lateral, width) {
+  let mask = 0;
+
+  for (const disturbance of reach.disturbances ?? []) {
+    const along = distance - disturbance.distanceM;
+    const alongExtent = along < 0 ? disturbance.radius : disturbance.radius * 3;
+    const alongMask = 1 - smoothstep(0, alongExtent, Math.abs(along));
+    const disturbanceLateral = disturbance.lateral * width * 0.5;
+    const lateralMask = 1 - smoothstep(
+      0,
+      disturbance.radius,
+      Math.abs(lateral - disturbanceLateral),
+    );
+
+    mask = Math.max(mask, disturbance.strength * alongMask * lateralMask);
+  }
+
+  return THREE.MathUtils.clamp(mask, 0, 1);
 }
 
 function getReachLength(reach) {
@@ -436,6 +931,12 @@ function pushVertex(data, vertex) {
   data.waterEdges.push(vertex.waterEdge);
   data.junctionMasks.push(vertex.junctionMask);
   data.viewDistances.push(vertex.viewDistance);
+  data.waterDepths.push(vertex.waterDepth);
+  data.shoreDistances.push(vertex.shoreDistance);
+  data.flowSpeeds.push(vertex.flowSpeed);
+  data.rapidMasks.push(vertex.rapidMask);
+  data.flowDirections.push(vertex.flowDirectionX, vertex.flowDirectionZ);
+  data.disturbanceMasks.push(vertex.disturbanceMask);
 
   return index;
 }
@@ -459,11 +960,51 @@ function getTriangleCrossY(positions, a, b, c) {
   return abZ * acX - abX * acZ;
 }
 
-function getVertexAngle(data, vertexIndex, node) {
-  const x = data.positions[vertexIndex * 3];
-  const z = data.positions[vertexIndex * 3 + 2];
+function getVertexRadius(data, vertexIndex, node) {
+  return Math.hypot(
+    data.positions[vertexIndex * 3] - node.position[0],
+    data.positions[vertexIndex * 3 + 2] - node.position[1],
+  );
+}
 
-  return Math.atan2(z - node.position[1], x - node.position[0]);
+function getMaximumBoundaryAngleStep(data, vertices, node) {
+  let maximum = 0;
+
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = Math.atan2(
+      data.positions[vertices[index] * 3 + 2] - node.position[1],
+      data.positions[vertices[index] * 3] - node.position[0],
+    );
+    const next = Math.atan2(
+      data.positions[vertices[(index + 1) % vertices.length] * 3 + 2] - node.position[1],
+      data.positions[vertices[(index + 1) % vertices.length] * 3] - node.position[0],
+    );
+
+    maximum = Math.max(maximum, normalizePositiveAngle(next - current));
+  }
+
+  return maximum;
+}
+
+function normalizePositiveAngle(angle) {
+  const fullTurn = Math.PI * 2;
+
+  return ((angle % fullTurn) + fullTurn) % fullTurn;
+}
+
+function normalizeAngleDelta(angle) {
+  const normalized = normalizePositiveAngle(angle + Math.PI) - Math.PI;
+
+  return normalized <= -Math.PI ? Math.PI : normalized;
+}
+
+function unwrapAngle(angle, cutAngle) {
+  let unwrapped = angle;
+
+  while (unwrapped < cutAngle) unwrapped += Math.PI * 2;
+  while (unwrapped >= cutAngle + Math.PI * 2) unwrapped -= Math.PI * 2;
+
+  return unwrapped;
 }
 
 function getVertexCount(data) {

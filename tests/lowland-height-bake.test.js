@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { CatmullRomCurve3, Vector3 } from 'three';
 import {
+  HERO_RIVER_NETWORK_DEFINITION,
   LOWLAND_BAKE_COUNTS,
   LOWLAND_HEIGHT_SETTINGS,
   LOWLAND_HILLS,
@@ -13,6 +15,8 @@ import {
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
   getBakedLowlandHeight,
+  getHeroRiverCorridorFrame,
+  getHeroRiverTerrainTarget,
   getLowlandPlanStatistics,
   getLowlandTerrainHeight,
   getLowlandWaterTerrainTarget,
@@ -38,6 +42,9 @@ test('shared lowland plan preserves ten hills and adds the locked regional count
     southernLakes: 4,
     streamBasins: 3,
     streamReaches: 5,
+    heroRiverReaches: 5,
+    heroRiverConfluences: 2,
+    heroRiverDisturbances: 9,
   });
 
   const additions = LOWLAND_HILLS.filter((hill) => hill.region !== 'preserved');
@@ -158,6 +165,276 @@ test('three stream basins use the locked lake levels and never rise downstream',
   }
 });
 
+test('hero river is a frozen five-reach DAG with the locked confluences and profiles', () => {
+  const network = HERO_RIVER_NETWORK_DEFINITION;
+  const nodeById = new Map(network.nodes.map((node) => [node.id, node]));
+  const incoming = new Map(network.nodes.map((node) => [node.id, []]));
+  const outgoing = new Map(network.nodes.map((node) => [node.id, []]));
+
+  assert.equal(Object.isFrozen(network), true);
+  assert.equal(network.terminalLakeId, 'terminal-lake');
+  assert.deepEqual(network.reaches.map((reach) => reach.id), [
+    'hero-main-upper',
+    'hero-main-middle',
+    'hero-main-lower',
+    'hero-west-tributary',
+    'hero-east-tributary',
+  ]);
+
+  for (const reach of network.reaches) {
+    const from = nodeById.get(reach.from);
+    const to = nodeById.get(reach.to);
+
+    assert.ok(from, `${reach.id} has no source node`);
+    assert.ok(to, `${reach.id} has no target node`);
+    assert.deepEqual(reach.points[0], from.position);
+    assert.deepEqual(reach.points.at(-1), to.position);
+    assert.equal(reach.waterLevels[0], from.waterLevel);
+    assert.equal(reach.waterLevels.at(-1), to.waterLevel);
+    incoming.get(reach.to).push(reach.id);
+    outgoing.get(reach.from).push(reach.id);
+
+    for (let index = 1; index < reach.waterLevels.length; index += 1) {
+      assert.ok(reach.waterLevels[index] <= reach.waterLevels[index - 1]);
+    }
+  }
+
+  assert.deepEqual(incoming.get('hero-j1').sort(), [
+    'hero-main-upper',
+    'hero-west-tributary',
+  ]);
+  assert.deepEqual(incoming.get('hero-j2').sort(), [
+    'hero-east-tributary',
+    'hero-main-middle',
+  ]);
+  assert.deepEqual(outgoing.get('hero-j1'), ['hero-main-middle']);
+  assert.deepEqual(outgoing.get('hero-j2'), ['hero-main-lower']);
+  assert.deepEqual(
+    network.nodes.filter((node) => outgoing.get(node.id).length === 0).map((node) => node.id),
+    ['terminal-lake'],
+  );
+
+  assert.deepEqual(network.confluences, [
+    {
+      id: 'hero-j1', position: [575, -336], waterLevel: 2.2,
+      incoming: ['hero-main-upper', 'hero-west-tributary'], outgoing: 'hero-main-middle',
+      poolRadius: 10, poolDepth: 1.5, poolWidthScale: 1.4,
+    },
+    {
+      id: 'hero-j2', position: [633, -349], waterLevel: 1.88,
+      incoming: ['hero-main-middle', 'hero-east-tributary'], outgoing: 'hero-main-lower',
+      poolRadius: 12, poolDepth: 1.35, poolWidthScale: 1.5,
+    },
+  ]);
+
+  const profiles = network.reaches.map((reach) => ({
+    id: reach.id,
+    width: reach.width,
+    depth: reach.depth,
+    wet: reach.wetBankWidth,
+    gravel: reach.gravelBankWidth,
+    blend: reach.terrainBlendWidth,
+    flow: reach.flowSpeed,
+  }));
+
+  assert.deepEqual(profiles, [
+    { id: 'hero-main-upper', width: [5.2, 7], depth: [0.8, 1], wet: [1.2, 1.8], gravel: [2, 8], blend: [5, 5], flow: [0.55, 0.75] },
+    { id: 'hero-main-middle', width: [7, 8.2], depth: [1, 1.15], wet: [1.8, 2], gravel: [8, 10], blend: [5, 5], flow: [0.65, 0.8] },
+    { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.15, 1], wet: [2, 1.5], gravel: [10, 6], blend: [5, 5], flow: [0.7, 0.55] },
+    { id: 'hero-west-tributary', width: [2, 3.3], depth: [0.35, 0.65], wet: [0.7, 1.2], gravel: [3, 5], blend: [3, 3], flow: [0.75, 1] },
+    { id: 'hero-east-tributary', width: [2.2, 3.6], depth: [0.4, 0.75], wet: [0.8, 1.3], gravel: [3.5, 5.5], blend: [3, 3], flow: [0.7, 1] },
+  ]);
+});
+
+test('hero river disturbances are fixed, sparse, and avoid both scour-pool cores', () => {
+  const nodeById = new Map(
+    HERO_RIVER_NETWORK_DEFINITION.nodes.map((node) => [node.id, node]),
+  );
+  const expectedCounts = [3, 2, 1, 1, 2];
+  const allowedModels = new Set(['rock_02.glb', 'rock_05.glb', 'rock_08.glb']);
+
+  assert.deepEqual(
+    HERO_RIVER_NETWORK_DEFINITION.reaches.map((reach) => reach.disturbances.length),
+    expectedCounts,
+  );
+
+  for (const reach of HERO_RIVER_NETWORK_DEFINITION.reaches) {
+    const length = createReachCurve(reach).getLength();
+    const from = nodeById.get(reach.from);
+    const to = nodeById.get(reach.to);
+
+    for (let index = 0; index < reach.disturbances.length; index += 1) {
+      const disturbance = reach.disturbances[index];
+
+      assert.ok(disturbance.distanceM >= 0 && disturbance.distanceM <= length);
+      assert.ok(disturbance.lateral >= -1 && disturbance.lateral <= 1);
+      assert.ok(disturbance.radius > 0);
+      assert.ok(disturbance.strength >= 0 && disturbance.strength <= 1);
+      assert.ok(allowedModels.has(disturbance.model));
+      assert.ok(disturbance.height >= 1.1 && disturbance.height <= 2);
+      assert.ok(Number.isFinite(disturbance.yaw));
+      const point = getReachPointAtDistance(reach, disturbance.distanceM);
+      const centerFrame = getHeroRiverCorridorFrame(point.x, point.z);
+      const disturbanceFrame = getHeroRiverCorridorFrame(
+        centerFrame.center.x
+          + centerFrame.side.x * disturbance.lateral * centerFrame.waterWidth * 0.5,
+        centerFrame.center.z
+          + centerFrame.side.z * disturbance.lateral * centerFrame.waterWidth * 0.5,
+      );
+
+      assert.ok(disturbanceFrame.disturbanceMask >= disturbance.strength * 0.8);
+      if (index > 0) {
+        assert.ok(
+          disturbance.distanceM - reach.disturbances[index - 1].distanceM >= 18,
+          `${reach.id} disturbance spacing is too small`,
+        );
+      }
+      if (from.type === 'confluence') assert.ok(disturbance.distanceM > from.poolRadius);
+      if (to.type === 'confluence') assert.ok(length - disturbance.distanceM > to.poolRadius);
+    }
+  }
+});
+
+test('hero river corridor shares layered bed, wet bank, gravel bank, and blend targets', () => {
+  const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
+  const point = getReachPointAtDistance(reach, 80);
+  const centerFrame = getHeroRiverCorridorFrame(8, point.x, point.z);
+
+  assert.equal(centerFrame.reachId, reach.id);
+  assert.ok(centerFrame.waterDepth > centerFrame.edgeDepth);
+  assert.ok(Math.abs(centerFrame.thalwegOffset) <= centerFrame.waterWidth * 0.25 + 1e-8);
+  assert.ok(Math.hypot(centerFrame.flowDirection.x, centerFrame.flowDirection.z) > 0.999999);
+
+  const sample = (lateral) => {
+    const x = centerFrame.center.x + centerFrame.side.x * lateral;
+    const z = centerFrame.center.z + centerFrame.side.z * lateral;
+
+    return {
+      frame: getHeroRiverCorridorFrame(8, x, z),
+      target: getHeroRiverTerrainTarget(8, x, z),
+    };
+  };
+  const center = sample(centerFrame.thalwegOffset);
+  const shallow = sample(centerFrame.halfWidth * 0.92);
+  const wet = sample(centerFrame.halfWidth + centerFrame.wetBankWidth * 0.5);
+  const gravel = sample(
+    centerFrame.halfWidth
+    + centerFrame.wetBankWidth
+    + centerFrame.gravelBankWidth * 0.5,
+  );
+  const blend = sample(centerFrame.corridorOuter - 0.35);
+
+  assert.equal(center.target.region, 'bed');
+  assert.equal(shallow.target.region, 'bed');
+  assert.equal(wet.target.region, 'wet-bank');
+  assert.equal(gravel.target.region, 'gravel-bank');
+  assert.equal(blend.target.region, 'terrain-blend');
+  assert.ok(center.target.height < shallow.target.height);
+  assert.ok(shallow.target.height < wet.target.height);
+  assert.ok(wet.target.height < gravel.target.height);
+  assert.ok(gravel.target.height < blend.target.height);
+  assert.ok(center.frame.underwaterMask > 0.99);
+  assert.ok(wet.frame.wetBankMask > 0.9);
+  assert.ok(gravel.frame.gravelBankMask > 0.25);
+  assert.ok(gravel.frame.gravelBankMask <= 0.8);
+  assert.ok(gravel.frame.vegetationMask > 0.9);
+});
+
+test('hero river material masks widen wet gravel and keep dry gravel softly partial', () => {
+  const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
+  const point = getReachPointAtDistance(reach, 80);
+  const center = getHeroRiverCorridorFrame(point.x, point.z);
+  const sample = (lateral) => getHeroRiverCorridorFrame(
+    center.center.x + center.side.x * lateral,
+    center.center.z + center.side.z * lateral,
+  );
+  const wetOuter = center.halfWidth + center.wetBankWidth;
+  const gravelOuter = wetOuter + center.gravelBankWidth;
+  const innerWet = sample(center.halfWidth + center.wetBankWidth * 0.35);
+  const wetShoulder = sample(wetOuter + Math.min(0.8, center.gravelBankWidth * 0.16));
+  const gravelCenter = sample(wetOuter + center.gravelBankWidth * 0.58);
+  const grassShoulder = sample(gravelOuter - 0.25);
+
+  assert.ok(innerWet.wetBankMask > 0.9);
+  assert.ok(wetShoulder.wetBankMask > 0.45);
+  assert.ok(gravelCenter.gravelBankMask > 0.25);
+  assert.ok(gravelCenter.gravelBankMask <= 0.8);
+  assert.ok(grassShoulder.gravelBankMask > 0);
+  assert.ok(grassShoulder.gravelBankMask < gravelCenter.gravelBankMask);
+
+  for (const heroReach of HERO_RIVER_NETWORK_DEFINITION.reaches) {
+    const curve = createReachCurve(heroReach);
+
+    for (const t of [0.15, 0.35, 0.55, 0.75, 0.9]) {
+      const curvePoint = curve.getPointAt(t);
+      const frame = getHeroRiverCorridorFrame(curvePoint.x, curvePoint.z);
+
+      for (let lateral = -frame.corridorHalfWidth; lateral <= frame.corridorHalfWidth; lateral += 0.5) {
+        const material = getHeroRiverCorridorFrame(
+          frame.center.x + frame.side.x * lateral,
+          frame.center.z + frame.side.z * lateral,
+        );
+
+        assert.ok(material.gravelBankMask <= 0.8 + 1e-8);
+      }
+    }
+  }
+});
+
+test('hero riffles are shallower and faster without changing downstream levels', () => {
+  const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
+  const rapidPoint = getReachPointAtDistance(reach, 40);
+  const calmPoint = getReachPointAtDistance(reach, 80);
+  const rapid = getHeroRiverCorridorFrame(rapidPoint.x, rapidPoint.z);
+  const calm = getHeroRiverCorridorFrame(calmPoint.x, calmPoint.z);
+
+  assert.ok(rapid.rapidMask > 0.8);
+  assert.ok(rapid.flowSpeed > 1.3 && rapid.flowSpeed <= 1.8);
+  assert.ok(rapid.depth <= rapid.authoredDepth * 0.75);
+  assert.equal(calm.rapidMask, 0);
+  assert.ok(calm.flowSpeed < 1);
+  assert.ok(rapid.waterLevel > calm.waterLevel);
+});
+
+test('both hero tributary 15m corridors stay entirely inside the fixed pure-black source', async () => {
+  const source = await loadRawHeightmap(DEFAULT_SOURCE_PATH);
+  const tributaries = HERO_RIVER_NETWORK_DEFINITION.reaches.filter(
+    (reach) => reach.role === 'tributary',
+  );
+
+  for (const reach of tributaries) {
+    const curve = createReachCurve(reach);
+
+    for (let index = 0; index <= 120; index += 1) {
+      const t = index / 120;
+      const point = curve.getPointAt(t);
+      const tangent = curve.getTangentAt(t).normalize();
+
+      for (let lateral = -15; lateral <= 15; lateral += 1) {
+        const x = point.x - tangent.z * lateral;
+        const z = point.z + tangent.x * lateral;
+        const pixelX = Math.round(
+          (x + LOWLAND_HEIGHT_SETTINGS.worldSize * 0.5)
+          / LOWLAND_HEIGHT_SETTINGS.worldSize
+          * (source.width - 1),
+        );
+        const pixelY = Math.round(
+          (1 - (z + LOWLAND_HEIGHT_SETTINGS.worldSize * 0.5)
+          / LOWLAND_HEIGHT_SETTINGS.worldSize)
+          * (source.height - 1),
+        );
+        const offset = (pixelY * source.width + pixelX) * source.channels;
+
+        assert.deepEqual(
+          [...source.data.subarray(offset, offset + 3)],
+          [0, 0, 0],
+          `${reach.id} leaves the pure-black source at ${x},${z}`,
+        );
+      }
+    }
+  }
+});
+
 test('all authored beds are non-negative and remain below their water surfaces', () => {
   const lakes = [
     ...LOWLAND_LAKES,
@@ -229,3 +506,18 @@ test('tracked heightmap exactly matches the fixed source and deterministic bake'
   assert.ok(result.coreCoverage >= 0.99);
   assert.ok(result.maximumBakedHeight <= LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight);
 });
+
+function createReachCurve(reach) {
+  return new CatmullRomCurve3(
+    reach.points.map(([x, z]) => new Vector3(x, 0, z)),
+    false,
+    'centripetal',
+  );
+}
+
+function getReachPointAtDistance(reach, distance) {
+  const curve = createReachCurve(reach);
+  const point = curve.getPointAt(Math.min(distance / curve.getLength(), 1));
+
+  return { x: point.x, z: point.z };
+}

@@ -29,6 +29,7 @@ const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
+const RIVER_GRAVEL_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
 const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
 const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
@@ -56,6 +57,7 @@ const GROUND_MASK_SAMPLE_DISTANCE = 5;
 const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
+const RIVER_GRAVEL_TEXTURE_WORLD_SIZE = 5.5;
 const HEIGHT_SMOOTHING_ENABLED = true;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
@@ -87,6 +89,7 @@ export class Terrain {
       forestFloorTextureWorldSize: FOREST_FLOOR_TEXTURE_WORLD_SIZE,
       riverBankTextureWorldSize: RIVER_BANK_TEXTURE_WORLD_SIZE,
       riverBedTextureWorldSize: RIVER_BED_TEXTURE_WORLD_SIZE,
+      riverGravelTextureWorldSize: RIVER_GRAVEL_TEXTURE_WORLD_SIZE,
     });
     this.skirtMaterial = createTerrainSkirtMaterial();
     this.shadowProxy = createTerrainShadowProxy(this);
@@ -943,6 +946,7 @@ export class Terrain {
       worldSpaceWaterBedMask,
     );
     arrays.riverUnderwaterMasks[vertexIndex] = riverFrame.riverUnderwaterMask;
+    arrays.riverGravelMasks[vertexIndex] = riverFrame.riverGravelMask ?? 0;
     arrays.riverBedCoords[uvOffset] = riverFrame.riverDistance;
     arrays.riverBedCoords[uvOffset + 1] = riverFrame.riverLateral;
     arrays.waterSystemMasks[waterMaskOffset] = waterSystemFrame.lakeBedMask;
@@ -1180,6 +1184,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     forestFloorNormal,
     riverBank,
     riverBed,
+    riverGravel,
   ] = await Promise.all([
     standardTextureLoader.loadAsync(ALPINE_ROCK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(ALPINE_ROCK_NORMAL_TEXTURE_PATH),
@@ -1188,6 +1193,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_normal_${tier}.jpg`),
     standardTextureLoader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(RIVER_BED_TEXTURE_PATH),
+    standardTextureLoader.loadAsync(RIVER_GRAVEL_TEXTURE_PATH),
   ]);
 
   for (const texture of [
@@ -1196,6 +1202,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     forestFloorBaseColor,
     riverBank,
     riverBed,
+    riverGravel,
   ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -1221,6 +1228,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     forestFloorNormal,
     riverBank,
     riverBed,
+    riverGravel,
   };
 }
 
@@ -1263,6 +1271,7 @@ function createChunkArrays(segments) {
     riverMasks: new Float32Array(vertexCount),
     riverBedMasks: new Float32Array(vertexCount),
     riverUnderwaterMasks: new Float32Array(vertexCount),
+    riverGravelMasks: new Float32Array(vertexCount),
     riverBedCoords: new Float32Array(vertexCount * 2),
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
@@ -1332,6 +1341,7 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('riverMask', new THREE.BufferAttribute(arrays.riverMasks, 1));
   geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(arrays.riverBedMasks, 1));
   geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(arrays.riverUnderwaterMasks, 1));
+  geometry.setAttribute('riverGravelMask', new THREE.BufferAttribute(arrays.riverGravelMasks, 1));
   geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));

@@ -10,6 +10,7 @@ import {
   LOWLAND_STREAM_DEFINITION as BAKED_LOWLAND_STREAM_DEFINITION,
   LOWLAND_STREAM_DEFINITIONS as BAKED_LOWLAND_STREAM_DEFINITIONS,
   LOWLAND_STREAM_PLAN as BAKED_LOWLAND_STREAM_PLAN,
+  HERO_RIVER_NETWORK_DEFINITION,
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
 } from './lowlandHeightPlan.js';
@@ -28,7 +29,11 @@ export const LOWLAND_STREAM_NETWORKS = Object.freeze(
 );
 export const LOWLAND_STREAM_NETWORK = LOWLAND_STREAM_NETWORKS[0];
 
-const streamDetailBounds = createStreamDetailBounds();
+const heroRiverNetwork = compileRiverNetwork(HERO_RIVER_NETWORK_DEFINITION);
+const streamDetailBounds = createStreamDetailBounds([
+  ...LOWLAND_STREAM_NETWORKS,
+  heroRiverNetwork,
+]);
 const lakeDetailBounds = LOWLAND_LAKES.map(createLakeBounds);
 const streamTransitionLakes = [...LOWLAND_LAKES, ...SOUTHERN_LOWLAND_LAKES];
 
@@ -315,10 +320,10 @@ function writeLakeVertex(
   );
 }
 
-function createStreamDetailBounds() {
+function createStreamDetailBounds(networks) {
   const bounds = [];
 
-  for (const network of LOWLAND_STREAM_NETWORKS) {
+  for (const network of networks) {
     for (const reach of network.reaches) {
       for (let index = 0; index < reach.samples.length - 1; index += 1) {
         const start = reach.samples[index];

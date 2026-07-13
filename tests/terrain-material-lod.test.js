@@ -19,6 +19,7 @@ function createTextures() {
     forestFloorNormal: texture,
     riverBank: texture,
     riverBed: texture,
+    riverGravel: texture,
   };
 }
 
@@ -28,6 +29,7 @@ function createOptions() {
     forestFloorTextureWorldSize: 2,
     riverBankTextureWorldSize: 6,
     riverBedTextureWorldSize: 5,
+    riverGravelTextureWorldSize: 5.5,
   };
 }
 
@@ -62,6 +64,7 @@ function createChunkTask(segments) {
       riverMasks: new Float32Array(vertexCount),
       riverBedMasks: new Float32Array(vertexCount),
       riverUnderwaterMasks: new Float32Array(vertexCount),
+      riverGravelMasks: new Float32Array(vertexCount),
       riverBedCoords: new Float32Array(vertexCount * 2),
       waterSystemMasks: new Float32Array(vertexCount * 4),
       smallLakeMasks: new Float32Array(vertexCount),
@@ -85,7 +88,7 @@ test('terrain material factory creates shared Near, Medium and Far variants with
   assert.equal(materials.far.userData.terrainMaterialLod, TERRAIN_MATERIAL_LOD.FAR);
   assert.ok(materials.near.userData.terrainTextureBudget.maximum <= 14);
   assert.ok(materials.medium.userData.terrainTextureBudget.maximum <= 9);
-  assert.ok(materials.far.userData.terrainTextureBudget.maximum <= 5);
+  assert.ok(materials.far.userData.terrainTextureBudget.maximum <= 6);
   assert.equal(materials.near.userData.terrainReceivesShadow, true);
   assert.equal(materials.medium.userData.terrainReceivesShadow, true);
   assert.equal(materials.far.userData.terrainReceivesShadow, false);
@@ -113,8 +116,9 @@ test('all material variants compute masks before sampling branches and preserve 
   }
 });
 
-test('terrain materials omit road attributes and gravel sampling', () => {
-  const materials = createTerrainMaterials(createTextures(), createOptions());
+test('terrain materials keep river gravel scoped outside the natural ground branches', () => {
+  const textures = createTextures();
+  const materials = createTerrainMaterials(textures, createOptions());
 
   for (const material of Object.values(materials)) {
     const {
@@ -132,21 +136,66 @@ test('terrain materials omit road attributes and gravel sampling', () => {
 
     assert.doesNotMatch(vertexParameters, /roadFrame|RoadFrame/);
     assert.doesNotMatch(vertexAssignments, /roadFrame|RoadFrame/);
-    assert.doesNotMatch(fragmentParameters, /road|gravel/i);
-    assert.doesNotMatch(mapFragment, /road|gravel/i);
+    assert.doesNotMatch(fragmentParameters, /road/i);
+    assert.doesNotMatch(mapFragment, /road/i);
+    assert.match(fragmentParameters, /uRiverGravelTexture/);
+    assert.match(mapFragment, /terrainRiverGravelMask/);
+    assert.doesNotMatch(baseSurfaceSource, /RiverGravel|riverGravel/);
     assert.doesNotMatch(baseSurfaceSource, /GroundDirt|groundDirt/);
     assert.match(vertexParameters, /attribute float mountainTrailMask;/);
     assert.match(vertexAssignments, /vTerrainMountainTrailMask = mountainTrailMask;/);
     assert.match(fragmentParameters, /varying float vTerrainMountainTrailMask;/);
     assert.match(mapFragment, /terrainMountainTrailMask \* 0\.62/);
     assert.equal(
-      Object.keys(material.userData.terrainUniforms).some((name) => /road|gravel/i.test(name)),
+      Object.keys(material.userData.terrainUniforms).some((name) => /road/i.test(name)),
       false,
     );
+    assert.equal(material.userData.terrainUniforms.uRiverGravelTexture.value, textures.riverGravel);
     assert.ok(baseSurfaceStart >= 0);
     assert.ok(snowStart > baseSurfaceEnd);
     assert.ok(mountainTrailStart > snowStart);
     assert.ok(waterStart > mountainTrailStart);
+  }
+});
+
+test('hero river banks keep wet gravel readable and dry gravel muted over natural ground', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const source = material.userData.terrainShaderSource.mapFragment;
+    const gravelBlend = source.indexOf(
+      'terrainBaseColor = mix(terrainBaseColor, terrainGravelColor',
+    );
+    const wetBlend = source.indexOf(
+      'terrainBaseColor = mix(terrainBaseColor, terrainBankColor',
+    );
+    const bedBlend = source.indexOf(
+      'terrainBaseColor = mix(terrainBaseColor, terrainBedColor',
+    );
+
+    assert.match(source, /float terrainRiverMask = terrainRiverMaterialMask;/);
+    assert.doesNotMatch(source, /terrainRiverSlopeMask/);
+    assert.match(source, /float terrainRiverGravelMacro = mix\(/);
+    assert.match(
+      source,
+      /clamp\(vTerrainRiverGravelMask, 0\.0, 1\.0\)\s*\* terrainRiverGravelMacro/,
+    );
+    assert.match(source, /vec3 terrainMutedGravelColor = mix\(/);
+    assert.match(source, /terrainRawGravelColor,\s*0\.52/);
+    assert.match(source, /vec3\(0\.72, 0\.69, 0\.62\)/);
+    assert.match(
+      source,
+      /terrainGravelColor = mix\(\s*terrainBaseColor,\s*terrainMutedGravelColor,\s*0\.58/,
+    );
+    assert.match(source, /vec3 terrainMutedBankColor = mix\(/);
+    assert.match(source, /vec3\(0\.64, 0\.70, 0\.69\)/);
+    assert.match(
+      source,
+      /terrainBankColor = mix\(\s*terrainBaseColor,\s*terrainMutedBankColor,\s*0\.86/,
+    );
+    assert.ok(gravelBlend >= 0);
+    assert.ok(wetBlend > gravelBlend);
+    assert.ok(bedBlend > wetBlend);
   }
 });
 
@@ -274,7 +323,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v9-${level}`);
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v11-${level}`);
   }
 });
 
@@ -337,7 +386,7 @@ test('terrain macro midtone lift affects grass but not the rock fallback or wate
     assert.equal((source.match(/terrainGroundMacroWeight = 1\.0;/g) ?? []).length, 1);
     assert.match(
       source,
-      /terrainGroundMacroWeight \* \(1\.0 - max\(terrainWaterBankMask, terrainWaterBedMask\)\)/,
+      /1\.0 - max\(terrainRiverGravelMask, max\(terrainWaterBankMask, terrainWaterBedMask\)\)/,
     );
     assert.doesNotMatch(source, /mix\(0\.90, 1\.06, vTerrainMacro\.w\)/);
     assert.ok(groundStart >= 0);
