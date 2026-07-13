@@ -106,27 +106,45 @@ export function createFlowingRiverMaterial() {
       ${WATER_NOISE_GLSL}
       ${WATER_REFLECTION_GLSL}
 
-      float getFlowSurfaceHeight(vec2 flowDomain) {
-        float broad = waterNoise(flowDomain * vec2(0.028, 0.08));
-        float detail = waterNoise(
-          flowDomain * vec2(0.065, 0.15)
-          + vec2(broad * 0.8, broad * -0.45)
+      float getFlowSurfaceHeight(
+        vec2 primaryFlowDomain,
+        vec2 detailFlowDomain
+      ) {
+        float broad = waterNoise(primaryFlowDomain * vec2(0.11, 0.30));
+        float detail = waterNoise2(
+          detailFlowDomain * vec2(0.24, 0.68)
+          + vec2(broad * 0.34, broad * -0.27)
           + vec2(13.7, -8.1)
         );
 
-        return broad * 0.68 + detail * 0.32;
+        return broad * 0.58 + detail * 0.42;
       }
 
-      vec3 getFlowNormal(vec2 flowDomain, vec2 flowDirection, float strength) {
-        const float epsilon = 0.22;
-        float slopeAlong = getFlowSurfaceHeight(flowDomain + vec2(epsilon, 0.0))
-          - getFlowSurfaceHeight(flowDomain - vec2(epsilon, 0.0));
-        float slopeAcross = getFlowSurfaceHeight(flowDomain + vec2(0.0, epsilon))
-          - getFlowSurfaceHeight(flowDomain - vec2(0.0, epsilon));
+      vec3 getFlowNormal(
+        vec2 primaryFlowDomain,
+        vec2 detailFlowDomain,
+        vec2 flowDirection,
+        float strength
+      ) {
+        const float epsilon = 0.18;
+        float slopeAlong = getFlowSurfaceHeight(
+          primaryFlowDomain + vec2(epsilon, 0.0),
+          detailFlowDomain + vec2(epsilon, 0.0)
+        ) - getFlowSurfaceHeight(
+          primaryFlowDomain - vec2(epsilon, 0.0),
+          detailFlowDomain - vec2(epsilon, 0.0)
+        );
+        float slopeAcross = getFlowSurfaceHeight(
+          primaryFlowDomain + vec2(0.0, epsilon),
+          detailFlowDomain - vec2(0.0, epsilon)
+        ) - getFlowSurfaceHeight(
+          primaryFlowDomain - vec2(0.0, epsilon),
+          detailFlowDomain + vec2(0.0, epsilon)
+        );
         vec3 localNormal = normalize(vec3(
-          slopeAlong * strength * 2.2,
+          slopeAlong * strength * 2.0,
           1.0,
-          slopeAcross * strength * 1.7
+          slopeAcross * strength * 1.45
         ));
         vec2 direction = normalize(flowDirection);
         vec2 side = vec2(-direction.y, direction.x);
@@ -135,30 +153,37 @@ export function createFlowingRiverMaterial() {
         return normalize(vec3(worldSlope.x, localNormal.y, worldSlope.y));
       }
 
-      float getFlowTone(vec2 flowDomain) {
-        float broadFlowTone = waterNoise(flowDomain * vec2(0.028, 0.08));
-        float localFlowTone = waterNoise2(
-          flowDomain * vec2(0.065, 0.15)
-          + vec2(broadFlowTone * 0.75, broadFlowTone * -0.4)
+      float getFlowTone(vec2 primaryFlowDomain, vec2 detailFlowDomain) {
+        float broadFlowTone = waterNoise2(
+          primaryFlowDomain * vec2(0.11, 0.30) + vec2(5.8, 11.3)
+        );
+        float localFlowTone = waterNoise(
+          detailFlowDomain * vec2(0.24, 0.68)
+          + vec2(broadFlowTone * 0.28, broadFlowTone * -0.2)
           + vec2(5.8, 11.3)
         );
 
-        return (broadFlowTone - 0.5) * 0.08 + (localFlowTone - 0.5) * 0.035;
+        return clamp(
+          (broadFlowTone - 0.5) * 0.12 + (localFlowTone - 0.45) * 0.08,
+          -0.05,
+          0.08
+        );
       }
 
-      float getFoamPattern(vec2 flowDomain) {
-        float foamWarp = waterNoise2(
-          flowDomain * vec2(0.032, 0.075) + vec2(-9.4, 17.2)
+      float getFoamPattern(vec2 primaryFlowDomain, vec2 detailFlowDomain) {
+        float foamBody = smoothstep(
+          0.50,
+          0.70,
+          waterNoise2(
+            primaryFlowDomain * vec2(0.18, 0.55) + vec2(-9.4, 17.2)
+          )
         );
-        vec2 foamDomain = vec2(
-          flowDomain.x * 0.065 + flowDomain.y * 0.024 + foamWarp * 1.15,
-          flowDomain.y * 0.18 - flowDomain.x * 0.012 + foamWarp * -0.7
-        );
-        float foamBody = smoothstep(0.5, 0.72, waterNoise2(foamDomain));
         float foamBreaks = smoothstep(
-          0.44,
-          0.66,
-          waterNoise(foamDomain * vec2(0.72, 1.35) + vec2(21.6, -3.8))
+          0.52,
+          0.72,
+          waterNoise(
+            detailFlowDomain * vec2(0.42, 1.10) + vec2(21.6, -3.8)
+          )
         );
 
         return foamBody * foamBreaks;
@@ -172,10 +197,13 @@ export function createFlowingRiverMaterial() {
         float shoreNoise = (waterNoise(vWorldPosition.xz * 0.19) - 0.5) * 0.3;
         float perturbedShoreDistance = vShoreDistance + shoreNoise;
         float shoreAlpha = smoothstep(0.12, 0.85, perturbedShoreDistance);
-        float centerSpeedScale = mix(1.0 / 2.8, 1.0, centerMask);
-        float localFlowSpeed = max(vFlowSpeed, 0.01) * centerSpeedScale;
-        float flowMeters = vFlowUv.x - uTime * localFlowSpeed;
-        vec2 flowDomain = vec2(flowMeters, vFlowUv.y);
+        float primaryFlowMeters = vFlowUv.x - uTime * 0.85;
+        float detailFlowMeters = vFlowUv.x - uTime * 1.15;
+        vec2 primaryFlowDomain = vec2(primaryFlowMeters, vFlowUv.y);
+        vec2 detailFlowDomain = vec2(
+          detailFlowMeters + 19.4,
+          -vFlowUv.y + 7.6
+        );
         vec2 junctionDirection = normalize(vJunctionFlowDirection);
         vec2 surfaceFlowDirection = normalize(mix(
           vFlowDirection,
@@ -183,22 +211,43 @@ export function createFlowingRiverMaterial() {
           junctionBlend
         ));
 
-        float featureMask = clamp(max(max(vRapidMask, vJunctionMask), vDisturbanceMask), 0.0, 1.0);
+        float flowIntensity = mix(
+          0.9,
+          1.08,
+          smoothstep(0.45, 1.8, vFlowSpeed)
+        );
+        float normalFeatureMask = clamp(
+          max(vRapidMask, vJunctionMask * 0.35),
+          0.0,
+          1.0
+        );
         float normalStrength = mix(
           mix(0.03, 0.05, centerMask),
-          mix(0.08, 0.11, centerMask),
-          featureMask
+          mix(0.075, 0.095, centerMask),
+          normalFeatureMask
+        ) * flowIntensity;
+        vec3 normal = getFlowNormal(
+          primaryFlowDomain,
+          detailFlowDomain,
+          surfaceFlowDirection,
+          normalStrength
         );
-        vec3 normal = getFlowNormal(flowDomain, surfaceFlowDirection, normalStrength);
-        float flowTone = getFlowTone(flowDomain);
-        float foamPattern = getFoamPattern(flowDomain);
+        float flowTone = clamp(
+          getFlowTone(primaryFlowDomain, detailFlowDomain) * flowIntensity,
+          -0.05,
+          0.08
+        );
+        float foamPattern = getFoamPattern(
+          primaryFlowDomain,
+          detailFlowDomain
+        );
 
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
         float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
         vec3 color = mix(uShallowColor, uDeepColor, depthMask);
         float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
         color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
-        color *= 1.0 + flowTone;
+        color *= 1.0 + flowTone * mix(1.0, 0.55, depthMask);
 
         vec3 reflection = getTieredWaterReflection(
           mix(uHorizonReflectionColor, uReflectionColor, normal.y),
@@ -211,23 +260,26 @@ export function createFlowingRiverMaterial() {
 
         vec3 lightDirection = normalize(uSunDirection);
         vec3 halfDirection = normalize(lightDirection + viewDir);
-        float specular = pow(max(dot(normal, halfDirection), 0.0), 96.0);
+        float specular = pow(max(dot(normal, halfDirection), 0.0), 56.0);
         color += uSunReflectionColor
           * specular
-          * mix(0.08, 0.22, featureMask);
+          * mix(0.06, 0.12, clamp(vRapidMask, 0.0, 1.0));
 
         float foamDriver = clamp(
-          max(max(vRapidMask * 0.92, vJunctionMask * 0.18), vDisturbanceMask),
+          max(
+            max(vRapidMask * 0.72, vJunctionMask * 0.10),
+            smoothstep(0.18, 0.58, vDisturbanceMask)
+          ),
           0.0,
           1.0
         );
         float foam = foamDriver * foamPattern * shoreAlpha * vWaterFade;
-        color = mix(color, uFoamColor, foam * mix(0.42, 0.82, featureMask));
+        color = mix(color, uFoamColor, foam * 0.58);
 
         float shallowAlpha = mix(0.16, 0.24, centerMask);
         float deepAlpha = mix(0.58, 0.68, centerMask);
         float alpha = mix(shallowAlpha, deepAlpha, depthMask) * shoreAlpha;
-        alpha = clamp(alpha + foam * (1.0 - alpha) * 0.62, 0.0, 1.0);
+        alpha = clamp(alpha + foam * (1.0 - alpha) * 0.35, 0.0, 1.0);
         float viewDistanceFade = 1.0 - smoothstep(
           max(vViewDistance - 55.0, 0.0),
           vViewDistance,

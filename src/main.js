@@ -66,6 +66,7 @@ const programValue = document.querySelector('#program-value');
 const resolutionScaleValue = document.querySelector('#resolution-scale-value');
 const query = new URLSearchParams(window.location.search);
 const debugMode = query.get('debug') === '1';
+const captureMode = query.get('capture') === '1';
 const goldenShot = getGoldenShotFromLocation();
 const initialQualityKey = query.get('quality') || DEFAULT_RENDER_QUALITY;
 let renderQuality = getRenderQualityPreset(initialQualityKey);
@@ -427,6 +428,7 @@ function animate(now) {
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   const frameMs = deltaTime * 1000;
   const visualTime = goldenShot ? 18.5 : clock.elapsedTime;
+  const flowingWaterTime = captureMode ? 18.5 : clock.elapsedTime;
 
   updateFrameTiming(frameMs);
   updateDynamicResolution(now);
@@ -448,8 +450,8 @@ function animate(now) {
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);
-  updateRiverVisuals(water, wetBanks, camera, visualTime);
-  updateWaterSystemVisuals(waterSystem, camera, visualTime);
+  updateRiverVisuals(water, wetBanks, camera, flowingWaterTime);
+  updateWaterSystemVisuals(waterSystem, camera, flowingWaterTime);
   if (toggleGrass.checked) {
     grassManager.update(player.position, visualTime);
   }
