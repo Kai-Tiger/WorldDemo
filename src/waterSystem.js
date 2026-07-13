@@ -16,16 +16,20 @@ import {
   RIVER_NETWORK,
   applyRiverNetworkTerrain,
   getNearestRiverReach,
+  getRiverBankGrassAcceptance,
   getRiverNetworkFeatureBounds,
+  getRiverNetworkGrassAcceptance,
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
 import { PLUNGE_POOL } from './lowlandHeightPlan.js';
+import { getRiverGrassAcceptance } from './riverChannel.js';
 import {
   LOWLAND_LAKES,
   LOWLAND_STREAM_NETWORKS,
   createLowlandLakeGeometry,
   getLowlandMaterialFrame,
+  getLowlandStreamGrassAcceptance,
   getLowlandStreamLakeFade,
   isInLowlandVegetationExclusion,
 } from './lowlandLandforms.js';
@@ -68,6 +72,13 @@ const OUTLET_POINTS = [
 ];
 const OUTLET_WIDTH = 5.2;
 const OUTLET_INFLUENCE = 8.5;
+const OUTLET_GRASS_FULL_WIDTH = OUTLET_INFLUENCE + 2.5;
+const OUTLET_GRASS_BOUNDS = {
+  minX: Math.min(...OUTLET_POINTS.map((point) => point.x)) - OUTLET_GRASS_FULL_WIDTH,
+  maxX: Math.max(...OUTLET_POINTS.map((point) => point.x)) + OUTLET_GRASS_FULL_WIDTH,
+  minZ: Math.min(...OUTLET_POINTS.map((point) => point.z)) - OUTLET_GRASS_FULL_WIDTH,
+  maxZ: Math.max(...OUTLET_POINTS.map((point) => point.z)) + OUTLET_GRASS_FULL_WIDTH,
+};
 const OUTLET_WATER_OFFSET = 0.35;
 const WATERFALL_LIP_FOAM_LENGTH = 4.2;
 const WATERFALL_LIP_FOAM_WIDTH = 7.2;
@@ -168,6 +179,46 @@ export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
   const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
 
   return plungeDistance <= PLUNGE_RADIUS + buffer;
+}
+
+export function getFlowingWaterGrassAcceptance(x, z) {
+  const lake = getLakeFrame(x, z);
+
+  if (lake.radius <= lake.lakeRadius + LAKE_SHORE_WIDTH + 4) return 0;
+
+  const plungeDistance = Math.hypot(x - PLUNGE_CENTER.x, z - PLUNGE_CENTER.y);
+
+  if (plungeDistance <= PLUNGE_RADIUS + 4) return 0;
+
+  let acceptance = Math.min(
+    getRiverGrassAcceptance(x, z),
+    getRiverNetworkGrassAcceptance(x, z, RIVER_NETWORK),
+    getLowlandStreamGrassAcceptance(x, z),
+  );
+  const outlet = x >= OUTLET_GRASS_BOUNDS.minX
+    && x <= OUTLET_GRASS_BOUNDS.maxX
+    && z >= OUTLET_GRASS_BOUNDS.minZ
+    && z <= OUTLET_GRASS_BOUNDS.maxZ
+    ? getPathFrame(outletSamples, x, z)
+    : null;
+
+  if (outlet) {
+    const lateralDistance = Math.abs(outlet.lateral);
+    const outletAcceptance = getRiverBankGrassAcceptance({
+      distance: lateralDistance,
+      halfWidth: OUTLET_WIDTH * 0.5,
+      influence: OUTLET_INFLUENCE,
+    });
+    const outletLength = outletSamples.at(-1).distance;
+    const distanceToLip = outletLength - outlet.distance;
+    const lipAcceptance = lateralDistance <= OUTLET_GRASS_FULL_WIDTH
+      ? smoothstep(3, 5.5, distanceToLip)
+      : 1;
+
+    acceptance = Math.min(acceptance, outletAcceptance, lipAcceptance);
+  }
+
+  return acceptance;
 }
 
 export function getWaterSystemMinimumSegmentsForBounds(bounds) {

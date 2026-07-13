@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   compileRiverNetwork,
   getNearestRiverReach,
+  getRiverNetworkGrassAcceptance,
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import {
@@ -109,6 +110,23 @@ export function isInLowlandVegetationExclusion(x, z, buffer = 0) {
   }
 
   return false;
+}
+
+export function getLowlandStreamGrassAcceptance(x, z) {
+  for (const lake of streamTransitionLakes) {
+    if (getLakeFrame(lake, x, z).signedDistance <= lake.shoreWidth + 4) return 0;
+  }
+
+  let acceptance = 1;
+
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    acceptance = Math.min(
+      acceptance,
+      getRiverNetworkGrassAcceptance(x, z, network),
+    );
+  }
+
+  return acceptance;
 }
 
 export function getLowlandMinimumSegmentsForBounds(bounds) {

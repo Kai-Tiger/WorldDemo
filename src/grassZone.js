@@ -6,16 +6,16 @@ import {
   sampleGrassCommunity,
   sampleTerrainSurface,
 } from './grassClumps.js';
-import { isInRiverGrassExclusion } from './riverChannel.js';
-import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
+import { getFlowingWaterGrassAcceptance } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
 import { isInMountainTrailGrassExclusion } from './mountainTrailNetwork.js';
 import { GRASS_CANDIDATE_JITTER } from './vegetationConfig.js';
 
-const GRASS_WATER_BUFFER = 4;
 const GRASS_MIN_NORMAL_Y = 0.88;
 const GRASS_MIN_GROUND_MASK = 0.35;
 const GRASS_BOUNDS_PADDING = 4;
+const RIVER_GRASS_ROLL_OFFSET_X = 337.9;
+const RIVER_GRASS_ROLL_OFFSET_Z = -271.3;
 
 export const GRASS_LOD_CAPACITY_RATIOS = Object.freeze([1, 0.4, 0.1]);
 
@@ -418,7 +418,7 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
             if (community.accepted) {
               sampleTerrainSurface(terrain, x, z, surface);
 
-              if (shouldPlaceGrassAt(x, z, surface)) {
+              if (shouldPlaceGrassAt(x, z, gridX, gridZ, surface)) {
                 placements.push(createPlacement(terrain, x, z, gridX, gridZ, community, surface));
               }
             }
@@ -439,11 +439,17 @@ function createPlacementIterator(terrain, minX, minZ, maxX, maxZ, density) {
   };
 }
 
-function shouldPlaceGrassAt(x, z, surface) {
-  if (isInRiverGrassExclusion(x, z, GRASS_WATER_BUFFER)) return false;
-  if (isInWaterSystemVegetationExclusion(x, z, GRASS_WATER_BUFFER)) return false;
+function shouldPlaceGrassAt(x, z, gridX, gridZ, surface) {
   if (isInSmallLakeExclusion(x, z)) return false;
   if (isInMountainTrailGrassExclusion(x, z)) return false;
+
+  const riverAcceptance = getFlowingWaterGrassAcceptance(x, z);
+  const riverRoll = hash2(
+    gridX + RIVER_GRASS_ROLL_OFFSET_X,
+    gridZ + RIVER_GRASS_ROLL_OFFSET_Z,
+  );
+
+  if (riverRoll >= riverAcceptance) return false;
 
   return surface.normalY >= GRASS_MIN_NORMAL_Y
     && surface.groundMask >= GRASS_MIN_GROUND_MASK;

@@ -20,6 +20,7 @@ import {
   normalizeGrassPreset,
 } from '../src/grassManager.js';
 import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
+import { getFlowingWaterGrassAcceptance } from '../src/waterSystem.js';
 import {
   GRASS_CANDIDATE_JITTER,
   GRASS_ROOT_EMBED_DEPTH,
@@ -98,9 +99,11 @@ function getMesh(zone, lodLevel) {
 
 function generateGrassZone(minX, minZ, maxX, maxZ) {
   let sampleCalls = 0;
+  const sampledPoints = [];
   const terrain = {
-    sampleSurfaceAt(_x, _z, target) {
+    sampleSurfaceAt(x, z, target) {
       sampleCalls += 1;
+      sampledPoints.push({ x, z });
       Object.assign(target, {
         height: 12,
         normalX: 0,
@@ -118,7 +121,7 @@ function generateGrassZone(minX, minZ, maxX, maxZ) {
     // Drain the incremental world-space candidate iterator.
   }
 
-  return { placements: zone.allPlacements, sampleCalls };
+  return { placements: zone.allPlacements, sampleCalls, sampledPoints };
 }
 
 function placementKey(placement) {
@@ -268,6 +271,52 @@ test('global cells join adjacent half-open zones without seams or duplicates', (
   assert.equal(left.sampleCalls, left.placements.length);
   assert.equal(right.sampleCalls, right.placements.length);
   assert.equal(combined.sampleCalls, combined.placements.length);
+});
+
+test('flowing-water acceptance deterministically leaves sparse grass outside wet banks', () => {
+  const bounds = [470, -410, 550, -340];
+  const first = generateGrassZone(...bounds);
+  const repeated = generateGrassZone(...bounds);
+  const left = generateGrassZone(470, -410, 510, -340);
+  const right = generateGrassZone(510, -410, 550, -340);
+  const candidateCounts = { sparse: 0, ordinary: 0 };
+  const placementCounts = { sparse: 0, ordinary: 0 };
+
+  assert.deepEqual(
+    repeated.placements.map(placementKey),
+    first.placements.map(placementKey),
+  );
+  assert.deepEqual(
+    [...left.placements, ...right.placements].map(placementKey).sort(),
+    first.placements.map(placementKey).sort(),
+  );
+
+  for (const { x, z } of first.sampledPoints) {
+    const acceptance = getFlowingWaterGrassAcceptance(x, z);
+
+    if (acceptance > 0 && acceptance <= 0.35) candidateCounts.sparse += 1;
+    if (acceptance === 1) candidateCounts.ordinary += 1;
+  }
+
+  for (const placement of first.placements) {
+    const x = placement.matrix.elements[12];
+    const z = placement.matrix.elements[14];
+    const acceptance = getFlowingWaterGrassAcceptance(x, z);
+
+    assert.ok(acceptance > 0, `grass entered a hard water exclusion at ${x}, ${z}`);
+    if (acceptance <= 0.35) placementCounts.sparse += 1;
+    if (acceptance === 1) placementCounts.ordinary += 1;
+  }
+
+  assert.ok(candidateCounts.sparse > 1000);
+  assert.ok(candidateCounts.ordinary > 1000);
+
+  const sparseDensity = placementCounts.sparse / candidateCounts.sparse;
+  const ordinaryDensity = placementCounts.ordinary / candidateCounts.ordinary;
+  const normalizedSparseDensity = sparseDensity / ordinaryDensity;
+
+  assert.ok(normalizedSparseDensity >= 0.1);
+  assert.ok(normalizedSparseDensity <= 0.4);
 });
 
 test('one community favors 72/20/8 variants and scales cores above edges', () => {

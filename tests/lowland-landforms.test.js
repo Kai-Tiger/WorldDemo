@@ -19,6 +19,7 @@ import {
   applyLowlandMacroTerrain,
   applyLowlandWaterTerrain,
   createLowlandLakeGeometry,
+  getLowlandStreamGrassAcceptance,
   getLowlandMaterialFrame,
   getLowlandMinimumSegmentsForBounds,
   isInLowlandVegetationExclusion,
@@ -34,6 +35,7 @@ import { isPreciseWaterHeightCode } from '../src/terrainHeightEncoding.js';
 import {
   HERO_RIVER_NETWORK_DEFINITION,
   PLUNGE_POOL,
+  SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
   getHeroRiverTerrainTarget,
 } from '../src/lowlandHeightPlan.js';
@@ -183,6 +185,38 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
 
   assert.ok(Math.max(...radii) - Math.min(...radii) > 8);
   geometry.dispose();
+});
+
+test('lowland grass acceptance protects every lake and stream without changing tree exclusions', () => {
+  for (const lake of [...LOWLAND_LAKES, ...SOUTHERN_LOWLAND_LAKES]) {
+    assert.equal(getLowlandStreamGrassAcceptance(lake.cx, lake.cz), 0);
+  }
+
+  for (const lake of SOUTHERN_LOWLAND_LAKES) {
+    const phase = lake.phase ?? 0;
+    const shapeScale = 1 + (lake.shapeAmp ?? 0) * (
+      Math.sin(phase) * 0.5
+      + Math.sin(-phase * 0.7) * 0.3
+      + Math.sin(phase * 1.3) * 0.2
+    );
+    const protectedShoreX = lake.cx
+      + shapeScale * ((lake.radiusX ?? lake.radius) + lake.shoreWidth + 3.9);
+    const restoredShoreX = lake.cx
+      + shapeScale * ((lake.radiusX ?? lake.radius) + lake.shoreWidth + 4.1);
+
+    assert.equal(getLowlandStreamGrassAcceptance(protectedShoreX, lake.cz), 0);
+    assert.equal(getLowlandStreamGrassAcceptance(restoredShoreX, lake.cz), 1);
+  }
+
+  for (const network of LOWLAND_STREAM_NETWORKS) {
+    const sample = network.reaches[0].samples[Math.floor(network.reaches[0].samples.length / 2)];
+
+    assert.equal(getLowlandStreamGrassAcceptance(sample.point.x, sample.point.z), 0);
+  }
+
+  assert.equal(getLowlandStreamGrassAcceptance(0, 0), 1);
+  assert.equal(isInLowlandVegetationExclusion(758, -296), true);
+  assert.equal(isInLowlandVegetationExclusion(0, 0), false);
 });
 
 test('lowland LOD promotes every lake and stream locally without filling unrelated gaps', () => {

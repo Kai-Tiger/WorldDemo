@@ -11,6 +11,7 @@ import {
   applyWaterSystemMacroTerrain,
   applyWaterSystemTerrain,
   createWaterSystem,
+  getFlowingWaterGrassAcceptance,
   updateWaterSystemVisuals,
 } from '../src/waterSystem.js';
 
@@ -51,6 +52,59 @@ test('runtime water terrain keeps baked lowland channels while retaining mountai
     }
   }
   assert.ok(applyWaterSystemMacroTerrain(80, 300, -400) < 32);
+});
+
+test('flowing-water grass acceptance combines rivers with lake and waterfall safety zones', () => {
+  for (const [x, z] of [
+    [300, -400],
+    [PLUNGE_POOL.cx, PLUNGE_POOL.cz],
+    [76, -552],
+    [820, -260],
+    [392, -419],
+  ]) {
+    assert.equal(getFlowingWaterGrassAcceptance(x, z), 0);
+  }
+
+  assert.equal(getFlowingWaterGrassAcceptance(361.4, -400), 0);
+  assert.equal(getFlowingWaterGrassAcceptance(361.7, -400), 1);
+  assert.equal(getFlowingWaterGrassAcceptance(418, -437.9), 0);
+  assert.equal(getFlowingWaterGrassAcceptance(418, -438.1), 1);
+
+  const outletCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(340, 0, -410),
+    new THREE.Vector3(365, 0, -417),
+    new THREE.Vector3(392, 0, -419),
+    new THREE.Vector3(409, 0, -421),
+  ], false, 'centripetal');
+  const outletCenter = outletCurve.getPoint(2 / 3);
+  const outletTangent = outletCurve.getTangent(2 / 3).normalize();
+  const outletSide = new THREE.Vector3(-outletTangent.z, 0, outletTangent.x);
+  const outletAcceptanceAt = (lateralDistance) => getFlowingWaterGrassAcceptance(
+    outletCenter.x + outletSide.x * lateralDistance,
+    outletCenter.z + outletSide.z * lateralDistance,
+  );
+
+  assert.ok(outletAcceptanceAt(6.2) < 0.001);
+  assert.ok(Math.abs(outletAcceptanceAt(8.5) - 0.35) < 0.001);
+  assert.equal(outletAcceptanceAt(11), 1);
+  assert.equal(getFlowingWaterGrassAcceptance(410.3, -410.1), 0);
+  const outletRecovery = getFlowingWaterGrassAcceptance(406.1, -409.6);
+
+  assert.ok(outletRecovery > 0.35 && outletRecovery < 0.7);
+  assert.equal(getFlowingWaterGrassAcceptance(404, -409.2), 1);
+  assert.equal(getFlowingWaterGrassAcceptance(1000, 1000), 1);
+
+  for (const [x, z] of [
+    [518, -374],
+    [758, -296],
+    [-116, -572],
+    [405, -410],
+  ]) {
+    const acceptance = getFlowingWaterGrassAcceptance(x, z);
+
+    assert.ok(Number.isFinite(acceptance));
+    assert.ok(acceptance >= 0 && acceptance <= 1);
+  }
 });
 
 test('water system exposes one merged tributary surface and keeps the compatibility alias', () => {

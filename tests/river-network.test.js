@@ -6,7 +6,9 @@ import {
   applyRiverNetworkTerrain,
   compileRiverNetwork,
   getNearestRiverReach,
+  getRiverBankGrassAcceptance,
   getRiverNetworkFeatureBounds,
+  getRiverNetworkGrassAcceptance,
   getRiverNetworkTerrainTarget,
   isInRiverNetworkVegetationExclusion,
   validateRiverNetworkDefinition,
@@ -203,6 +205,99 @@ test('spatial queries find channels and lakes without affecting terrain away fro
   assert.ok(RIVER_NETWORK.bounds.minZ < -680);
 });
 
+test('river-bank grass acceptance is finite, monotonic, and honors authored bank widths', () => {
+  const frame = {
+    distance: 0,
+    halfWidth: 2,
+    influence: 8,
+    wetBankWidth: 1,
+    gravelBankWidth: 2,
+    hasAuthoredBankWidths: true,
+  };
+  const wetOuter = 3.6;
+  const sparseOuter = 5.1;
+  const samples = [
+    0,
+    wetOuter,
+    (wetOuter + sparseOuter) * 0.5,
+    sparseOuter,
+    sparseOuter + 1.25,
+    sparseOuter + 2.5,
+    sparseOuter + 10,
+  ].map((distance) => getRiverBankGrassAcceptance({ ...frame, distance }));
+
+  assert.ok(samples.every(Number.isFinite));
+  assert.ok(samples.every((value) => value >= 0 && value <= 1));
+  assert.deepEqual(samples.slice(0, 2), [0, 0]);
+  assert.ok(Math.abs(samples[2] - 0.175) < 1e-12);
+  assert.ok(Math.abs(samples[3] - 0.35) < 1e-12);
+  assert.ok(Math.abs(samples[4] - 0.675) < 1e-12);
+  assert.equal(samples[5], 1);
+  assert.equal(samples[6], 1);
+
+  for (let index = 1; index < samples.length; index += 1) {
+    assert.ok(samples[index] >= samples[index - 1]);
+  }
+});
+
+test('legacy river banks derive the sparse band from influence and the material wet edge', () => {
+  const frame = {
+    distance: 5.6,
+    halfWidth: 2,
+    influence: 6,
+    wetBankWidth: 0,
+    gravelBankWidth: 0,
+    hasAuthoredBankWidths: false,
+  };
+
+  assert.equal(getRiverBankGrassAcceptance(frame), 0);
+  assert.ok(Math.abs(getRiverBankGrassAcceptance({ ...frame, distance: 7.1 }) - 0.35) < 1e-12);
+  assert.equal(getRiverBankGrassAcceptance({ ...frame, distance: 9.6 }), 1);
+});
+
+test('river-network grass acceptance considers every confluence arm', () => {
+  const network = compileRiverNetwork(createGrassConfluenceDefinition(), {
+    sampleSpacing: 1,
+  });
+  const x = 2;
+  const z = -2;
+  const nearest = getNearestRiverReach(x, z, Infinity, network);
+
+  assert.equal(nearest.reachId, 'junction-sink');
+  assert.ok(getRiverBankGrassAcceptance(nearest) > 0);
+  assert.equal(getRiverNetworkGrassAcceptance(x, z, network), 0);
+  assert.equal(getRiverNetworkGrassAcceptance(100, 100, network), 1);
+});
+
+test('the four authored mountain confluences keep every connected wet arm clear', () => {
+  const confluences = RIVER_NETWORK_DEFINITION.nodes.filter(
+    (node) => node.type === 'confluence',
+  );
+
+  for (const confluence of confluences) {
+    assert.equal(
+      getRiverNetworkGrassAcceptance(confluence.position[0], confluence.position[1]),
+      0,
+    );
+
+    for (const reach of RIVER_NETWORK.reaches.filter(
+      (candidate) => candidate.from === confluence.id || candidate.to === confluence.id,
+    )) {
+      const sample = reach.from === confluence.id
+        ? reach.samples[Math.min(2, reach.samples.length - 1)]
+        : reach.samples[Math.max(0, reach.samples.length - 3)];
+
+      assert.equal(getRiverNetworkGrassAcceptance(sample.point.x, sample.point.z), 0);
+    }
+  }
+});
+
+test('river-network grass acceptance keeps a hard buffer around lakes', () => {
+  assert.equal(getRiverNetworkGrassAcceptance(300, -400), 0);
+  assert.equal(getRiverNetworkGrassAcceptance(359.9, -400), 0);
+  assert.equal(getRiverNetworkGrassAcceptance(360.1, -400), 1);
+});
+
 function createExtendedDefinition() {
   const nodes = [
     { id: 'source-a', type: 'source', position: [-20, -5], waterLevel: 10 },
@@ -256,6 +351,53 @@ function createExtendedDefinition() {
         to: 'lake',
         style: 'trunk',
         points: [[0, 0], [20, 2], [40, 0]],
+      },
+    ],
+  };
+}
+
+function createGrassConfluenceDefinition() {
+  const nodes = [
+    { id: 'source-a', type: 'source', position: [0, -20], waterLevel: 10 },
+    { id: 'source-b', type: 'source', position: [-20, 0], waterLevel: 10 },
+    { id: 'junction', type: 'confluence', position: [0, 0], waterLevel: 5 },
+    { id: 'sink', type: 'sink', position: [20, 0], waterLevel: 0 },
+  ];
+  const incoming = {
+    style: 'headwater',
+    width: [1, 1],
+    depth: [0.4, 0.4],
+    influence: [6, 6],
+    vegetationBuffer: [0, 0],
+  };
+
+  return {
+    nodes,
+    reaches: [
+      {
+        ...incoming,
+        id: 'source-a-junction',
+        from: 'source-a',
+        to: 'junction',
+        points: [[0, -20], [0, 0]],
+      },
+      {
+        ...incoming,
+        id: 'source-b-junction',
+        from: 'source-b',
+        to: 'junction',
+        points: [[-20, 0], [0, 0]],
+      },
+      {
+        id: 'junction-sink',
+        from: 'junction',
+        to: 'sink',
+        style: 'collector',
+        points: [[0, 0], [20, 0]],
+        width: [4, 4],
+        depth: [0.5, 0.5],
+        influence: [1, 1],
+        vegetationBuffer: [0, 0],
       },
     ],
   };

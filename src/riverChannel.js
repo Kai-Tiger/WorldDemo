@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createFlowingRiverMaterial } from './flowingRiverMaterial.js';
 import {
   compileRiverNetwork,
+  getRiverBankGrassAcceptance,
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
@@ -22,6 +23,11 @@ export const RIVER_BANK_TEXTURE_WORLD_SIZE = 3.8;
 export const HERO_RIVER_NETWORK = compileRiverNetwork(HERO_RIVER_NETWORK_DEFINITION);
 
 const HERO_RIVER_SURFACE_OFFSET = RIVER_TERMINAL_LAKE.surfaceOffset;
+const HERO_RIVER_CONFLUENCES = HERO_RIVER_NETWORK_DEFINITION.nodes.filter(
+  (node) => node.type === 'confluence',
+);
+const HERO_CONFLUENCE_SPARSE_ACCEPTANCE = 0.35;
+const HERO_CONFLUENCE_RECOVERY_WIDTH = 2.5;
 const MAIN_RIVER_LENGTH = HERO_RIVER_NETWORK.reaches
   .filter((reach) => reach.role === 'main')
   .reduce((length, reach) => length + reach.length, 0);
@@ -127,6 +133,55 @@ export function updateRiverVisuals(water, wetBanks, camera, elapsedTime) {
 
 export function isInRiverGrassExclusion(x, z, buffer = 2) {
   return isInRiverNetworkVegetationExclusion(x, z, buffer, HERO_RIVER_NETWORK);
+}
+
+export function getRiverGrassAcceptance(x, z) {
+  const lakeDistance = Math.hypot(
+    x - RIVER_TERMINAL_LAKE.cx,
+    z - RIVER_TERMINAL_LAKE.cz,
+  );
+
+  if (
+    lakeDistance
+    <= RIVER_TERMINAL_LAKE.radius + RIVER_TERMINAL_LAKE.shoreWidth + 4
+  ) return 0;
+  if (getHeroRiverConfluenceMask(x, z) > 0.02) return 0;
+
+  const frame = getHeroRiverCorridorFrame(x, z);
+
+  const bankAcceptance = frame
+    ? getRiverBankGrassAcceptance({
+      distance: frame.lateralDistance,
+      halfWidth: frame.halfWidth,
+      influence: frame.corridorOuter,
+      wetBankWidth: frame.wetBankWidth,
+      gravelBankWidth: frame.gravelBankWidth,
+      hasAuthoredBankWidths: true,
+    })
+    : 1;
+
+  return Math.min(bankAcceptance, getHeroConfluenceGrassAcceptance(x, z));
+}
+
+function getHeroConfluenceGrassAcceptance(x, z) {
+  let acceptance = 1;
+
+  for (const confluence of HERO_RIVER_CONFLUENCES) {
+    const distance = Math.hypot(x - confluence.position[0], z - confluence.position[1]);
+    const recovery = THREE.MathUtils.lerp(
+      HERO_CONFLUENCE_SPARSE_ACCEPTANCE,
+      1,
+      THREE.MathUtils.smoothstep(
+        distance,
+        confluence.poolRadius,
+        confluence.poolRadius + HERO_CONFLUENCE_RECOVERY_WIDTH,
+      ),
+    );
+
+    acceptance = Math.min(acceptance, recovery);
+  }
+
+  return acceptance;
 }
 
 function createEmptyRiverMaterialFrame() {

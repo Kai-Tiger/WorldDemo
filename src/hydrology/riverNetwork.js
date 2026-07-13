@@ -5,6 +5,14 @@ const DEFAULT_SPATIAL_CELL_SIZE = 64;
 const DEFAULT_FLOW_SPEED = 1;
 const ENDPOINT_EPSILON = 1e-4;
 const WATER_LEVEL_EPSILON = 1e-6;
+const GRASS_WET_GUARD = 0.6;
+const GRASS_MINIMUM_SPARSE_WIDTH = 1.5;
+const GRASS_SPARSE_ACCEPTANCE = 0.35;
+const GRASS_RECOVERY_WIDTH = 2.5;
+const GRASS_LAKE_HARD_BUFFER = 4;
+const GRASS_SPATIAL_QUERY_PADDING = GRASS_WET_GUARD
+  + GRASS_MINIMUM_SPARSE_WIDTH
+  + GRASS_RECOVERY_WIDTH;
 
 const nodes = [
   {
@@ -302,6 +310,61 @@ export function getNearestRiverReach(
   return closest;
 }
 
+export function getRiverBankGrassAcceptance(frame) {
+  const hasAuthoredBankWidths = frame.hasAuthoredBankWidths
+    ?? (frame.wetBankWidth > 0 || frame.gravelBankWidth > 0);
+  const wetMaterialOuter = hasAuthoredBankWidths
+    ? frame.halfWidth + (frame.wetBankWidth ?? 0)
+    : Math.min(frame.influence, frame.halfWidth + 3);
+  const wetOuter = wetMaterialOuter + GRASS_WET_GUARD;
+  const bankOuter = hasAuthoredBankWidths
+    ? frame.halfWidth + (frame.wetBankWidth ?? 0) + (frame.gravelBankWidth ?? 0)
+    : frame.influence;
+  const sparseOuter = Math.max(
+    bankOuter,
+    wetOuter + GRASS_MINIMUM_SPARSE_WIDTH,
+  );
+
+  if (frame.distance <= wetOuter) return 0;
+  if (frame.distance <= sparseOuter) {
+    return GRASS_SPARSE_ACCEPTANCE
+      * smoothstep(wetOuter, sparseOuter, frame.distance);
+  }
+
+  return THREE.MathUtils.lerp(
+    GRASS_SPARSE_ACCEPTANCE,
+    1,
+    smoothstep(sparseOuter, sparseOuter + GRASS_RECOVERY_WIDTH, frame.distance),
+  );
+}
+
+export function getRiverNetworkGrassAcceptance(x, z, network = RIVER_NETWORK) {
+  for (const lake of network.lakeFeatures) {
+    const center = lake.center ?? lake.position;
+    const distance = Math.hypot(x - center[0], z - center[1]);
+
+    if (distance <= lake.radius + (lake.shoreWidth ?? 0) + GRASS_LAKE_HARD_BUFFER) {
+      return 0;
+    }
+  }
+
+  let acceptance = 1;
+
+  for (const reach of getSpatialCandidates(
+    network,
+    x,
+    z,
+    GRASS_SPATIAL_QUERY_PADDING,
+  )) {
+    const frame = getClosestReachFrame(reach, x, z);
+
+    if (!frame) continue;
+    acceptance = Math.min(acceptance, getRiverBankGrassAcceptance(frame));
+  }
+
+  return acceptance;
+}
+
 export function getRiverNetworkTerrainTarget(
   baseHeight,
   x,
@@ -557,6 +620,8 @@ function compileReach(reach, nodeById, sampleSpacing) {
   );
   const riffles = reach.riffles ?? [];
   const disturbances = reach.disturbances ?? [];
+  const hasAuthoredBankWidths = reach.wetBankWidth !== undefined
+    || reach.gravelBankWidth !== undefined;
   const waterLevelProfile = createWaterLevelProfile(reach, from, to);
   const sampleCount = Math.max(1, Math.ceil(curve.getLength() / sampleSpacing));
   const samples = [];
@@ -627,6 +692,7 @@ function compileReach(reach, nodeById, sampleSpacing) {
     flowSpeed,
     riffles,
     disturbances,
+    hasAuthoredBankWidths,
     curve,
     samples,
     length: distance,
@@ -688,6 +754,7 @@ function getClosestReachFrame(reach, x, z) {
         end.gravelBankWidth,
         segmentT,
       ),
+      hasAuthoredBankWidths: reach.hasAuthoredBankWidths,
       terrainBlendWidth: THREE.MathUtils.lerp(
         start.terrainBlendWidth,
         end.terrainBlendWidth,

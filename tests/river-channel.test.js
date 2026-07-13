@@ -7,11 +7,16 @@ import {
   applyRiverChannel,
   createRiverWaterMesh,
   createWetBankMesh,
+  getRiverGrassAcceptance,
   getRiverMaterialFrame,
   getRiverWaterGeometryMaxDistance,
   isInRiverGrassExclusion,
 } from '../src/riverChannel.js';
-import { getHeroRiverCorridorFrame } from '../src/lowlandHeightPlan.js';
+import {
+  HERO_RIVER_NETWORK_DEFINITION,
+  getHeroRiverConfluenceMask,
+  getHeroRiverCorridorFrame,
+} from '../src/lowlandHeightPlan.js';
 
 function createTerrainStub() {
   return {
@@ -141,6 +146,66 @@ test('hero river material masks separate bed, wet bank, and dry gravel bank', ()
   assert.ok(confluenceWedge.riverBedMask < 0.9);
   assert.equal(isInRiverGrassExclusion(635, -300, 0), true);
   assert.equal(isInRiverGrassExclusion(780, -230, 0), false);
+});
+
+test('hero river grass acceptance keeps wet water features clear and restores dry ground', () => {
+  const frame = getHeroRiverCorridorFrame(518, -374);
+  const bankFrame = getHeroRiverCorridorFrame(
+    frame.center.x + frame.side.x * 0.25,
+    frame.center.z + frame.side.z * 0.25,
+  );
+  const wetOuter = bankFrame.halfWidth + bankFrame.wetBankWidth + 0.6;
+  const sparseOuter = Math.max(
+    bankFrame.halfWidth + bankFrame.wetBankWidth + bankFrame.gravelBankWidth,
+    wetOuter + 1.5,
+  );
+  const bankDistances = [
+    wetOuter,
+    sparseOuter,
+    sparseOuter + 2.5,
+  ];
+  const bankAcceptance = bankDistances.map((distance) => getRiverGrassAcceptance(
+    bankFrame.center.x + bankFrame.side.x * distance,
+    bankFrame.center.z + bankFrame.side.z * distance,
+  ));
+
+  assert.equal(getRiverGrassAcceptance(518, -374), 0);
+  assert.equal(getRiverGrassAcceptance(575, -336), 0);
+  assert.equal(getRiverGrassAcceptance(
+    RIVER_TERMINAL_LAKE.cx,
+    RIVER_TERMINAL_LAKE.cz,
+  ), 0);
+  assert.equal(bankAcceptance[0], 0);
+  assert.ok(Math.abs(bankAcceptance[1] - 0.35) < 0.01);
+  assert.ok(Math.abs(bankAcceptance[2] - 1) < 0.01);
+  assert.equal(getRiverGrassAcceptance(780, -230), 1);
+});
+
+test('hero Y confluences keep wet arms clear and dry wedges sparsely grassed', () => {
+  const confluences = HERO_RIVER_NETWORK_DEFINITION.nodes.filter(
+    (node) => node.type === 'confluence',
+  );
+
+  for (const confluence of confluences) {
+    const dryWedgeAcceptances = [];
+
+    for (let step = 0; step < 72; step += 1) {
+      const angle = step / 72 * Math.PI * 2;
+      const radius = confluence.poolRadius * 0.85;
+      const x = confluence.position[0] + Math.cos(angle) * radius;
+      const z = confluence.position[1] + Math.sin(angle) * radius;
+      const acceptance = getRiverGrassAcceptance(x, z);
+
+      if (getHeroRiverConfluenceMask(x, z) > 0.02) {
+        assert.equal(acceptance, 0);
+      } else {
+        dryWedgeAcceptances.push(acceptance);
+      }
+    }
+
+    assert.ok(dryWedgeAcceptances.some((acceptance) => acceptance > 0));
+    assert.ok(dryWedgeAcceptances.every((acceptance) => acceptance <= 0.35));
+  }
 });
 
 test('hero confluences keep river-local bed coordinates continuous across branch switches', () => {
