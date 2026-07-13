@@ -573,8 +573,18 @@ function createJunctionBoundary(data, node, endpoints, attributes, terrain) {
           1,
         )
         : gapT;
-      const x = THREE.MathUtils.lerp(startX, endX, chordT);
-      const z = THREE.MathUtils.lerp(startZ, endZ, chordT);
+      const chordX = THREE.MathUtils.lerp(startX, endX, chordT);
+      const chordZ = THREE.MathUtils.lerp(startZ, endZ, chordT);
+      const chordRadius = Math.hypot(
+        chordX - node.position[0],
+        chordZ - node.position[1],
+      );
+      const curveInset = Math.min(
+        chordRadius * 0.32,
+        Math.hypot(segmentX, segmentZ) * 0.16,
+      ) * Math.sin(Math.PI * gapT);
+      const x = chordX - directionX * curveInset;
+      const z = chordZ - directionZ * curveInset;
       const vertex = pushVertex(data, {
         x,
         y: node.waterLevel,

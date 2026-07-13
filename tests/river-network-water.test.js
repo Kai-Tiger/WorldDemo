@@ -405,7 +405,7 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
   }
 });
 
-test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', () => {
+test('hero J1/J2 use naturally curved non-overlapping Y patches within the mesh budget', () => {
   const { geometry, stats } = heroResult;
   const position = geometry.getAttribute('position');
   const indices = geometry.index.array;
@@ -465,7 +465,7 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
         position.getZ(junction.boundaryVertices[previous]),
         position.getX(junction.boundaryVertices[next]),
         position.getZ(junction.boundaryVertices[next]),
-      ) < 1e-4, `${junction.nodeId} bank joins must not bow into a circular pool`);
+      ) > 0.01, `${junction.nodeId} bank joins must curve instead of forming straight chords`);
     }
 
     const node = heroNetwork.nodeById.get(junction.nodeId);
