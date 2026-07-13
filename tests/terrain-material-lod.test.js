@@ -116,6 +116,48 @@ test('all material variants compute masks before sampling branches and preserve 
   }
 });
 
+test('terrain vertex relief is camera-local and leaves water corridors undisplaced', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+
+  for (const material of Object.values(materials)) {
+    const { vertexParameters, vertexAssignments } = material.userData.terrainShaderSource;
+    const shader = {
+      uniforms: {},
+      vertexShader: THREE.ShaderLib.standard.vertexShader,
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+    };
+
+    assert.match(vertexParameters, /float terrainVertexRelief\(vec2 worldPosition\)/);
+    assert.match(vertexAssignments, /1\.0 - smoothstep\(45\.0, 85\.0, terrainReliefDistance\)/);
+    assert.match(vertexAssignments, /max\(riverMask, max\(riverBedMask, riverUnderwaterMask\)\)/);
+    assert.match(vertexAssignments, /transformed \+= normalize\(objectNormal\) \* terrainReliefOffset;/);
+    assert.doesNotMatch(vertexAssignments, /transformedNormal \* terrainReliefOffset/);
+
+    material.onBeforeCompile(shader);
+    assert.ok(
+      shader.vertexShader.indexOf('terrainReliefOffset')
+        < shader.vertexShader.indexOf('#include <project_vertex>'),
+    );
+  }
+});
+
+test('the globally used Medium material triplanar-samples rock color and normal', () => {
+  const { medium } = createTerrainMaterials(createTextures(), createOptions());
+  const { fragmentParameters, mapFragment } = medium.userData.terrainShaderSource;
+  const rockColorSource = getShaderFunction(fragmentParameters, 'sampleTerrainRock');
+  const rockNormalSource = getShaderFunction(fragmentParameters, 'sampleTerrainRockNormal');
+
+  assert.match(rockColorSource, /worldPosition\.zy/);
+  assert.match(rockColorSource, /worldPosition\.xz/);
+  assert.match(rockColorSource, /worldPosition\.xy/);
+  assert.match(rockNormalSource, /uRockNormalTexture/);
+  assert.match(rockNormalSource, /xNormal\.z \* worldNormal\.x/);
+  assert.match(rockNormalSource, /yNormal\.z \* worldNormal\.y/);
+  assert.match(rockNormalSource, /zNormal\.z \* worldNormal\.z/);
+  assert.doesNotMatch(rockNormalSource, /axisSign/);
+  assert.match(mapFragment, /sampleTerrainRockNormal\(vTerrainWorldPosition/);
+});
+
 test('terrain materials keep river gravel scoped outside the natural ground branches', () => {
   const textures = createTextures();
   const materials = createTerrainMaterials(textures, createOptions());
@@ -228,8 +270,11 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
       /mix\(terrainRockColor, terrainGrassColor, terrainGrassBlend\)/,
     );
     assert.match(transitionSource, /terrainSurfaceNormal = normalize\(mix\(/);
-    assert.match(transitionSource, /terrainRoughness = mix\(0\.76, 0\.92, terrainGrassBlend\)/);
+    assert.match(transitionSource, /vec3\(0\.58, 0\.55, 0\.51\)/);
+    assert.match(transitionSource, /terrainRoughness = mix\(0\.80, 0\.92, terrainGrassBlend\)/);
     assert.match(rockSource, /sampleTerrainRock\(|sampleTerrainLayer\(uRockTexture/);
+    assert.match(rockSource, /vec3\(0\.58, 0\.55, 0\.51\)/);
+    assert.match(rockSource, /terrainRoughness = 0\.80/);
     assert.doesNotMatch(rockSource, /sampleTerrainForestFloor|uForestFloor/);
     assert.doesNotMatch(
       naturalSurfaceSource,
@@ -257,9 +302,9 @@ test('forest-floor grading is local, texture-neutral and shared by every materia
     const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
 
     assert.ok(gradeStart >= 0);
-    assert.match(gradeSource, /mix\(vec3\(luminance\), baseColor, 0\.66\)/);
-    assert.match(gradeSource, /vec3\(1\.12, 0\.98, 0\.90\)/);
-    assert.match(gradeSource, /earthTint \* 1\.24 \+ vec3\(0\.009, 0\.008, 0\.005\)/);
+    assert.match(gradeSource, /mix\(vec3\(luminance\), baseColor, 0\.58\)/);
+    assert.match(gradeSource, /vec3\(0\.92, 1\.04, 0\.76\)/);
+    assert.match(gradeSource, /forestTint \* 1\.16 \+ vec3\(0\.006, 0\.010, 0\.003\)/);
     assert.doesNotMatch(gradeSource, /texture2D|sampleTerrainLayer/);
     assert.equal((mapFragment.match(/gradeTerrainForestFloor\(/g) ?? []).length, 2);
     assert.match(mapFragment.slice(groundStart, baseSurfaceEnd), /uForestFloorBaseColorTexture/);
@@ -323,7 +368,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v11-${level}`);
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v12-${level}`);
   }
 });
 

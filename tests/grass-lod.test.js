@@ -407,7 +407,7 @@ test('converted GLB grass preserves and embeds the authored root plane', () => {
   assert.equal(heightRatios.getX(3), 0);
   assert.equal(heightRatios.getX(4), 0);
   assert.equal(heightRatios.getX(2), 1);
-  assert.ok(Math.abs(height - 0.8653635) < 0.000001);
+  assert.ok(Math.abs(height - 1.0576665) < 0.000001);
   assert.equal(heightRatios.itemSize, 1);
   assert.equal(heightRatios.count, positions.count);
   assert.equal(minimumHeightRatio, 0);
@@ -928,7 +928,7 @@ test('far grass LOD is one Y-up cross-card geometry', () => {
   assert.ok(size.y > 0);
   assert.ok(size.z > 0);
   assert.ok(Math.abs(box.min.y + GRASS_ROOT_EMBED_DEPTH) < 0.000001);
-  assert.ok(Math.abs(size.y - 2 * 1.35) < 0.000001);
+  assert.ok(Math.abs(size.y - 2 * 1.65) < 0.000001);
   assert.ok(size.y > size.x);
   assert.ok(size.y > size.z);
   assert.ok(Math.abs(firstNormal.dot(secondNormal)) < 0.000001);

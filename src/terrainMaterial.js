@@ -50,9 +50,37 @@ float terrainVertexNoise(vec2 value) {
   float d = terrainVertexHash(cell + vec2(1.0, 1.0));
   return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
 }
+
+float terrainVertexRelief(vec2 worldPosition) {
+  float broad = terrainVertexNoise(worldPosition * 0.36 + vec2(8.2, -3.7)) - 0.5;
+  float detail = terrainVertexNoise(worldPosition * 0.92 + vec2(-5.1, 12.4)) - 0.5;
+  float grain = terrainVertexNoise(worldPosition * 2.6 + vec2(17.3, 6.8)) - 0.5;
+  return broad * 0.55 + detail * 0.30 + grain * 0.15;
+}
 `;
 
 const TERRAIN_VERTEX_ASSIGNMENTS = `
+vec4 terrainBaseWorldPosition = modelMatrix * vec4(transformed, 1.0);
+float terrainReliefDistance = distance(cameraPosition, terrainBaseWorldPosition.xyz);
+float terrainReliefDistanceFade = 1.0 - smoothstep(45.0, 85.0, terrainReliefDistance);
+float terrainReliefRiverMask = max(riverMask, max(riverBedMask, riverUnderwaterMask));
+float terrainReliefWaterSystemMask = max(
+  max(waterSystemMask.x, waterSystemMask.y),
+  max(waterSystemMask.z, waterSystemMask.w)
+);
+float terrainReliefWaterMask = max(
+  terrainReliefRiverMask,
+  max(smallLakesMask, terrainReliefWaterSystemMask)
+);
+float terrainReliefSurfaceFade = 1.0 - smoothstep(0.02, 0.55, terrainReliefWaterMask);
+float terrainReliefTrailFade = 1.0 - smoothstep(0.05, 0.85, mountainTrailMask);
+float terrainReliefAmplitude = mix(0.30, 0.15, smoothstep(0.18, 0.82, groundMask));
+float terrainReliefOffset = terrainVertexRelief(terrainBaseWorldPosition.xz)
+  * terrainReliefAmplitude
+  * terrainReliefDistanceFade
+  * terrainReliefSurfaceFade
+  * terrainReliefTrailFade;
+transformed += normalize(objectNormal) * terrainReliefOffset;
 vec4 terrainWorldPosition = modelMatrix * vec4(transformed, 1.0);
 vTerrainRiverBedCoord = riverBedCoord;
 vTerrainWorldPosition = terrainWorldPosition.xyz;
@@ -263,9 +291,9 @@ vec3 sampleTerrainForestFloorNormal(
 
 vec3 gradeTerrainForestFloor(vec3 baseColor) {
   float luminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
-  vec3 desaturated = mix(vec3(luminance), baseColor, 0.66);
-  vec3 earthTint = desaturated * vec3(1.12, 0.98, 0.90);
-  return earthTint * 1.24 + vec3(0.009, 0.008, 0.005);
+  vec3 desaturated = mix(vec3(luminance), baseColor, 0.58);
+  vec3 forestTint = desaturated * vec3(0.92, 1.04, 0.76);
+  return forestTint * 1.16 + vec3(0.006, 0.010, 0.003);
 }
 `;
 
@@ -293,10 +321,21 @@ vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float texture
   vec3 xNormal = texture2D(uRockNormalTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
   vec3 yNormal = texture2D(uRockNormalTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
   vec3 zNormal = texture2D(uRockNormalTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
-  vec3 axisSign = sign(worldNormal + vec3(0.0001));
-  vec3 xWorld = normalize(vec3(xNormal.z * axisSign.x, xNormal.y, xNormal.x));
-  vec3 yWorld = normalize(vec3(yNormal.x, yNormal.z * axisSign.y, yNormal.y));
-  vec3 zWorld = normalize(vec3(zNormal.x, zNormal.y, zNormal.z * axisSign.z));
+  vec3 xWorld = vec3(
+    xNormal.z * worldNormal.x,
+    xNormal.y + worldNormal.y,
+    xNormal.x + worldNormal.z
+  );
+  vec3 yWorld = vec3(
+    yNormal.x + worldNormal.x,
+    yNormal.z * worldNormal.y,
+    yNormal.y + worldNormal.z
+  );
+  vec3 zWorld = vec3(
+    zNormal.x + worldNormal.x,
+    zNormal.y + worldNormal.y,
+    zNormal.z * worldNormal.z
+  );
   return normalize(xWorld * blend.x + yWorld * blend.y + zWorld * blend.z);
 }
 `;
@@ -307,7 +346,36 @@ vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
 }
 
 vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
-  return texture2D(uRockTexture, worldPosition.xz / textureWorldSize).rgb;
+  vec3 blend = pow(abs(worldNormal), vec3(4.0));
+  blend /= max(blend.x + blend.y + blend.z, 0.0001);
+  vec3 xSample = texture2D(uRockTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 ySample = texture2D(uRockTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 zSample = texture2D(uRockTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  return xSample * blend.x + ySample * blend.y + zSample * blend.z;
+}
+
+vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+  vec3 blend = pow(abs(worldNormal), vec3(4.0));
+  blend /= max(blend.x + blend.y + blend.z, 0.0001);
+  vec3 xNormal = texture2D(uRockNormalTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 yNormal = texture2D(uRockNormalTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 zNormal = texture2D(uRockNormalTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 xWorld = vec3(
+    xNormal.z * worldNormal.x,
+    xNormal.y + worldNormal.y,
+    xNormal.x + worldNormal.z
+  );
+  vec3 yWorld = vec3(
+    yNormal.x + worldNormal.x,
+    yNormal.z * worldNormal.y,
+    yNormal.y + worldNormal.z
+  );
+  vec3 zWorld = vec3(
+    zNormal.x + worldNormal.x,
+    zNormal.y + worldNormal.y,
+    zNormal.z * worldNormal.z
+  );
+  return normalize(xWorld * blend.x + yWorld * blend.y + zWorld * blend.z);
 }
 `;
 
@@ -324,14 +392,14 @@ function createTerrainMapFragment(level) {
   const rockColor = isNear || isMedium
     ? 'sampleTerrainRock(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62)'
     : 'sampleTerrainLayer(uRockTexture, terrainAlpineUv * 0.62, 7.0)';
-  const rockNormal = isNear
+  const rockNormal = sampleNormal
     ? `terrainSurfaceNormal = normalize(mix(
     terrainSurfaceNormal,
     sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
     0.5
   ));`
     : '';
-  const rockTransitionNormal = isNear
+  const rockTransitionNormal = sampleNormal
     ? `normalize(mix(
     terrainBaseNormal,
     sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
@@ -426,9 +494,9 @@ float terrainGroundMacroWeight = 0.0;
 ${groundBranches}
 ${groundTransition}
 else {
-  terrainBaseColor = ${rockColor} * vec3(0.66, 0.71, 0.73);
+  terrainBaseColor = ${rockColor} * vec3(0.58, 0.55, 0.51);
   ${rockNormal}
-  terrainRoughness = 0.76;
+  terrainRoughness = 0.80;
   terrainOcclusion = 0.96;
 }
 
@@ -606,7 +674,7 @@ function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal 
   );
   terrainGrassColor = gradeTerrainForestFloor(terrainGrassColor)
     * mix(1.0, 1.06, vTerrainMacro.x);
-  vec3 terrainRockColor = ${rockColor} * vec3(0.66, 0.71, 0.73);
+  vec3 terrainRockColor = ${rockColor} * vec3(0.58, 0.55, 0.51);
   terrainBaseColor = mix(terrainRockColor, terrainGrassColor, terrainGrassBlend);
   ${grassNormal}
   terrainSurfaceNormal = normalize(mix(
@@ -615,7 +683,7 @@ function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal 
     terrainGrassBlend
   ));
   terrainGroundMacroWeight = terrainGrassBlend;
-  terrainRoughness = mix(0.76, 0.92, terrainGrassBlend);
+  terrainRoughness = mix(0.80, 0.92, terrainGrassBlend);
   terrainOcclusion = 0.96;
 }`;
 }
@@ -670,7 +738,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
     Object.assign(shader.uniforms, terrainUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${TERRAIN_VERTEX_PARAMETERS}`)
-      .replace('#include <project_vertex>', `#include <project_vertex>\n${TERRAIN_VERTEX_ASSIGNMENTS}`);
+      .replace('#include <project_vertex>', `${TERRAIN_VERTEX_ASSIGNMENTS}\n#include <project_vertex>`);
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
@@ -690,7 +758,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v11-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v12-${level}`;
 
   return material;
 }
