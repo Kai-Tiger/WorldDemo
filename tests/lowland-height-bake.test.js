@@ -239,9 +239,9 @@ test('hero river is a frozen five-reach DAG with the locked confluences and prof
   }));
 
   assert.deepEqual(profiles, [
-    { id: 'hero-main-upper', width: [5.2, 7], depth: [1.5, 1], wet: [0.75, 1.25], gravel: [1, 4.5], blend: [2.5, 3.5], flow: [0.55, 0.75] },
-    { id: 'hero-main-middle', width: [7, 8.2], depth: [1, 1.15], wet: [1.8, 2], gravel: [8, 10], blend: [5, 5], flow: [0.65, 0.8] },
-    { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.15, 1], wet: [2, 1.5], gravel: [10, 6], blend: [5, 5], flow: [0.7, 0.55] },
+    { id: 'hero-main-upper', width: [5.2, 7], depth: [1.6, 1.6], wet: [0.75, 1.25], gravel: [1, 4.5], blend: [2.5, 3.5], flow: [0.55, 0.75] },
+    { id: 'hero-main-middle', width: [7, 8.2], depth: [1.6, 1.6], wet: [1.8, 2], gravel: [8, 10], blend: [5, 5], flow: [0.65, 0.8] },
+    { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.6, 1.5], wet: [2, 1.5], gravel: [10, 6], blend: [5, 5], flow: [0.7, 0.55] },
     { id: 'hero-west-tributary', width: [2, 3.3], depth: [0.35, 0.65], wet: [0.7, 1.2], gravel: [3, 5], blend: [3, 3], flow: [0.75, 1] },
     { id: 'hero-east-tributary', width: [2.2, 3.6], depth: [0.4, 0.75], wet: [0.8, 1.3], gravel: [3.5, 5.5], blend: [3, 3], flow: [0.7, 1] },
   ]);
@@ -455,17 +455,63 @@ test('hero river material masks widen wet gravel and keep dry gravel softly part
 
 test('hero riffles are shallower and faster without changing downstream levels', () => {
   const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
+  const tributary = HERO_RIVER_NETWORK_DEFINITION.reaches.find(
+    (candidate) => candidate.id === 'hero-west-tributary',
+  );
   const rapidPoint = getReachPointAtDistance(reach, 40);
   const calmPoint = getReachPointAtDistance(reach, 80);
+  const tributaryRapidPoint = getReachPointAtDistance(tributary, 22);
   const rapid = getHeroRiverCorridorFrame(rapidPoint.x, rapidPoint.z);
   const calm = getHeroRiverCorridorFrame(calmPoint.x, calmPoint.z);
+  const tributaryRapid = getHeroRiverCorridorFrame(
+    tributaryRapidPoint.x,
+    tributaryRapidPoint.z,
+  );
 
   assert.ok(rapid.rapidMask > 0.8);
   assert.ok(rapid.flowSpeed > 1.3 && rapid.flowSpeed <= 1.8);
-  assert.ok(rapid.depth <= rapid.authoredDepth * 0.75);
+  assert.ok(rapid.depth >= rapid.authoredDepth * 0.9);
+  assert.ok(rapid.depth < rapid.authoredDepth);
   assert.equal(calm.rapidMask, 0);
   assert.ok(calm.flowSpeed < 1);
   assert.ok(rapid.waterLevel > calm.waterLevel);
+  assert.ok(tributaryRapid.rapidMask > 0.75);
+  assert.ok(tributaryRapid.depth <= tributaryRapid.authoredDepth * 0.75);
+});
+
+test('the full waterfall-downstream main channel stays at least 1.4 meters deep', () => {
+  const mainReaches = HERO_RIVER_NETWORK_DEFINITION.reaches.filter(
+    (reach) => reach.role === 'main',
+  );
+  const distancesByReach = new Map([
+    ['hero-main-upper', [24, 40, 80, 124, 160]],
+    ['hero-main-middle', [15, 20, 30, 45]],
+    ['hero-main-lower', [15, 30, 45]],
+  ]);
+
+  assert.equal(mainReaches[0].depth[1], mainReaches[1].depth[0]);
+  assert.equal(mainReaches[1].depth[1], mainReaches[2].depth[0]);
+
+  for (const reach of mainReaches) {
+    for (const distance of distancesByReach.get(reach.id)) {
+      const point = getReachPointAtDistance(reach, distance);
+      const center = getHeroRiverCorridorFrame(point.x, point.z);
+      const thalwegX = center.center.x + center.side.x * center.thalwegOffset;
+      const thalwegZ = center.center.z + center.side.z * center.thalwegOffset;
+      const frame = getHeroRiverCorridorFrame(thalwegX, thalwegZ);
+      const target = getHeroRiverTerrainTarget(
+        getLowlandTerrainHeight(thalwegX, thalwegZ),
+        thalwegX,
+        thalwegZ,
+      );
+      const actualDepth = frame.waterLevel - target.height;
+
+      assert.equal(frame.reachId, reach.id);
+      assert.ok(actualDepth >= 1.4, `${reach.id} at ${distance}m is ${actualDepth}m deep`);
+      assert.ok(actualDepth <= 1.6 + 1e-8, `${reach.id} at ${distance}m is too deep`);
+      assert.ok(target.height >= 0, `${reach.id} at ${distance}m has a negative bed`);
+    }
+  }
 });
 
 test('both hero tributary 15m corridors stay entirely inside the fixed pure-black source', async () => {

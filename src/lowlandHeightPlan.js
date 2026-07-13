@@ -230,7 +230,7 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336]],
       waterLevels: [3.2, 3.05, 2.9, 2.72, 2.55, 2.38, 2.2],
       width: [5.2, 7],
-      depth: [1.5, 1],
+      depth: [1.6, 1.6],
       wetBankWidth: [0.75, 1.25],
       gravelBankWidth: [1, 4.5],
       terrainBlendWidth: [2.5, 3.5],
@@ -256,7 +256,7 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       points: [[575, -336], [602, -352], [633, -349]],
       waterLevels: [2.2, 2.05, 1.88],
       width: [7, 8.2],
-      depth: [1, 1.15],
+      depth: [1.6, 1.6],
       wetBankWidth: [1.8, 2],
       gravelBankWidth: [8, 10],
       terrainBlendWidth: [5, 5],
@@ -278,7 +278,7 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       points: [[633, -349], [662, -351], [690, -340]],
       waterLevels: [1.88, 1.72, 1.6],
       width: [8.2, 6.4],
-      depth: [1.15, 1],
+      depth: [1.6, 1.5],
       wetBankWidth: [2, 1.5],
       gravelBankWidth: [10, 6],
       terrainBlendWidth: [5, 5],
@@ -1026,7 +1026,8 @@ function getHeroReachFrame(reach, x, z) {
     closest.signedLateral,
     waterWidth,
   ) * waterMask;
-  const depth = authoredDepth * (1 - 0.4 * longitudinalRapidMask);
+  const rapidDepthReduction = reach.role === 'main' ? 0.1 : 0.4;
+  const depth = authoredDepth * (1 - rapidDepthReduction * longitudinalRapidMask);
   const edgeDepth = lerp(0.15, 0.25, clamp(authoredDepth / 1.5, 0, 1));
   const curvatureScale = clamp(closest.curvature * 35, -1, 1);
   const thalwegOffset = -curvatureScale * waterWidth * 0.25;
