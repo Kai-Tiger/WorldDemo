@@ -18,6 +18,8 @@ import {
   TREE_DENSITY_LOWLAND,
   TREE_DENSITY_MIDLAND,
   TREE_GROUND_MASK_THRESHOLD,
+  SPAWN_TREE_COLOR_MULTIPLIER,
+  TREE_SHADOW_LIFT_INTENSITY,
   TREE_SWAY_BOUNDS_PADDING,
 } from '../src/vegetationConfig.js';
 import { isInSmallLakeExclusion, SMALL_LAKES } from '../src/smallLakes.js';
@@ -120,10 +122,13 @@ test('tree mesh roles animate only authored branches and leaves', () => {
 test('tree canopy surface and shadow materials share one sway deformation', () => {
   const map = new THREE.Texture();
   const alphaMap = new THREE.Texture();
-  const sourceMaterial = new THREE.MeshStandardMaterial({
+  const sourceMaterial = new THREE.MeshPhysicalMaterial({
     map,
     alphaMap,
     alphaTest: 0.42,
+    metalness: 0.5,
+    roughness: 1,
+    specularIntensity: 0,
   });
   const uniforms = createTreeSwayUniforms(0, 25);
   const surfaceMaterial = createTreeMaterial(sourceMaterial, false, uniforms);
@@ -131,6 +136,7 @@ test('tree canopy surface and shadow materials share one sway deformation', () =
   const createShader = () => ({
     uniforms: {},
     vertexShader: '#include <common>\n#include <begin_vertex>',
+    fragmentShader: '#include <common>\nvec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
   });
   const surfaceShader = createShader();
   const depthShader = createShader();
@@ -145,6 +151,7 @@ test('tree canopy surface and shadow materials share one sway deformation', () =
   assert.equal(depthMaterial.alphaMap, alphaMap);
   assert.equal(depthMaterial.alphaTest, 0.42);
   assert.equal(surfaceShader.uniforms.uTreeTime, uniforms.uTreeTime);
+  assert.equal(surfaceShader.uniforms.uTreeSunDirection, uniforms.uTreeSunDirection);
   assert.equal(depthShader.uniforms.uTreeTime, uniforms.uTreeTime);
   assert.equal(surfaceShader.vertexShader, depthShader.vertexShader);
   assert.match(surfaceShader.vertexShader, /smoothstep\(0\.18, 1\.0, treeHeightRatio\)/);
@@ -152,7 +159,14 @@ test('tree canopy surface and shadow materials share one sway deformation', () =
   assert.match(surfaceShader.vertexShader, /smoothstep\(80\.0, 180\.0, treeViewerDistance\)/);
   assert.match(surfaceShader.vertexShader, /uTreeTime \* 0\.28/);
   assert.match(surfaceShader.vertexShader, /uTreeTime \* 0\.43/);
-  assert.match(surfaceMaterial.customProgramCacheKey(), /surface/);
+  assert.equal(surfaceMaterial.metalness, 0);
+  assert.equal(surfaceMaterial.roughness, 0.78);
+  assert.equal(surfaceMaterial.specularIntensity, 0.35);
+  assert.equal(surfaceMaterial.emissiveIntensity, TREE_SHADOW_LIFT_INTENSITY);
+  assert.match(surfaceShader.fragmentShader, /dot\(-normal, treeSunDirectionView\)/);
+  assert.match(surfaceShader.fragmentShader, /diffuseColor\.a \* 0\.35/);
+  assert.match(surfaceShader.fragmentShader, /treeLeafLuminance/);
+  assert.match(surfaceMaterial.customProgramCacheKey(), /surface-pbr-v2/);
   assert.match(depthMaterial.customProgramCacheKey(), /depth/);
 
   sourceMaterial.dispose();
@@ -160,6 +174,23 @@ test('tree canopy surface and shadow materials share one sway deformation', () =
   depthMaterial.dispose();
   map.dispose();
   alphaMap.dispose();
+});
+
+test('tree PBR correction keeps trunks non-metallic and lifts the spawn tint', () => {
+  const sourceMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    metalness: 0.6,
+  });
+  const trunk = createTreeMaterial(sourceMaterial, false, null);
+  const spawn = createTreeMaterial(sourceMaterial, true, null);
+
+  assert.equal(trunk.metalness, 0);
+  assert.equal(spawn.metalness, 0);
+  assert.equal(spawn.color.getHex(), SPAWN_TREE_COLOR_MULTIPLIER);
+
+  sourceMaterial.dispose();
+  trunk.dispose();
+  spawn.dispose();
 });
 
 test('tree sway uniforms update once per shared model and keep the legacy time default', () => {

@@ -7,6 +7,7 @@ import { isInWaterSystemVegetationExclusion } from './waterSystem.js';
 import { isInSmallLakeExclusion } from './smallLakes.js';
 import { isInMountainTrailGrassExclusion } from './mountainTrailNetwork.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import {
   MAP_SIZE,
   ZONE_SIZE,
@@ -62,7 +63,7 @@ const GRASS_COLOR_GRADE = {
   highlightCompression: 0.28,
 };
 const GRASS_NEAR_TINT = 0xa5c77f;
-const GRASS_FAR_TINT = 0x82a66a;
+const GRASS_FAR_TINT = 0x95b97a;
 const GRASS_GREEN_INSTANCE_COLOR = new THREE.Color(1, 1, 1);
 const GRASS_DRY_INSTANCE_COLOR = new THREE.Color(1.45, 0.72, 0.48);
 const RIBBON_GRASS_VARIANTS = ['VarA', 'VarB', 'VarC', 'VarD', 'VarE', 'VarF'];
@@ -130,7 +131,7 @@ async function loadRibbonGrassTextures(compressedTextureLoader, textureTier) {
     ['roughness', 'Roughness', THREE.NoColorSpace],
     ['ao', 'AO', THREE.NoColorSpace],
     ['opacity', 'Opacity', THREE.NoColorSpace],
-    ['translucency', 'Translucency', THREE.SRGBColorSpace],
+    ['translucency', 'Translucency', THREE.NoColorSpace],
     ['billboardBaseColor', 'Billboard_BaseColor', THREE.SRGBColorSpace],
     ['billboardNormal', 'Billboard_Normal', THREE.NoColorSpace],
     ['billboardOpacity', 'Billboard_Opacity', THREE.NoColorSpace],
@@ -417,6 +418,7 @@ function configureGrassMaterial(material) {
   }
   material.onBeforeCompile = (shader) => {
     applyGrassAlphaMap(shader);
+    applyGrassRoughnessMap(shader);
     applyGrassShadowLift(shader);
   };
   material.customProgramCacheKey = () => 'ribbon-grass-readable-alpha-red-v2';
@@ -431,6 +433,7 @@ function applyGrassColorGrade(shader, grade, useHeightShading, maps = {}, transl
   shader.uniforms.uGrassHighlightCompression = { value: grade.highlightCompression };
   shader.uniforms.uGrassTranslucencyMap = { value: maps.translucency || null };
   shader.uniforms.uGrassTranslucencyStrength = { value: translucencyStrength };
+  shader.uniforms.uGrassSunDirection = { value: SUN_LIGHT_DIRECTION };
   shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       `#include <common>
@@ -441,18 +444,25 @@ uniform float uGrassSaturation;
 uniform float uGrassHighlightCompression;
 uniform sampler2D uGrassTranslucencyMap;
 uniform float uGrassTranslucencyStrength;
+uniform vec3 uGrassSunDirection;
 ${useHeightShading ? 'varying float vGrassHeightRatio;' : ''}`,
     );
   applyGrassAlphaMap(shader);
+  applyGrassRoughnessMap(shader);
   shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
       `float grassHeightShade = ${useHeightShading ? 'vGrassHeightRatio' : '0.62'};
 	float grassRootMask = 1.0 - smoothstep(0.04, 0.42, grassHeightShade);
 	float grassTipMask = smoothstep(0.54, 1.0, grassHeightShade);
 	vec3 grassTranslucency = texture2D(uGrassTranslucencyMap, vMapUv).rgb;
+	vec3 grassSunDirectionView = normalize(mat3(viewMatrix) * uGrassSunDirection);
+	float grassBacklight = pow(max(dot(-normal, grassSunDirectionView), 0.0), 1.4);
 	gl_FragColor.rgb *= mix(1.0, 0.72, grassRootMask);
 	gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + vec3(0.035, 0.045, 0.018), grassTipMask * 0.24);
-	gl_FragColor.rgb += grassTranslucency * grassTipMask * uGrassTranslucencyStrength;
+	gl_FragColor.rgb += grassTranslucency
+	  * grassTipMask
+	  * uGrassTranslucencyStrength
+	  * mix(0.12, 1.0, grassBacklight);
 float grassLuminance = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
 float grassShadowMask = 1.0 - smoothstep(0.14, 0.52, grassLuminance);
 gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * grassShadowMask * 0.38);
@@ -472,6 +482,17 @@ function applyGrassAlphaMap(shader) {
     '#include <alphamap_fragment>',
     `#ifdef USE_ALPHAMAP
 diffuseColor.a *= texture2D(alphaMap, vAlphaMapUv).r;
+#endif`,
+  );
+}
+
+function applyGrassRoughnessMap(shader) {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <roughnessmap_fragment>',
+    `float roughnessFactor = roughness;
+#ifdef USE_ROUGHNESSMAP
+vec4 grassRoughnessSample = texture2D(roughnessMap, vRoughnessMapUv);
+roughnessFactor *= grassRoughnessSample.r;
 #endif`,
   );
 }

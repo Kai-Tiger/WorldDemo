@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import * as THREE from 'three';
 import { Terrain } from '../src/terrain.js';
@@ -17,6 +18,7 @@ function createTextures() {
     snow: texture,
     forestFloorBaseColor: texture,
     forestFloorNormal: texture,
+    forestFloorOrm: texture,
     riverBank: texture,
     riverBed: texture,
     riverGravel: texture,
@@ -95,6 +97,15 @@ test('terrain material factory creates shared Near, Medium and Far variants with
   assert.equal(materials.near.userData.terrainUniforms.uSnowTexture.value, textures.snow);
   assert.equal(materials.medium.userData.terrainUniforms.uSnowTexture.value, textures.snow);
   assert.equal(materials.far.userData.terrainUniforms.uSnowTexture.value, textures.snow);
+  assert.equal(
+    materials.medium.userData.terrainUniforms.uForestFloorOrmTexture.value,
+    textures.forestFloorOrm,
+  );
+  assert.equal(
+    Object.keys(materials.medium.userData.terrainUniforms)
+      .filter((name) => name.endsWith('Texture')).length,
+    9,
+  );
 });
 
 test('all material variants compute masks before sampling branches and preserve water masks', () => {
@@ -225,13 +236,13 @@ test('hero river banks keep wet gravel readable and dry gravel muted over natura
     );
     assert.match(source, /vec3 terrainMutedGravelColor = mix\(/);
     assert.match(source, /terrainRawGravelColor,\s*0\.52/);
-    assert.match(source, /vec3\(0\.72, 0\.69, 0\.62\)/);
+    assert.match(source, /vec3\(0\.86, 0\.84, 0\.79\)/);
     assert.match(
       source,
       /terrainGravelColor = mix\(\s*terrainBaseColor,\s*terrainMutedGravelColor,\s*0\.58/,
     );
     assert.match(source, /vec3 terrainMutedBankColor = mix\(/);
-    assert.match(source, /vec3\(0\.64, 0\.70, 0\.69\)/);
+    assert.match(source, /vec3\(0\.82, 0\.87, 0\.86\)/);
     assert.match(
       source,
       /terrainBankColor = mix\(\s*terrainBaseColor,\s*terrainMutedBankColor,\s*0\.86/,
@@ -271,10 +282,10 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
       /mix\(terrainRockColor, terrainGrassColor, terrainGrassBlend\)/,
     );
     assert.match(transitionSource, /terrainSurfaceNormal = normalize\(mix\(/);
-    assert.match(transitionSource, /vec3\(0\.58, 0\.55, 0\.51\)/);
-    assert.match(transitionSource, /terrainRoughness = mix\(0\.80, 0\.92, terrainGrassBlend\)/);
+    assert.match(transitionSource, /vec3\(0\.80, 0\.79, 0\.76\)/);
+    assert.match(transitionSource, /mix\(0\.55, 0\.92, terrainGrassTechnical\.g\)/);
     assert.match(rockSource, /sampleTerrainRock\(|sampleTerrainLayer\(uRockTexture/);
-    assert.match(rockSource, /vec3\(0\.58, 0\.55, 0\.51\)/);
+    assert.match(rockSource, /vec3\(0\.80, 0\.79, 0\.76\)/);
     assert.match(rockSource, /terrainRoughness = 0\.80/);
     assert.doesNotMatch(rockSource, /sampleTerrainForestFloor|uForestFloor/);
     assert.doesNotMatch(
@@ -369,7 +380,49 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v12-${level}`);
+    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v13-${level}`);
+  }
+});
+
+test('packed terrain technical map drives bounded forest ORM and scree normals with one sampler', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+  const medium = materials.medium.userData.terrainShaderSource;
+  const far = materials.far.userData.terrainShaderSource;
+  const technicalSource = getShaderFunction(
+    medium.fragmentParameters,
+    'sampleTerrainForestFloorTechnical',
+  );
+  const screeSource = getShaderFunction(
+    medium.fragmentParameters,
+    'sampleTerrainScreeNormal',
+  );
+
+  assert.equal(
+    (technicalSource.match(/sampleTerrainForestFloorCell\(/g) ?? []).length,
+    4,
+  );
+  assert.match(medium.mapFragment, /mix\(0\.55, 0\.92, terrainForestTechnical\.g\)/);
+  assert.match(medium.mapFragment, /mix\(0\.75, 1\.0, terrainForestTechnical\.r\)/);
+  assert.match(screeSource, /texture2D\(uForestFloorOrmTexture, uv\)\.ba/);
+  assert.match(screeSource, /sqrt\(max\(1\.0 - dot\(normalXY, normalXY\), 0\.04\)\)/);
+  assert.match(medium.mapFragment, /sampleTerrainScreeNormal\(/);
+  assert.doesNotMatch(far.mapFragment, /sampleTerrainForestFloorTechnical\(/);
+  assert.doesNotMatch(far.mapFragment, /sampleTerrainScreeNormal\(/);
+});
+
+test('derived terrain PBR assets are tiered linear KTX2 textures', async () => {
+  const identifier = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
+
+  for (const tier of ['1k', '2k']) {
+    for (const name of ['forest_floor_orm', 'scree_alpine_normal']) {
+      const data = await readFile(new URL(
+        `../public/assets/terrain/forest-floor/optimized/${name}_${tier}.ktx2`,
+        import.meta.url,
+      ));
+
+      assert.deepEqual([...data.subarray(0, identifier.length)], identifier);
+      assert.ok(data.byteLength > 1024);
+    }
   }
 });
 

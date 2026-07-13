@@ -6,6 +6,7 @@ import { isInSmallLakeExclusion } from './smallLakes.js';
 import { isInMountainTrailTreeExclusion } from './mountainTrailNetwork.js';
 import { hash2, sampleTerrainSurface } from './grassClumps.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
+import { SUN_LIGHT_DIRECTION } from './lighting.js';
 import {
   GRASS_WIND_X,
   GRASS_WIND_Z,
@@ -50,6 +51,11 @@ const HALF_MAP_SIZE = MAP_SIZE / 2;
 const BATCH_SIZE = 3000;
 const TREE_ALPHA_TEST = 0.38;
 const TREE_ENVIRONMENT_INTENSITY = 0.92;
+const TREE_CANOPY_SPECULAR_INTENSITY = 0.35;
+const TREE_CANOPY_ROUGHNESS_MIN = 0.60;
+const TREE_CANOPY_ROUGHNESS_MAX = 0.78;
+const TREE_CANOPY_BACKLIGHT_STRENGTH = 0.28;
+const TREE_CANOPY_BACKLIGHT_COLOR = new THREE.Color(0x789a4b);
 const TREE_WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const TREE_SWAY_PROGRAM_KEY = 'tree-canopy-sway-world-wind-v1';
 
@@ -136,6 +142,9 @@ export function createTreeSwayUniforms(modelBaseY, modelHeight) {
     uTreeBaseY: { value: modelBaseY },
     uTreeHeight: { value: modelHeight },
     uTreeSwayStrength: { value: TREE_SWAY_STRENGTH },
+    uTreeSunDirection: { value: SUN_LIGHT_DIRECTION.clone().normalize() },
+    uTreeBacklightColor: { value: TREE_CANOPY_BACKLIGHT_COLOR },
+    uTreeBacklightStrength: { value: TREE_CANOPY_BACKLIGHT_STRENGTH },
   };
 }
 
@@ -146,8 +155,22 @@ export function createTreeMaterial(sourceMaterial, isSpawnTree, swayUniforms = n
   material.alphaTest = Math.max(material.alphaTest || 0, TREE_ALPHA_TEST);
   material.depthWrite = true;
   material.depthTest = true;
+  if ('metalness' in material) material.metalness = 0;
   if (isSpawnTree && 'color' in material) {
     material.color.multiply(new THREE.Color(SPAWN_TREE_COLOR_MULTIPLIER));
+  }
+  if (swayUniforms && 'roughness' in material) {
+    material.roughness = THREE.MathUtils.clamp(
+      material.roughness,
+      TREE_CANOPY_ROUGHNESS_MIN,
+      TREE_CANOPY_ROUGHNESS_MAX,
+    );
+  }
+  if (swayUniforms && 'specularIntensity' in material) {
+    material.specularIntensity = TREE_CANOPY_SPECULAR_INTENSITY;
+  }
+  if (swayUniforms) {
+    material.userData.treeCanopySpecularIntensity = TREE_CANOPY_SPECULAR_INTENSITY;
   }
   if ('emissive' in material) {
     material.emissive = new THREE.Color(TREE_SHADOW_LIFT_COLOR);
@@ -187,9 +210,39 @@ function configureTreeSwayMaterial(material, uniforms, pass) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = injectTreeSway(shader.vertexShader);
+    if (pass === 'surface') {
+      shader.fragmentShader = injectTreeCanopyLighting(shader.fragmentShader);
+    }
   };
-  material.customProgramCacheKey = () => `${TREE_SWAY_PROGRAM_KEY}-${pass}`;
+  material.customProgramCacheKey = () => `${TREE_SWAY_PROGRAM_KEY}-${pass}-pbr-v2`;
   material.needsUpdate = true;
+}
+
+export function injectTreeCanopyLighting(fragmentShader) {
+  return fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+uniform vec3 uTreeSunDirection;
+uniform vec3 uTreeBacklightColor;
+uniform float uTreeBacklightStrength;`,
+    )
+    .replace(
+      'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
+      `vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;
+vec3 treeSunDirectionView = normalize(mat3(viewMatrix) * uTreeSunDirection);
+float treeBacklight = pow(max(dot(-normal, treeSunDirectionView), 0.0), 1.35);
+float treeLeafLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+float treeThicknessProxy = clamp(
+  diffuseColor.a * 0.35 + smoothstep(0.06, 0.65, treeLeafLuminance) * 0.65,
+  0.0,
+  1.0
+);
+outgoingLight += uTreeBacklightColor
+  * treeBacklight
+  * treeThicknessProxy
+  * uTreeBacklightStrength;`,
+    );
 }
 
 export function injectTreeSway(vertexShader) {

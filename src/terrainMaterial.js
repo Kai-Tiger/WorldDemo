@@ -107,6 +107,7 @@ uniform sampler2D uRockNormalTexture;
 uniform sampler2D uSnowTexture;
 uniform sampler2D uForestFloorBaseColorTexture;
 uniform sampler2D uForestFloorNormalTexture;
+uniform sampler2D uForestFloorOrmTexture;
 uniform sampler2D uRiverBankTexture;
 uniform sampler2D uRiverBedTexture;
 uniform sampler2D uRiverGravelTexture;
@@ -230,6 +231,45 @@ vec3 sampleTerrainForestFloorColor(
   return a * weights.x + b * weights.y + c * weights.z + d * weights.w;
 }
 
+vec4 sampleTerrainForestFloorTechnical(
+  sampler2D terrainTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy
+) {
+  vec2 cell = floor(baseUv);
+  vec4 weights = terrainForestFloorCellWeights(baseUv);
+  vec4 a = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell
+  );
+  vec4 b = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 0.0)
+  );
+  vec4 c = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(0.0, 1.0)
+  );
+  vec4 d = sampleTerrainForestFloorCell(
+    terrainTexture,
+    baseUv,
+    baseUvDx,
+    baseUvDy,
+    cell + vec2(1.0, 1.0)
+  );
+  return a * weights.x + b * weights.y + c * weights.z + d * weights.w;
+}
+
 vec2 sampleTerrainForestFloorSlopeCell(
   sampler2D normalTexture,
   vec2 baseUv,
@@ -294,6 +334,24 @@ vec3 gradeTerrainForestFloor(vec3 baseColor) {
   vec3 desaturated = mix(vec3(luminance), baseColor, 0.58);
   vec3 forestTint = desaturated * vec3(0.92, 1.04, 0.76);
   return forestTint * 1.16 + vec3(0.006, 0.010, 0.003);
+}
+
+vec3 sampleTerrainScreeNormal(vec2 uv, vec3 worldNormal) {
+  vec2 encodedNormal = texture2D(uForestFloorOrmTexture, uv).ba;
+  vec2 normalXY = encodedNormal * 2.0 - 1.0;
+  float normalZ = sqrt(max(1.0 - dot(normalXY, normalXY), 0.04));
+  vec3 tangentNormal = normalize(vec3(normalXY, normalZ));
+  vec3 tangent = normalize(vec3(
+    1.0,
+    -worldNormal.x / max(worldNormal.y, 0.08),
+    0.0
+  ));
+  vec3 bitangent = normalize(cross(tangent, worldNormal));
+  return normalize(
+    tangent * tangentNormal.x
+      + bitangent * tangentNormal.y
+      + worldNormal * tangentNormal.z
+  );
 }
 `;
 
@@ -406,15 +464,14 @@ function createTerrainMapFragment(level) {
     0.5
   ))`
     : 'terrainBaseNormal';
-  const gravelNormal = isNear
+  const gravelNormal = sampleNormal
     ? `terrainSurfaceNormal = normalize(mix(
     terrainSurfaceNormal,
-    sampleTerrainRockNormal(
-      vTerrainWorldPosition,
-      terrainBaseNormal,
-      uRiverGravelTextureWorldSize * 0.85
+    sampleTerrainScreeNormal(
+      vTerrainWorldPosition.xz / uRiverGravelTextureWorldSize + vec2(3.7, -2.1),
+      terrainBaseNormal
     ),
-    terrainRiverGravelMask * 0.42
+    terrainRiverGravelMask * 0.38
   ));`
     : '';
   const normalDeclarations = sampleNormal
@@ -494,7 +551,7 @@ float terrainGroundMacroWeight = 0.0;
 ${groundBranches}
 ${groundTransition}
 else {
-  terrainBaseColor = ${rockColor} * vec3(0.58, 0.55, 0.51);
+  terrainBaseColor = ${rockColor} * vec3(0.80, 0.79, 0.76);
   ${rockNormal}
   terrainRoughness = 0.80;
   terrainOcclusion = 0.96;
@@ -566,7 +623,7 @@ if (max(terrainRiverGravelMask, max(terrainWaterBankMask, terrainWaterBedMask)) 
       vec3(terrainGravelLuminance),
       terrainRawGravelColor,
       0.52
-    ) * vec3(0.72, 0.69, 0.62);
+    ) * vec3(0.86, 0.84, 0.79);
     terrainGravelColor = mix(
       terrainBaseColor,
       terrainMutedGravelColor,
@@ -587,7 +644,7 @@ if (max(terrainRiverGravelMask, max(terrainWaterBankMask, terrainWaterBedMask)) 
       vec3(terrainBankLuminance),
       terrainRawBankColor,
       0.62
-    ) * vec3(0.64, 0.70, 0.69);
+    ) * vec3(0.82, 0.87, 0.86);
     terrainBankColor = mix(
       terrainBaseColor,
       terrainMutedBankColor,
@@ -634,6 +691,14 @@ function createGroundBranches({ sampleNormal }) {
     0.55
   ));`
     : '';
+  const forestFloorTechnical = sampleNormal
+    ? `vec2 terrainForestTechnical = sampleTerrainForestFloorTechnical(
+    uForestFloorOrmTexture,
+    terrainForestFloorUv,
+    terrainForestFloorUvDx,
+    terrainForestFloorUvDy
+  ).rg;`
+    : 'vec2 terrainForestTechnical = vec2(0.84, 1.0);';
 
   return `if (terrainGrassBlendMask >= 0.74) {
   terrainBaseColor = sampleTerrainForestFloorColor(
@@ -644,10 +709,11 @@ function createGroundBranches({ sampleNormal }) {
   );
   terrainBaseColor = gradeTerrainForestFloor(terrainBaseColor)
     * mix(1.0, 1.06, vTerrainMacro.x);
+  ${forestFloorTechnical}
   terrainGroundMacroWeight = 1.0;
   ${forestFloorNormal}
-  terrainRoughness = 0.92;
-  terrainOcclusion = 0.96;
+  terrainRoughness = mix(0.55, 0.92, terrainForestTechnical.g);
+  terrainOcclusion = mix(0.75, 1.0, terrainForestTechnical.r);
 }`;
 }
 
@@ -664,6 +730,14 @@ function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal 
     0.55
   ));`
     : 'vec3 terrainGrassNormal = terrainBaseNormal;';
+  const grassTechnical = sampleNormal
+    ? `vec2 terrainGrassTechnical = sampleTerrainForestFloorTechnical(
+    uForestFloorOrmTexture,
+    terrainForestFloorUv,
+    terrainForestFloorUvDx,
+    terrainForestFloorUvDy
+  ).rg;`
+    : 'vec2 terrainGrassTechnical = vec2(0.84, 1.0);';
 
   return `else if (terrainGrassBlendMask > 0.10) {
   vec3 terrainGrassColor = sampleTerrainForestFloorColor(
@@ -674,7 +748,8 @@ function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal 
   );
   terrainGrassColor = gradeTerrainForestFloor(terrainGrassColor)
     * mix(1.0, 1.06, vTerrainMacro.x);
-  vec3 terrainRockColor = ${rockColor} * vec3(0.58, 0.55, 0.51);
+  ${grassTechnical}
+  vec3 terrainRockColor = ${rockColor} * vec3(0.80, 0.79, 0.76);
   terrainBaseColor = mix(terrainRockColor, terrainGrassColor, terrainGrassBlend);
   ${grassNormal}
   terrainSurfaceNormal = normalize(mix(
@@ -683,8 +758,10 @@ function createGroundTransition({ sampleNormal, rockColor, rockTransitionNormal 
     terrainGrassBlend
   ));
   terrainGroundMacroWeight = terrainGrassBlend;
-  terrainRoughness = mix(0.80, 0.92, terrainGrassBlend);
-  terrainOcclusion = 0.96;
+  float terrainGrassRoughness = mix(0.55, 0.92, terrainGrassTechnical.g);
+  float terrainGrassOcclusion = mix(0.75, 1.0, terrainGrassTechnical.r);
+  terrainRoughness = mix(0.80, terrainGrassRoughness, terrainGrassBlend);
+  terrainOcclusion = mix(0.96, terrainGrassOcclusion, terrainGrassBlend);
 }`;
 }
 
@@ -701,6 +778,7 @@ function createTerrainUniforms(textures, options) {
     uSnowTexture: { value: textures.snow },
     uForestFloorBaseColorTexture: { value: textures.forestFloorBaseColor },
     uForestFloorNormalTexture: { value: textures.forestFloorNormal },
+    uForestFloorOrmTexture: { value: textures.forestFloorOrm },
     uRiverBankTexture: { value: textures.riverBank },
     uRiverBedTexture: { value: textures.riverBed },
     uRiverGravelTexture: { value: textures.riverGravel },
@@ -758,7 +836,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v12-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v13-${level}`;
 
   return material;
 }

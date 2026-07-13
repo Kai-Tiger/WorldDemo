@@ -860,7 +860,7 @@ test('only the near grass material keeps sway uniforms', () => {
   assert.equal(lods[1][0].material.userData.grassUniforms, null);
   assert.equal(lods[1][0].material.color.getHex(), 0xa5c77f);
   assert.equal(lods[2][0].material.userData.grassUniforms, null);
-  assert.equal(lods[2][0].material.color.getHex(), 0x82a66a);
+  assert.equal(lods[2][0].material.color.getHex(), 0x95b97a);
   assert.equal(lods[2][0].material.isMeshLambertMaterial, true);
   assert.equal(lods[2][0].material.map, texture);
   assert.equal(lods[2][0].material.alphaMap, texture);
@@ -870,11 +870,11 @@ test('only the near grass material keeps sway uniforms', () => {
   const nearShader = {
     uniforms: {},
     vertexShader: '#include <common>\n#include <begin_vertex>',
-    fragmentShader: '#include <common>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
+    fragmentShader: '#include <common>\n#include <roughnessmap_fragment>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
   };
   const midShader = {
     uniforms: {},
-    fragmentShader: '#include <common>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
+    fragmentShader: '#include <common>\n#include <roughnessmap_fragment>\n#include <alphamap_fragment>\n#include <dithering_fragment>',
   };
 
   lods[0][0].material.onBeforeCompile(nearShader);
@@ -907,7 +907,11 @@ test('only the near grass material keeps sway uniforms', () => {
   );
   assert.match(lods[0][0].material.customProgramCacheKey(), /ribbon-grass-sway-config-v4/);
   assert.match(midShader.fragmentShader, /vAlphaMapUv\)\.r/);
+  assert.match(midShader.fragmentShader, /grassRoughnessSample\.r/);
   assert.match(midShader.fragmentShader, /uGrassShadowLiftIntensity/);
+  assert.match(nearShader.fragmentShader, /uGrassSunDirection/);
+  assert.match(nearShader.fragmentShader, /dot\(-normal, grassSunDirectionView\)/);
+  assert.match(nearShader.fragmentShader, /mix\(0\.12, 1\.0, grassBacklight\)/);
 });
 
 test('instance-local sway conversion preserves one world wind direction across yaw', () => {
@@ -995,6 +999,7 @@ test('runtime grass loading uses tiered KTX2 maps and Meshopt GLB LODs', async (
   assert.equal((textureSpecBlock.match(/^\s*\['/gm) ?? []).length, 9);
   assert.match(source, /compressedTextureLoader\.loadAsync/);
   assert.match(source, /\.ktx2/);
+  assert.match(source, /\['translucency', 'Translucency', THREE\.NoColorSpace\]/);
   assert.match(source, /GLTFLoader/);
   assert.match(source, /MeshoptDecoder/);
   assert.match(source, /\[0, 1, 2\]/);

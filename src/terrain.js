@@ -124,6 +124,7 @@ export class Terrain {
       loadTerrainTextures(
         options.textureTier,
         options.textureAnisotropy,
+        options.compressedTextureLoader,
       ),
     ]);
 
@@ -1192,7 +1193,11 @@ async function loadHeightMap(path) {
   };
 }
 
-async function loadTerrainTextures(textureTier, textureAnisotropy) {
+async function loadTerrainTextures(
+  textureTier,
+  textureAnisotropy,
+  compressedTextureLoader,
+) {
   const standardTextureLoader = new THREE.TextureLoader();
   const tier = textureTier === '1k' ? '1k' : '2k';
   const anisotropy = textureAnisotropy ?? 4;
@@ -1202,6 +1207,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     snow,
     forestFloorBaseColor,
     forestFloorNormal,
+    forestFloorOrm,
     riverBank,
     riverBed,
     riverGravel,
@@ -1211,6 +1217,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     standardTextureLoader.loadAsync(ALPINE_SNOW_TEXTURE_PATH),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_basecolor_${tier}.jpg`),
     standardTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_normal_${tier}.jpg`),
+    compressedTextureLoader.loadAsync(`${FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH}/forest_floor_orm_${tier}.ktx2`),
     standardTextureLoader.loadAsync(RIVER_BANK_TEXTURE_PATH),
     standardTextureLoader.loadAsync(RIVER_BED_TEXTURE_PATH),
     standardTextureLoader.loadAsync(RIVER_GRAVEL_TEXTURE_PATH),
@@ -1233,6 +1240,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
   for (const texture of [
     rockNormal,
     forestFloorNormal,
+    forestFloorOrm,
   ]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -1246,6 +1254,7 @@ async function loadTerrainTextures(textureTier, textureAnisotropy) {
     snow,
     forestFloorBaseColor,
     forestFloorNormal,
+    forestFloorOrm,
     riverBank,
     riverBed,
     riverGravel,
