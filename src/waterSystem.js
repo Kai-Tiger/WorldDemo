@@ -377,6 +377,7 @@ function createLakeWater(terrain) {
   lake.name = 'AlpineLakeWater';
   surface.name = 'AlpineLakeSurface';
   surface.renderOrder = WATER_RENDER_ORDER.surface;
+  surface.userData.waterReflectionModeCap = 2;
   lake.add(surface);
 
   return lake;
@@ -1191,7 +1192,14 @@ export function createLakeSurfaceMaterial() {
     forceSinglePass: true,
     depthWrite: false,
     depthTest: true,
-    uniforms: createWaterUniforms(),
+    uniforms: createWaterUniforms({
+      uSceneColor: { value: null },
+      uSceneDepth: { value: null },
+      uSceneResolution: { value: new THREE.Vector2(1, 1) },
+      uCameraNear: { value: 0.25 },
+      uCameraFar: { value: 1800 },
+      uRefractionPixels: { value: 0 },
+    }),
     vertexShader: `
       uniform float uTime;
 
@@ -1204,6 +1212,7 @@ export function createLakeSurfaceMaterial() {
       varying float vLakeDepth;
       varying float vLakeEdge;
       varying float vLakeBedVisibility;
+      varying float vWaterViewDepth;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
       void main() {
@@ -1217,9 +1226,11 @@ export function createLakeSurfaceMaterial() {
         float waveB = sin(position.z * 0.11 - uTime * 0.76) * 0.04;
         transformed.y += (waveA + waveB) * waveMask;
         vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
+        vec4 viewPosition = viewMatrix * worldPosition;
         vWorldPosition = worldPosition.xyz;
+        vWaterViewDepth = -viewPosition.z;
         ${WATER_FOG_VERTEX_GLSL}
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        gl_Position = projectionMatrix * viewPosition;
       }
     `,
     fragmentShader: `
@@ -1233,12 +1244,21 @@ export function createLakeSurfaceMaterial() {
       uniform vec3 uBankReflectionColor;
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
+      #ifdef USE_SINGLE_LAYER_WATER
+        uniform sampler2D uSceneColor;
+        uniform sampler2D uSceneDepth;
+        uniform vec2 uSceneResolution;
+        uniform float uCameraNear;
+        uniform float uCameraFar;
+        uniform float uRefractionPixels;
+      #endif
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
       varying float vLakeDepth;
       varying float vLakeEdge;
       varying float vLakeBedVisibility;
+      varying float vWaterViewDepth;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
       float hash(vec2 p) {
@@ -1322,6 +1342,135 @@ export function createLakeSurfaceMaterial() {
         return min(sunBrdf * NoL, 0.85) * coverage;
       }
 
+      #ifdef USE_SINGLE_LAYER_WATER
+        float getLinearLakeViewDepth(float depth) {
+          float denominator = uCameraFar
+            - depth * (uCameraFar - uCameraNear);
+
+          return (uCameraNear * uCameraFar) / max(denominator, 0.000001);
+        }
+
+        vec3 getSingleLayerLakeVolume(
+          vec3 surfaceNormal,
+          vec3 viewDirection,
+          float edgeAlpha,
+          out vec3 undistortedScene,
+          out float waterThickness
+        ) {
+          vec2 inverseResolution = 1.0 / max(uSceneResolution, vec2(1.0));
+          vec2 screenUv = gl_FragCoord.xy * inverseResolution;
+          vec2 safeMinimum = inverseResolution * 0.5;
+          vec2 safeMaximum = vec2(1.0) - safeMinimum;
+          vec3 viewNormal = normalize(mat3(viewMatrix) * surfaceNormal);
+          float refractionFade = edgeAlpha * smoothstep(0.08, 0.75, vLakeDepth);
+          vec2 candidateUv = screenUv
+            + viewNormal.xy
+            * uRefractionPixels
+            * inverseResolution
+            * refractionFade;
+          vec2 insideMinimum = step(safeMinimum, candidateUv);
+          vec2 insideMaximum = step(candidateUv, safeMaximum);
+          float uvIsValid = insideMinimum.x
+            * insideMinimum.y
+            * insideMaximum.x
+            * insideMaximum.y;
+          vec2 clampedCandidateUv = clamp(
+            candidateUv,
+            safeMinimum,
+            safeMaximum
+          );
+          float undistortedRawDepth = texture2D(uSceneDepth, screenUv).r;
+          float refractedRawDepth = texture2D(
+            uSceneDepth,
+            clampedCandidateUv
+          ).r;
+          float undistortedViewDepth = getLinearLakeViewDepth(
+            undistortedRawDepth
+          );
+          float refractedViewDepth = getLinearLakeViewDepth(refractedRawDepth);
+          float depthIsBehindWater = step(
+            vWaterViewDepth + 0.01,
+            refractedViewDepth
+          );
+          float depthIsFinite = (1.0 - step(0.999999, undistortedRawDepth))
+            * (1.0 - step(0.999999, refractedRawDepth));
+          float depthContinuity = 1.0 - step(
+            max(0.75, undistortedViewDepth * 0.015),
+            abs(refractedViewDepth - undistortedViewDepth)
+          );
+          float validRefraction = uvIsValid
+            * depthIsBehindWater
+            * depthIsFinite
+            * depthContinuity;
+          vec2 refractedUv = mix(
+            screenUv,
+            clampedCandidateUv,
+            validRefraction
+          );
+
+          undistortedScene = texture2D(uSceneColor, screenUv).rgb;
+          vec3 refractedScene = texture2D(uSceneColor, refractedUv).rgb;
+          float surfaceFacing = max(
+            abs(dot(viewDirection, vec3(0.0, 1.0, 0.0))),
+            0.2
+          );
+          float authoredPathLength = clamp(
+            max(vLakeDepth, 0.0) / surfaceFacing,
+            0.0,
+            6.0
+          );
+          float viewRayCosine = clamp(
+            vWaterViewDepth / max(
+              distance(uCameraPosition, vWorldPosition),
+              0.0001
+            ),
+            0.25,
+            1.0
+          );
+          float screenPathLength = clamp(
+            max(refractedViewDepth - vWaterViewDepth, 0.0)
+              / viewRayCosine,
+            0.0,
+            6.0
+          );
+          float pathLengthLimit = min(
+            6.0,
+            max(authoredPathLength * 1.5, 0.08)
+          );
+          waterThickness = clamp(mix(
+            authoredPathLength,
+            min(screenPathLength, pathLengthLimit),
+            validRefraction
+          ), 0.0, 6.0);
+
+          vec3 absorption = vec3(0.32, 0.14, 0.08);
+          vec3 scattering = vec3(0.025, 0.045, 0.060);
+          vec3 transmittance = exp(
+            -(absorption + scattering) * waterThickness
+          );
+          const float phaseG = 0.15;
+          float lightViewCosine = clamp(
+            dot(normalize(uSunDirection), viewDirection),
+            -1.0,
+            1.0
+          );
+          float phaseDenominator = pow(max(
+            1.0 + phaseG * phaseG
+              - 2.0 * phaseG * lightViewCosine,
+            0.01
+          ), 1.5);
+          float phase = clamp(
+            (1.0 - phaseG * phaseG) / phaseDenominator,
+            0.65,
+            1.35
+          );
+          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.68);
+
+          return refractedScene * transmittance
+            + scatteringColor * (1.0 - transmittance) * phase;
+        }
+      #endif
+
       void main() {
         vec2 p = vWorldPosition.xz;
         float broadNoise = fbm(p * 0.035 + vec2(uTime * 0.035, -uTime * 0.018));
@@ -1344,8 +1493,9 @@ export function createLakeSurfaceMaterial() {
         float waveStrength = mix(0.72, 1.08, deepMask) + windMask * 0.34;
         vec3 normal = getWaterNormal(p * 0.1, waveStrength);
         vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        float reflectionMask = smoothstep(0.06, 0.78, fresnel);
+        float NoV = max(dot(viewDir, normal), 0.0);
+        float waterFresnel = 0.0204 + 0.9796 * pow(1.0 - NoV, 5.0);
+        float reflectionMask = smoothstep(0.06, 0.78, waterFresnel);
         vec3 color = mix(uShallowColor, uDeepColor, deepMask);
         vec3 bedTint = mix(uShallowColor, uDeepColor, 0.26) * vec3(0.68, 0.74, 0.68);
         float bedInfluence = vLakeBedVisibility * edgeAlpha * 0.12;
@@ -1377,7 +1527,25 @@ export function createLakeSurfaceMaterial() {
         float reflectionPeak = max(max(skyReflection.r, skyReflection.g), skyReflection.b);
         float sunPeakScale = min(1.0, 0.9 / max(reflectionPeak, 0.001));
         skyReflection *= mix(1.0, sunPeakScale, sunCone);
-        color = mix(color, skyReflection, 0.025 + reflectionMask * 0.2);
+        vec3 undistortedScene = vec3(0.0);
+        float waterThickness = clamp(vLakeDepth, 0.0, 6.0);
+        #ifdef USE_SINGLE_LAYER_WATER
+          vec3 lakeVolume = getSingleLayerLakeVolume(
+            normal,
+            viewDir,
+            edgeAlpha,
+            undistortedScene,
+            waterThickness
+          );
+          lakeVolume = mix(
+            lakeVolume,
+            color,
+            0.08 + vLakeBedVisibility * shallowMask * 0.10
+          );
+          color = mix(lakeVolume, skyReflection, waterFresnel);
+        #else
+          color = mix(color, skyReflection, waterFresnel);
+        #endif
         float bankReflection = (1.0 - basinCenter) * edgeAlpha * smoothstep(0.32, 0.86, broadNoise);
         color = mix(color, uBankReflectionColor, bankReflection * 0.18);
 
@@ -1407,8 +1575,33 @@ export function createLakeSurfaceMaterial() {
         alpha = max(alpha, reflectionMask * 0.24 * edgeAlpha);
         alpha = max(alpha, shoreFoam * 0.28);
 
-        gl_FragColor = vec4(color, alpha);
-        ${WATER_FOG_FRAGMENT_GLSL}
+        float waterFogFactor = 1.0 - exp(
+          -uWaterFogDensity * uWaterFogDensity
+            * vWaterFogDepth * vWaterFogDepth
+        );
+        vec3 foggedWaterColor = mix(
+          color,
+          uWaterFogColor,
+          clamp(waterFogFactor, 0.0, 1.0)
+        );
+        #ifdef USE_SINGLE_LAYER_WATER
+          float depthCoverage = mix(
+            0.18,
+            1.0,
+            smoothstep(0.02, 0.8, waterThickness)
+          );
+          float coverage = clamp(
+            max(edgeAlpha * depthCoverage, shoreFoam * 0.32),
+            0.0,
+            1.0
+          );
+          gl_FragColor = vec4(
+            mix(undistortedScene, foggedWaterColor, coverage),
+            1.0
+          );
+        #else
+          gl_FragColor = vec4(foggedWaterColor, alpha);
+        #endif
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }

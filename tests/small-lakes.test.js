@@ -102,7 +102,9 @@ test('lake sunlight uses bounded sparse microfacet sparkles instead of broad gli
   assert.match(shader, /fwidth\(coverageField\)/);
   assert.match(shader, /min\(sunBrdf \* NoL, 0\.85\)/);
   assert.match(shader, /float sunCone = smoothstep\(0\.975, 0\.9985/);
-  assert.match(shader, /color = mix\(color, skyReflection, 0\.025 \+ reflectionMask \* 0\.2\)/);
+  assert.match(shader, /float waterFresnel = 0\.0204 \+ 0\.9796/);
+  assert.match(shader, /color = mix\(lakeVolume, skyReflection, waterFresnel\)/);
+  assert.match(shader, /color = mix\(color, skyReflection, waterFresnel\)/);
   assert.match(shader, /1\.0 - exp\(-max\(vLakeDepth, 0\.0\) \* 0\.85\)/);
   assert.match(shader, /mix\(0\.12, 1\.0, max\(depthOpacity, basinCenter \* 0\.4\)\)/);
   assert.doesNotMatch(shader, /float getSunGlint\(/);

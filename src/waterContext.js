@@ -112,12 +112,12 @@ export function createWaterRenderController({
   environmentTexture,
 }) {
   const waterRoots = roots.filter(Boolean);
-  const flowingMaterials = new Set();
+  const opticalMaterials = new Set();
 
   for (const root of waterRoots) {
     root.traverse((object) => {
       const material = object.material;
-      if (material?.uniforms?.uSceneColor) flowingMaterials.add(material);
+      if (material?.uniforms?.uSceneColor) opticalMaterials.add(material);
     });
   }
 
@@ -137,7 +137,9 @@ export function createWaterRenderController({
   let quality = null;
   let aerialPerspectiveEnabled = false;
   let probeReady = false;
+  let hasLocalProbePosition = false;
   let disposed = false;
+  const lastProbePosition = new THREE.Vector3();
 
   probeCamera.position.set(300, 36, -400);
   reflector.name = 'AlpineLakePlanarReflectionCapture';
@@ -162,8 +164,11 @@ export function createWaterRenderController({
 
   return {
     applyQualityPreset(nextQuality, { aerialPerspective = false } = {}) {
+      const reflectionModeChanged = quality?.reflectionMode
+        !== nextQuality.reflectionMode;
       quality = nextQuality;
       aerialPerspectiveEnabled = aerialPerspective;
+      if (reflectionModeChanged) probeReady = false;
       applyUniforms();
       resize();
       if (quality.reflectionMode !== 'environment' && !probeReady) {
@@ -171,7 +176,19 @@ export function createWaterRenderController({
       }
     },
     resize,
-    update(frame) {
+    update(frame, viewerPosition = null) {
+      if (
+        quality?.reflectionMode !== 'environment'
+        && viewerPosition
+        && (
+          !probeReady
+          || !hasLocalProbePosition
+          || lastProbePosition.distanceToSquared(viewerPosition) >= 64 * 64
+        )
+      ) {
+        refreshProbe(viewerPosition);
+      }
+
       if (!quality || quality.reflectionMode !== 'planar') {
         reflector.visible = false;
         return;
@@ -187,7 +204,7 @@ export function createWaterRenderController({
       height,
       camera,
     }) {
-      forEachFlowingMaterial((material) => {
+      forEachOpticalMaterial((material) => {
         const uniforms = material.uniforms;
 
         uniforms.uSceneColor.value = colorTexture;
@@ -217,8 +234,17 @@ export function createWaterRenderController({
     );
   }
 
-  function refreshProbe() {
+  function refreshProbe(viewerPosition = null) {
     if (disposed) return;
+    if (viewerPosition) {
+      probeCamera.position.set(
+        viewerPosition.x,
+        viewerPosition.y + 2.5,
+        viewerPosition.z,
+      );
+      lastProbePosition.copy(viewerPosition);
+      hasLocalProbePosition = true;
+    }
     const visibility = waterRoots.map((root) => root.visible);
     const reflectorVisible = reflector.visible;
 
@@ -247,9 +273,11 @@ export function createWaterRenderController({
             : VISUAL_ENVIRONMENT.fog.density;
         }
         if (!uniforms?.uWaterReflectionMode) return;
+        const planarModeCap = object.name === 'AlpineLakeSurface' ? 2 : 1;
         const objectMode = Math.min(
           mode,
-          object.userData.waterReflectionModeCap ?? mode,
+          object.userData.waterReflectionModeCap ?? planarModeCap,
+          planarModeCap,
         );
 
         uniforms.uWaterEnvironmentMap.value = environmentTexture;
@@ -292,8 +320,8 @@ export function createWaterRenderController({
     }
   }
 
-  function forEachFlowingMaterial(callback) {
-    flowingMaterials.forEach(callback);
+  function forEachOpticalMaterial(callback) {
+    opticalMaterials.forEach(callback);
   }
 }
 

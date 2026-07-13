@@ -81,6 +81,7 @@ export function createSmallLakes(terrain) {
 
       mesh.name = 'RiverTerminalLake';
       mesh.renderOrder = WATER_RENDER_ORDER.surface + 1;
+      mesh.userData.waterReflectionModeCap = 1;
       group.add(mesh);
       continue;
     }
@@ -97,6 +98,7 @@ export function createSmallLakes(terrain) {
 
     mesh.name = `SmallLake_${lake.id}`;
     mesh.renderOrder = WATER_RENDER_ORDER.surface;
+    mesh.userData.waterReflectionModeCap = 1;
 
     group.add(mesh);
   }

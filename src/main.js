@@ -391,7 +391,7 @@ function animate(now) {
   }
   clouds.update(visualTime, camera);
   updateSmallLakes(smallLakes, camera, visualTime);
-  waterRenderController.update(renderFrame);
+  waterRenderController.update(renderFrame, player.position);
   shadowController.update(now, player.position);
   updatePlayerFillLight();
 
