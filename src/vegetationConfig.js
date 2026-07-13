@@ -72,10 +72,10 @@ export const GRASS_COMMUNITY_SECONDARY_RATIO = 0.20;
 // --- 风动 (Wind sway) ---
 
 /** 草尖近身最大摆幅（米）  |  Maximum close-range grass-tip displacement (m) */
-export const GRASS_SWAY_STRENGTH = 0.028;
+export const GRASS_SWAY_STRENGTH = 0.06;
 
 /** 玩家附近完整摆动半径（米）  |  Full-sway radius around the player (m) */
-export const GRASS_SWAY_PLAYER_RADIUS = 2;
+export const GRASS_SWAY_PLAYER_RADIUS = 8;
 
 /** 区域风动淡出范围（米）  |  Regional wind-sway fade range (m) */
 export const GRASS_SWAY_FADE_START = 14;
