@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   HERO_RIVER_NETWORK,
+  RIVER_BED_TEXTURE_WORLD_SIZE,
   RIVER_TERMINAL_LAKE,
   applyRiverChannel,
   createRiverWaterMesh,
@@ -125,10 +126,40 @@ test('hero river material masks separate bed, wet bank, and dry gravel bank', ()
     center.center.x + center.side.x * gravelLateral,
     center.center.z + center.side.z * gravelLateral,
   );
+  const confluenceGap = getRiverMaterialFrame(0, 574.65, -332.02);
 
   assert.ok(bed.riverBedMask > 0.9);
   assert.ok(wet.riverMask > 0.5);
   assert.ok(gravel.riverGravelMask > 0.5);
+  assert.ok(confluenceGap.riverBedMask > 0.9);
+  assert.ok(confluenceGap.riverUnderwaterMask > 0.9);
   assert.equal(isInRiverGrassExclusion(635, -300, 0), true);
   assert.equal(isInRiverGrassExclusion(780, -230, 0), false);
+});
+
+test('hero confluences keep river-local bed coordinates continuous across branch switches', () => {
+  const confluences = [[575, -336], [633, -349]];
+
+  for (const [centerX, centerZ] of confluences) {
+    let maximumStep = 0;
+
+    for (let x = centerX - 30; x <= centerX + 30; x += 1) {
+      for (let z = centerZ - 30; z <= centerZ + 30; z += 1) {
+        const current = getRiverMaterialFrame(0, x, z);
+
+        for (const neighbor of [
+          getRiverMaterialFrame(0, x + 1, z),
+          getRiverMaterialFrame(0, x, z + 1),
+        ]) {
+          if (current.riverBedMask <= 0.9 || neighbor.riverBedMask <= 0.9) continue;
+          maximumStep = Math.max(
+            maximumStep,
+            Math.abs(current.riverDistance - neighbor.riverDistance),
+          );
+        }
+      }
+    }
+
+    assert.ok(maximumStep < RIVER_BED_TEXTURE_WORLD_SIZE);
+  }
 });

@@ -8,6 +8,8 @@ import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGe
 import {
   HERO_RIVER_NETWORK_DEFINITION,
   TERMINAL_LOWLAND_LAKE,
+  getHeroRiverConfluenceMask,
+  getHeroRiverConfluenceMaterialFrame,
   getHeroRiverCorridorFrame,
 } from './lowlandHeightPlan.js';
 import { WATER_RENDER_ORDER } from './waterContext.js';
@@ -49,16 +51,31 @@ export function getRiverBedMaterialMask(baseHeight, x, z) {
 
 export function getRiverMaterialFrame(baseHeight, x, z) {
   const frame = getHeroRiverCorridorFrame(baseHeight, x, z);
+  const confluenceMask = getHeroRiverConfluenceMask(x, z);
+  const confluenceFrame = getHeroRiverConfluenceMaterialFrame(x, z);
+  const coordinateBlend = confluenceFrame?.mask ?? 0;
 
-  if (!frame) return createEmptyRiverMaterialFrame();
+  if (!frame && confluenceMask <= 0) return createEmptyRiverMaterialFrame();
 
   return {
-    riverMask: THREE.MathUtils.clamp(frame.wetBankMask, 0, 1),
-    riverBedMask: THREE.MathUtils.clamp(frame.bedMask, 0, 1),
-    riverUnderwaterMask: THREE.MathUtils.clamp(frame.underwaterMask, 0, 1),
-    riverGravelMask: THREE.MathUtils.clamp(frame.gravelBankMask, 0, 1),
-    riverDistance: frame.networkDistance,
-    riverLateral: frame.lateralM,
+    riverMask: THREE.MathUtils.clamp(Math.max(frame?.wetBankMask ?? 0, confluenceMask), 0, 1),
+    riverBedMask: THREE.MathUtils.clamp(Math.max(frame?.bedMask ?? 0, confluenceMask), 0, 1),
+    riverUnderwaterMask: THREE.MathUtils.clamp(
+      Math.max(frame?.underwaterMask ?? 0, confluenceMask),
+      0,
+      1,
+    ),
+    riverGravelMask: THREE.MathUtils.clamp(frame?.gravelBankMask ?? 0, 0, 1),
+    riverDistance: THREE.MathUtils.lerp(
+      frame?.networkDistance ?? confluenceFrame?.riverDistance ?? 0,
+      confluenceFrame?.riverDistance ?? frame?.networkDistance ?? 0,
+      coordinateBlend,
+    ),
+    riverLateral: THREE.MathUtils.lerp(
+      frame?.lateralM ?? confluenceFrame?.riverLateral ?? 0,
+      confluenceFrame?.riverLateral ?? frame?.lateralM ?? 0,
+      coordinateBlend,
+    ),
   };
 }
 

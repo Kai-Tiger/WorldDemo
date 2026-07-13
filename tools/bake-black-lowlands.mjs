@@ -6,11 +6,14 @@ import sharp from 'sharp';
 import {
   LOWLAND_HEIGHT_SETTINGS,
   encodeTerrainHeight,
-  encodeWaterTerrainHeight,
   getBakedLowlandHeightDetails,
   getLowlandPlanStatistics,
   heightmapPixelToWorld,
 } from '../src/lowlandHeightPlan.js';
+import {
+  encodePreciseWaterHeight,
+  isPreciseWaterHeightCode,
+} from '../src/terrainHeightEncoding.js';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SOURCE_PATH = resolve(
@@ -48,6 +51,10 @@ export function createBlackMaskDistanceField(
     const isBlack = source[offset] === 0
       && source[offset + 1] === 0
       && source[offset + 2] === 0;
+
+    if (!isBlack && isPreciseWaterHeightCode(source[offset], source[offset + 2])) {
+      throw new Error('Source heightmap uses the reserved precise-water marker.');
+    }
 
     if (isBlack) {
       distances[pixel] = maximumCode;
@@ -137,20 +144,24 @@ export function bakeBlackLowlandsRaw(source, width, height, channels, options = 
       const edgeDistanceMeters = Math.min(distanceCode, maximumCode) / 4 * pixelWorldSize;
       const world = heightmapPixelToWorld(x, y, width, height, settings.worldSize);
       const details = getBakedLowlandHeightDetails(world.x, world.z, edgeDistanceMeters);
-      const value = details.waterTarget
-        ? encodeWaterTerrainHeight(details.height, settings.maxHeight)
-        : encodeTerrainHeight(details.height, settings.maxHeight);
+      const value = encodeTerrainHeight(details.height, settings.maxHeight);
+      const preciseWater = details.waterOverrideMask > 0.01;
+      const encoded = preciseWater
+        ? encodePreciseWaterHeight(details.height, settings.maxHeight)
+        : [value, value, value];
 
-      output[offset] = value;
-      output[offset + 1] = value;
-      output[offset + 2] = value;
+      output[offset] = encoded[0];
+      output[offset + 1] = encoded[1];
+      output[offset + 2] = encoded[2];
       maximumBakedValue = Math.max(maximumBakedValue, value);
-      if (details.waterTarget) waterPixels += 1;
+      if (preciseWater) waterPixels += 1;
 
-      if (value !== 0) modifiedBlackPixels += 1;
+      const pixelChanged = encoded[0] !== 0 || encoded[1] !== 0 || encoded[2] !== 0;
+
+      if (pixelChanged) modifiedBlackPixels += 1;
       if (distanceCode === maximumCode) {
         coreBlackPixels += 1;
-        if (value !== 0) modifiedCoreBlackPixels += 1;
+        if (pixelChanged) modifiedCoreBlackPixels += 1;
       }
     }
   }

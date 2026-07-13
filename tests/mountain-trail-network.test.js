@@ -143,8 +143,8 @@ test('trail material and vegetation bands remain narrow', () => {
   assert.equal(isInMountainTrailTreeExclusion(...sample(4.2)), false);
 });
 
-test('all three trail treads remain clear of rivers and lakes', () => {
-  for (const route of MOUNTAIN_TRAIL_ROUTES.slice(1)) {
+test('the mountain pass and all three trail routes remain clear of rivers and lakes', () => {
+  for (const route of MOUNTAIN_TRAIL_ROUTES) {
     for (let index = 1; index < route.points.length; index += 1) {
       const start = route.points[index - 1];
       const end = route.points[index];

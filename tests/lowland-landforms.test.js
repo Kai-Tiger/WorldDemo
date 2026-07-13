@@ -30,7 +30,13 @@ import {
 } from '../src/waterSystem.js';
 import { createSmallLakes } from '../src/smallLakes.js';
 import { Terrain } from '../src/terrain.js';
-import { PLUNGE_POOL } from '../src/lowlandHeightPlan.js';
+import { isPreciseWaterHeightCode } from '../src/terrainHeightEncoding.js';
+import {
+  HERO_RIVER_NETWORK_DEFINITION,
+  PLUNGE_POOL,
+  TERMINAL_LOWLAND_LAKE,
+  getHeroRiverTerrainTarget,
+} from '../src/lowlandHeightPlan.js';
 
 const MAP_MIN = -1024;
 const CHUNK_SIZE = 256;
@@ -313,12 +319,36 @@ test('tracked bake keeps every visible lowland water surface above runtime terra
     getPlungePoolClearanceReport(terrain),
   ];
   const failures = reports.filter((report) => report.minimumClearance <= 0);
+  const heroEdgeClearances = getHeroReachEdgeClearances(mainRiver, terrain);
+  const heroJunctionClearances = getHeroJunctionClearances(mainRiver, terrain);
+  const maximumPreciseBoundaryStep = getMaximumHeroPreciseBoundaryHeightStep(
+    data,
+    info,
+    terrain,
+  );
+  const confluenceSlopeSteps = getHeroConfluenceSlopeSteps(terrain);
 
   try {
     assert.ok(reports.every((report) => report.sampleCount > 0));
     assert.deepEqual(failures, [], failures.map((report) => (
       `${report.name}: ${report.minimumClearance.toFixed(3)}m`
     )).join(', '));
+    assert.ok(heroEdgeClearances.length > 0);
+    assert.ok(Math.min(...heroEdgeClearances) >= -0.1);
+    assert.ok(Math.max(...heroEdgeClearances) <= 0.65);
+    assert.ok(maximumPreciseBoundaryStep <= 0.75);
+    assert.ok(confluenceSlopeSteps.every((step) => step <= 0.2));
+    for (const report of heroJunctionClearances) {
+      const confluence = HERO_RIVER_NETWORK_DEFINITION.confluences.find(
+        (entry) => entry.id === report.nodeId,
+      );
+
+      assert.ok(report.minimumClearance >= 0.14, report.nodeId);
+      assert.ok(
+        report.maximumClearance <= confluence.poolDepth + 0.2,
+        `${report.nodeId}: ${report.maximumClearance.toFixed(3)}m`,
+      );
+    }
   } finally {
     disposeSystem(system);
     disposeMeshGroup(smallLakes);
@@ -328,6 +358,134 @@ test('tracked bake keeps every visible lowland water surface above runtime terra
     texture.dispose();
   }
 });
+
+function getHeroReachEdgeClearances(mesh, terrain) {
+  const positions = mesh.geometry.getAttribute('position');
+  const waterFades = mesh.geometry.getAttribute('waterFade');
+  const clearances = [];
+
+  for (const reach of mesh.userData.riverNetworkStats.reaches) {
+    for (let row = 0; row < reach.rowCount; row += 1) {
+      const rowStart = reach.startVertex + row * reach.rowSize;
+
+      for (const vertex of [rowStart, rowStart + reach.rowSize - 1]) {
+        if (waterFades.getX(vertex) < 0.99) continue;
+
+        const x = positions.getX(vertex);
+        const z = positions.getZ(vertex);
+        const target = getHeroRiverTerrainTarget(0, x, z);
+        const nearConfluence = HERO_RIVER_NETWORK_DEFINITION.confluences.some((confluence) => (
+          Math.hypot(x - confluence.position[0], z - confluence.position[1])
+            <= confluence.poolRadius + 1
+        ));
+        const insideTerminalLake = Math.hypot(
+          x - TERMINAL_LOWLAND_LAKE.cx,
+          z - TERMINAL_LOWLAND_LAKE.cz,
+        ) <= TERMINAL_LOWLAND_LAKE.radius + 3;
+        const insidePlungePool = Math.hypot(x - PLUNGE_POOL.cx, z - PLUNGE_POOL.cz)
+          <= PLUNGE_POOL.radius + 3;
+
+        if (
+          target?.featureId !== reach.id
+          || nearConfluence
+          || insideTerminalLake
+          || insidePlungePool
+        ) continue;
+        clearances.push(positions.getY(vertex) - terrain.getHeightAt(x, z));
+      }
+    }
+  }
+
+  return clearances;
+}
+
+function getHeroJunctionClearances(mesh, terrain) {
+  const positions = mesh.geometry.getAttribute('position');
+
+  return mesh.userData.riverNetworkStats.junctions.map((junction) => {
+    let minimumClearance = Infinity;
+    let maximumClearance = -Infinity;
+    const endVertex = junction.firstPatchVertex + junction.patchVertexCount;
+
+    for (let vertex = junction.firstPatchVertex; vertex < endVertex; vertex += 1) {
+      const clearance = positions.getY(vertex) - terrain.getHeightAt(
+        positions.getX(vertex),
+        positions.getZ(vertex),
+      );
+
+      minimumClearance = Math.min(minimumClearance, clearance);
+      maximumClearance = Math.max(maximumClearance, clearance);
+    }
+
+    return { nodeId: junction.nodeId, minimumClearance, maximumClearance };
+  });
+}
+
+function getMaximumHeroPreciseBoundaryHeightStep(data, info, terrain) {
+  const toPixel = (x, z) => ({
+    x: Math.round((x - MAP_MIN) / (Math.abs(MAP_MIN) * 2) * (info.width - 1)),
+    y: Math.round((1 - (z - MAP_MIN) / (Math.abs(MAP_MIN) * 2)) * (info.height - 1)),
+  });
+  const minimum = toPixel(500, -250);
+  const maximum = toPixel(720, -430);
+  let maximumStep = 0;
+
+  for (let y = minimum.y; y <= maximum.y; y += 1) {
+    for (let x = minimum.x; x <= maximum.x; x += 1) {
+      const index = (y * info.width + x) * 4;
+      const precise = isPreciseWaterHeightCode(data[index], data[index + 2]);
+
+      for (const [offsetX, offsetY] of [[1, 0], [0, 1]]) {
+        const neighborIndex = ((y + offsetY) * info.width + x + offsetX) * 4;
+        const neighborPrecise = isPreciseWaterHeightCode(
+          data[neighborIndex],
+          data[neighborIndex + 2],
+        );
+
+        if (precise === neighborPrecise) continue;
+
+        const point = terrain.heightMapPixelToWorld(x, y);
+        const neighbor = terrain.heightMapPixelToWorld(x + offsetX, y + offsetY);
+
+        maximumStep = Math.max(
+          maximumStep,
+          Math.abs(
+            terrain.getHeightAt(point.x, point.z)
+              - terrain.getHeightAt(neighbor.x, neighbor.z),
+          ),
+        );
+      }
+    }
+  }
+
+  return maximumStep;
+}
+
+function getHeroConfluenceSlopeSteps(terrain) {
+  return HERO_RIVER_NETWORK_DEFINITION.confluences.map((confluence) => {
+    let maximumStep = 0;
+
+    for (let angleIndex = 0; angleIndex < 72; angleIndex += 1) {
+      const angle = angleIndex / 72 * Math.PI * 2;
+
+      for (let radius = confluence.poolRadius; radius < confluence.poolRadius + 5.25; radius += 0.1) {
+        const nextRadius = radius + 0.1;
+        const height = terrain.getHeightAt(
+          confluence.position[0] + Math.cos(angle) * radius,
+          confluence.position[1] + Math.sin(angle) * radius,
+        );
+        const nextHeight = terrain.getHeightAt(
+          confluence.position[0] + Math.cos(angle) * nextRadius,
+          confluence.position[1] + Math.sin(angle) * nextRadius,
+        );
+
+        maximumStep = Math.max(maximumStep, Math.abs(nextHeight - height));
+      }
+    }
+
+    return maximumStep;
+  });
+}
 
 test('north, east, and south lowlands have deterministic overview cameras', () => {
   const names = listGoldenShotNames();
@@ -435,19 +593,24 @@ function getLakeClearanceReport(lake, terrain) {
 
 function getMeshClearanceReport(mesh, terrain) {
   const positions = mesh.geometry.getAttribute('position');
+  const waterEdges = mesh.geometry.getAttribute('waterEdge');
+  const waterFades = mesh.geometry.getAttribute('waterFade');
   let minimumClearance = Infinity;
+  let sampleCount = 0;
 
   for (let vertex = 0; vertex < positions.count; vertex += 1) {
-    minimumClearance = Math.min(
-      minimumClearance,
-      positions.getY(vertex) - terrain.getHeightAt(
-        positions.getX(vertex),
-        positions.getZ(vertex),
-      ),
+    if (waterEdges.getX(vertex) <= 0.01 || waterFades.getX(vertex) <= 0.01) continue;
+
+    const clearance = positions.getY(vertex) - terrain.getHeightAt(
+      positions.getX(vertex),
+      positions.getZ(vertex),
     );
+
+    minimumClearance = Math.min(minimumClearance, clearance);
+    sampleCount += 1;
   }
 
-  return { name: mesh.name, minimumClearance, sampleCount: positions.count };
+  return { name: mesh.name, minimumClearance, sampleCount };
 }
 
 function getPlungePoolClearanceReport(terrain) {

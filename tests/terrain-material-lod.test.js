@@ -111,6 +111,7 @@ test('all material variants compute masks before sampling branches and preserve 
     assert.match(mapFragment, /vTerrainSmallLakesMask/);
     assert.match(mapFragment, /uRiverBankTexture/);
     assert.match(mapFragment, /uRiverBedTexture/);
+    assert.match(mapFragment, /vTerrainRiverBedCoord\.x \/ uRiverBedTextureWorldSize/);
     assert.match(vertexAssignments, /vTerrainMacro = vec4/);
     assert.doesNotMatch(`${fragmentParameters}\n${mapFragment}`, /displacement|applyDetailNormal|applyForestFloorHeightNormal|fbm/i);
   }

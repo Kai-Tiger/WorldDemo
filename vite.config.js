@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { copyFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import sharp from 'sharp';
 import { defineConfig } from 'vite';
 
 const HEIGHTMAP_ENDPOINT = '/__terrain-heightmap';
@@ -30,10 +31,12 @@ function terrainHeightmapWriter() {
             await copyFile(HEIGHTMAP_PATH, HEIGHTMAP_BACKUP_PATH);
           }
 
-          await writeFile(HEIGHTMAP_PATH, body);
+          const encoded = await encodeHeightmapForStorage(body);
+
+          await writeFile(HEIGHTMAP_PATH, encoded);
           response.statusCode = 200;
           response.setHeader('Content-Type', 'application/json');
-          response.end(JSON.stringify({ ok: true, bytes: body.length }));
+          response.end(JSON.stringify({ ok: true, bytes: encoded.length }));
         } catch (error) {
           response.statusCode = 500;
           response.end(error instanceof Error ? error.message : 'Failed to save heightmap');
@@ -41,6 +44,10 @@ function terrainHeightmapWriter() {
       });
     },
   };
+}
+
+export async function encodeHeightmapForStorage(image) {
+  return sharp(image).webp({ lossless: true, effort: 6 }).toBuffer();
 }
 
 async function readRequestBody(request) {

@@ -23,6 +23,10 @@ import {
   createTerrainMaterials,
   getTerrainMaterialForSegments,
 } from './terrainMaterial.js';
+import {
+  decodeTerrainHeightCode,
+  isPreciseWaterHeightCode,
+} from './terrainHeightEncoding.js';
 import { MAP_SIZE } from './vegetationConfig.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
@@ -54,7 +58,6 @@ const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
-const HEIGHTMAP_SAVE_QUALITY = 0.98;
 const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
 const RIVER_GRAVEL_TEXTURE_WORLD_SIZE = 5.5;
@@ -685,7 +688,6 @@ export class Terrain {
       height: this.height,
       worldSize: HEIGHT_MAP_WORLD_SIZE,
       maxHeight: MAX_HEIGHT,
-      saveQuality: HEIGHTMAP_SAVE_QUALITY,
     };
   }
 
@@ -1045,7 +1047,19 @@ export class Terrain {
     const h11 = this.getSampledPixelHeight(x1, y1);
     const top = THREE.MathUtils.lerp(h00, h10, tx);
     const bottom = THREE.MathUtils.lerp(h01, h11, tx);
-    const height = THREE.MathUtils.lerp(top, bottom, ty) + getHeightDither(x, z);
+    const preciseTop = THREE.MathUtils.lerp(
+      this.getPreciseWaterPixelMask(x0, y0),
+      this.getPreciseWaterPixelMask(x1, y0),
+      tx,
+    );
+    const preciseBottom = THREE.MathUtils.lerp(
+      this.getPreciseWaterPixelMask(x0, y1),
+      this.getPreciseWaterPixelMask(x1, y1),
+      tx,
+    );
+    const preciseWaterMask = THREE.MathUtils.lerp(preciseTop, preciseBottom, ty);
+    const height = THREE.MathUtils.lerp(top, bottom, ty)
+      + getHeightDither(x, z) * (1 - preciseWaterMask);
 
     return THREE.MathUtils.clamp(height, 0, MAX_HEIGHT);
   }
@@ -1142,12 +1156,18 @@ export class Terrain {
     return luminance * MAX_HEIGHT;
   }
 
+  getPreciseWaterPixelMask(x, y) {
+    const index = (y * this.width + x) * 4;
+
+    return isPreciseWaterHeightCode(this.heightData[index], this.heightData[index + 2]) ? 1 : 0;
+  }
+
   getPixelLuminance(index) {
     const r = this.heightData[index];
     const g = this.heightData[index + 1];
     const b = this.heightData[index + 2];
 
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return decodeTerrainHeightCode(r, g, b);
   }
 }
 

@@ -266,11 +266,11 @@ const MOUNTAIN_SOUTH_LOOP_POINTS = [
 
 export const MOUNTAIN_TRAIL_ROUTES = Object.freeze([
   route('mountain-pass', 'Lowland Mountain Pass', [
-    point(444, -397, 0),
-    point(432, -398, 2),
-    point(427, -391, 5),
-    point(421, -380, 10),
-    point(412, -368, 17),
+    point(444, -380, 0),
+    point(432, -382, 2),
+    point(427, -378, 5),
+    point(421, -370, 10),
+    point(412, -368, 16),
     point(401, -356, 23),
     point(389, -345, 28),
   ], {

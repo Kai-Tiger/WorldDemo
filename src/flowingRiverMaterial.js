@@ -34,9 +34,11 @@ export function createFlowingRiverMaterial() {
       attribute float flowSpeed;
       attribute float rapidMask;
       attribute vec2 flowDirection;
+      attribute vec2 flowUv;
       attribute float disturbanceMask;
       attribute float waterFade;
       attribute float junctionMask;
+      attribute vec2 junctionFlowDirection;
       attribute float viewDistance;
 
       varying vec2 vUv;
@@ -46,9 +48,11 @@ export function createFlowingRiverMaterial() {
       varying float vFlowSpeed;
       varying float vRapidMask;
       varying vec2 vFlowDirection;
+      varying vec2 vFlowUv;
       varying float vDisturbanceMask;
       varying float vWaterFade;
       varying float vJunctionMask;
+      varying vec2 vJunctionFlowDirection;
       varying float vViewDistance;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
@@ -59,9 +63,11 @@ export function createFlowingRiverMaterial() {
         vFlowSpeed = flowSpeed;
         vRapidMask = rapidMask;
         vFlowDirection = flowDirection;
+        vFlowUv = flowUv;
         vDisturbanceMask = disturbanceMask;
         vWaterFade = waterFade;
         vJunctionMask = junctionMask;
+        vJunctionFlowDirection = junctionFlowDirection;
         vViewDistance = viewDistance;
 
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
@@ -89,9 +95,11 @@ export function createFlowingRiverMaterial() {
       varying float vFlowSpeed;
       varying float vRapidMask;
       varying vec2 vFlowDirection;
+      varying vec2 vFlowUv;
       varying float vDisturbanceMask;
       varying float vWaterFade;
       varying float vJunctionMask;
+      varying vec2 vJunctionFlowDirection;
       varying float vViewDistance;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
@@ -109,7 +117,7 @@ export function createFlowingRiverMaterial() {
         return broad * 0.68 + detail * 0.32;
       }
 
-      vec3 getFlowNormal(vec2 flowDomain, float strength) {
+      vec3 getFlowNormal(vec2 flowDomain, vec2 flowDirection, float strength) {
         const float epsilon = 0.22;
         float slopeAlong = getFlowSurfaceHeight(flowDomain + vec2(epsilon, 0.0))
           - getFlowSurfaceHeight(flowDomain - vec2(epsilon, 0.0));
@@ -120,58 +128,25 @@ export function createFlowingRiverMaterial() {
           1.0,
           slopeAcross * strength * 1.7
         ));
-        vec2 direction = normalize(vFlowDirection);
+        vec2 direction = normalize(flowDirection);
         vec2 side = vec2(-direction.y, direction.x);
         vec2 worldSlope = direction * localNormal.x + side * localNormal.z;
 
         return normalize(vec3(worldSlope.x, localNormal.y, worldSlope.y));
       }
 
-      void main() {
-        float centerMask = clamp(1.0 - abs(vUv.y - 0.5) * 2.0, 0.0, 1.0);
-        float depthMask = smoothstep(0.35, 1.8, vWaterDepth);
-        float shoreNoise = (waterNoise(vWorldPosition.xz * 0.19) - 0.5) * 0.3;
-        float perturbedShoreDistance = vShoreDistance + shoreNoise;
-        float shoreAlpha = smoothstep(0.12, 0.85, perturbedShoreDistance);
-        float centerSpeedScale = mix(1.0 / 2.8, 1.0, centerMask);
-        float localFlowSpeed = max(vFlowSpeed, 0.01) * centerSpeedScale;
-        float flowMeters = vUv.x - uTime * localFlowSpeed;
-        vec2 flowDomain = vec2(flowMeters, (vUv.y - 0.5) * 8.0);
-        float featureMask = clamp(max(max(vRapidMask, vJunctionMask), vDisturbanceMask), 0.0, 1.0);
-        float normalStrength = mix(
-          mix(0.03, 0.05, centerMask),
-          mix(0.08, 0.11, centerMask),
-          featureMask
-        );
-        vec3 normal = getFlowNormal(flowDomain, normalStrength);
-        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
-        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
-        vec3 color = mix(uShallowColor, uDeepColor, depthMask);
-        float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
-        color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
+      float getFlowTone(vec2 flowDomain) {
         float broadFlowTone = waterNoise(flowDomain * vec2(0.028, 0.08));
         float localFlowTone = waterNoise2(
           flowDomain * vec2(0.065, 0.15)
           + vec2(broadFlowTone * 0.75, broadFlowTone * -0.4)
           + vec2(5.8, 11.3)
         );
-        float flowTone = (broadFlowTone - 0.5) * 0.08 + (localFlowTone - 0.5) * 0.035;
-        color *= 1.0 + flowTone;
 
-        vec3 reflection = getTieredWaterReflection(
-          mix(uHorizonReflectionColor, uReflectionColor, normal.y),
-          vWorldPosition,
-          normal,
-          viewDir
-        );
-        float reflectionMix = mix(0.1, 0.38, fresnel);
-        color = mix(color, reflection, reflectionMix);
+        return (broadFlowTone - 0.5) * 0.08 + (localFlowTone - 0.5) * 0.035;
+      }
 
-        vec3 lightDirection = normalize(uSunDirection);
-        vec3 halfDirection = normalize(lightDirection + viewDir);
-        float specular = pow(max(dot(normal, halfDirection), 0.0), 96.0);
-        color += uSunReflectionColor * specular * mix(0.08, 0.22, featureMask);
-
+      float getFoamPattern(vec2 flowDomain) {
         float foamWarp = waterNoise2(
           flowDomain * vec2(0.032, 0.075) + vec2(-9.4, 17.2)
         );
@@ -185,18 +160,78 @@ export function createFlowingRiverMaterial() {
           0.66,
           waterNoise(foamDomain * vec2(0.72, 1.35) + vec2(21.6, -3.8))
         );
+
+        return foamBody * foamBreaks;
+      }
+
+      void main() {
+        float junctionBlend = smoothstep(0.0, 1.0, vJunctionMask);
+        float stripCenterMask = clamp(1.0 - abs(vUv.y - 0.5) * 2.0, 0.0, 1.0);
+        float centerMask = mix(stripCenterMask, 1.0, junctionBlend);
+        float depthMask = smoothstep(0.35, 1.8, vWaterDepth);
+        float shoreNoise = (waterNoise(vWorldPosition.xz * 0.19) - 0.5) * 0.3;
+        float perturbedShoreDistance = vShoreDistance + shoreNoise;
+        float shoreAlpha = smoothstep(0.12, 0.85, perturbedShoreDistance);
+        float centerSpeedScale = mix(1.0 / 2.8, 1.0, centerMask);
+        float localFlowSpeed = max(vFlowSpeed, 0.01) * centerSpeedScale;
+        float flowMeters = vFlowUv.x - uTime * localFlowSpeed;
+        vec2 flowDomain = vec2(flowMeters, vFlowUv.y);
+        vec2 junctionDirection = normalize(vJunctionFlowDirection);
+        vec2 surfaceFlowDirection = normalize(mix(
+          vFlowDirection,
+          junctionDirection,
+          junctionBlend
+        ));
+
+        float featureMask = clamp(max(max(vRapidMask, vJunctionMask), vDisturbanceMask), 0.0, 1.0);
+        float normalStrength = mix(
+          mix(0.03, 0.05, centerMask),
+          mix(0.08, 0.11, centerMask),
+          featureMask
+        );
+        vec3 normal = getFlowNormal(flowDomain, surfaceFlowDirection, normalStrength);
+        float flowTone = getFlowTone(flowDomain);
+        float foamPattern = getFoamPattern(flowDomain);
+
+        vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+        float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 4.0);
+        vec3 color = mix(uShallowColor, uDeepColor, depthMask);
+        float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
+        color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
+        color *= 1.0 + flowTone;
+        color *= mix(1.0, 0.82, junctionBlend);
+
+        vec3 reflection = getTieredWaterReflection(
+          mix(uHorizonReflectionColor, uReflectionColor, normal.y),
+          vWorldPosition,
+          normal,
+          viewDir
+        );
+        float reflectionMix = mix(0.1, 0.38, fresnel);
+        color = mix(color, reflection, reflectionMix);
+
+        vec3 lightDirection = normalize(uSunDirection);
+        vec3 halfDirection = normalize(lightDirection + viewDir);
+        float specular = pow(max(dot(normal, halfDirection), 0.0), 96.0);
+        float junctionSpecularScale = mix(1.0, 0.18, junctionBlend);
+        color += uSunReflectionColor
+          * specular
+          * mix(0.08, 0.22, featureMask)
+          * junctionSpecularScale;
+
         float foamDriver = clamp(
-          max(max(vRapidMask * 0.92, vJunctionMask * 0.72), vDisturbanceMask),
+          max(max(vRapidMask * 0.92, vJunctionMask * 0.18), vDisturbanceMask),
           0.0,
           1.0
         );
-        float foam = foamDriver * foamBody * foamBreaks * vWaterFade;
+        float foam = foamDriver * foamPattern * shoreAlpha * vWaterFade;
         color = mix(color, uFoamColor, foam * mix(0.42, 0.82, featureMask));
 
         float shallowAlpha = mix(0.16, 0.24, centerMask);
         float deepAlpha = mix(0.58, 0.68, centerMask);
         float alpha = mix(shallowAlpha, deepAlpha, depthMask) * shoreAlpha;
-        alpha = max(alpha, foam * 0.62);
+        alpha *= mix(1.0, 1.12, junctionBlend);
+        alpha = clamp(alpha + foam * (1.0 - alpha) * 0.62, 0.0, 1.0);
         float viewDistanceFade = 1.0 - smoothstep(
           max(vViewDistance - 55.0, 0.0),
           vViewDistance,

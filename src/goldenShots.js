@@ -25,8 +25,8 @@ const GOLDEN_SHOTS = Object.freeze({
     target: { x: 300, z: -400, y: 38 },
   },
   'mountain-pass': {
-    player: { x: 444, z: -397 },
-    camera: { x: 454, z: -407, heightOffset: 6 },
+    player: { x: 444, z: -380 },
+    camera: { x: 454, z: -390, heightOffset: 6 },
     target: { x: 414, z: -372, y: 14 },
   },
   'mountain-east': {

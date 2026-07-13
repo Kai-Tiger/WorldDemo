@@ -207,7 +207,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
       const blob = await createHeightMapBlob();
       const response = await fetch(SAVE_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'image/webp' },
+        headers: { 'Content-Type': 'image/png' },
         body: blob,
       });
 
@@ -235,7 +235,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
         }
 
         resolve(blob);
-      }, 'image/webp', heightMap.saveQuality);
+      }, 'image/png');
     });
   }
 

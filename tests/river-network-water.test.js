@@ -26,6 +26,7 @@ test('river network water geometry exposes one bounded mesh with shader attribut
   for (const [name, itemSize] of [
     ['position', 3],
     ['uv', 2],
+    ['flowUv', 2],
     ['waterFade', 1],
     ['waterEdge', 1],
     ['junctionMask', 1],
@@ -35,6 +36,7 @@ test('river network water geometry exposes one bounded mesh with shader attribut
     ['flowSpeed', 1],
     ['rapidMask', 1],
     ['flowDirection', 2],
+    ['junctionFlowDirection', 2],
     ['disturbanceMask', 1],
   ]) {
     const attribute = geometry.getAttribute(name);
@@ -63,6 +65,7 @@ test('river network water geometry exposes one bounded mesh with shader attribut
   const shoreDistance = geometry.getAttribute('shoreDistance');
   const flowSpeed = geometry.getAttribute('flowSpeed');
   const flowDirection = geometry.getAttribute('flowDirection');
+  const junctionFlowDirection = geometry.getAttribute('junctionFlowDirection');
 
   for (let index = 0; index < viewDistance.count; index += 1) {
     assert.ok(viewDistance.getX(index) >= 180 && viewDistance.getX(index) <= 300);
@@ -72,6 +75,10 @@ test('river network water geometry exposes one bounded mesh with shader attribut
     assert.ok(Math.abs(Math.hypot(
       flowDirection.getX(index),
       flowDirection.getY(index),
+    ) - 1) < 1e-5);
+    assert.ok(Math.abs(Math.hypot(
+      junctionFlowDirection.getX(index),
+      junctionFlowDirection.getY(index),
     ) - 1) < 1e-5);
   }
 });
@@ -278,7 +285,9 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
   const junctionMask = geometry.getAttribute('junctionMask');
   const indices = geometry.index.array;
   const uv = geometry.getAttribute('uv');
+  const flowUv = geometry.getAttribute('flowUv');
   const flowDirection = geometry.getAttribute('flowDirection');
+  const junctionFlowDirection = geometry.getAttribute('junctionFlowDirection');
 
   assert.equal(stats.junctions.length, 4);
   assert.ok(stats.junctionTriangleCount > 0);
@@ -340,6 +349,14 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
 
     assert.ok(actualX * expectedX + actualZ * expectedZ > 0.99);
 
+    for (const endpoint of junction.boundaryVertices) {
+      assert.ok(
+        junctionFlowDirection.getX(endpoint) * expectedX
+          + junctionFlowDirection.getY(endpoint) * expectedZ
+          > 0.99,
+      );
+    }
+
     for (
       let vertex = junction.firstPatchVertex;
       vertex < junction.firstPatchVertex + junction.patchVertexCount;
@@ -350,6 +367,13 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
           + flowDirection.getY(vertex) * expectedZ
           > 0.99,
       );
+      assert.ok(
+        junctionFlowDirection.getX(vertex) * expectedX
+          + junctionFlowDirection.getY(vertex) * expectedZ
+          > 0.99,
+      );
+      assert.ok(Number.isFinite(flowUv.getX(vertex)));
+      assert.ok(Number.isFinite(flowUv.getY(vertex)));
     }
 
     let polygonAreaTwice = 0;
@@ -385,9 +409,15 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
   const { geometry, stats } = heroResult;
   const position = geometry.getAttribute('position');
   const indices = geometry.index.array;
+  const uv = geometry.getAttribute('uv');
+  const flowUv = geometry.getAttribute('flowUv');
+  const flowDirection = geometry.getAttribute('flowDirection');
 
   assert.equal(stats.junctions.length, 2);
   assert.ok(stats.triangleCount < 12000);
+  const maximumStripFlowStretch = Math.max(...stats.reaches.map((reach) => (
+    getMaximumFlowUvStretch(geometry, reach.startIndex, reach.indexCount)
+  )));
 
   for (const reachStats of stats.reaches.filter((reach) => reach.id.startsWith('hero-main-'))) {
     assert.equal(reachStats.targetSpacing, 0.75);
@@ -397,22 +427,88 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
   const west = stats.reaches.find((reach) => reach.id === 'hero-west-tributary');
   const middle = stats.reaches.find((reach) => reach.id === 'hero-main-middle');
   const westReach = heroNetwork.reachById.get(west.id);
+  const firstJunction = heroNetwork.nodeById.get('hero-j1');
 
-  assert.ok(westReach.length - west.endDistance >= 26);
-  assert.ok(middle.startDistance >= 26);
+  assert.ok(westReach.length - west.endDistance <= firstJunction.poolRadius + 1e-3);
+  assert.ok(middle.startDistance <= firstJunction.poolRadius + 1e-3);
   assert.ok(middle.endDistance - middle.startDistance > 20);
-
-  const westRow = getReachRowFrame(position, west, 'end');
-  const middleRow = getReachRowFrame(position, middle, 'start');
-
-  assert.ok(
-    Math.hypot(westRow.x - middleRow.x, westRow.z - middleRow.z)
-      > (westRow.width + middleRow.width) * 0.5,
-  );
 
   for (const junction of stats.junctions) {
     assert.ok(junction.coreBoundaryVertexCount > 0);
     assert.ok(junction.maxBoundaryAngleStep < 8 * Math.PI / 180);
+    assert.ok(
+      getMaximumFlowUvStretch(geometry, junction.startIndex, junction.indexCount)
+        <= maximumStripFlowStretch + 0.05,
+    );
+
+    const node = heroNetwork.nodeById.get(junction.nodeId);
+    const connectedReachStats = [
+      ...heroNetwork.incomingByNode.get(junction.nodeId),
+      ...heroNetwork.outgoingByNode.get(junction.nodeId),
+    ].map((reach) => stats.reaches.find((entry) => entry.id === reach.id));
+    const armFrames = connectedReachStats.map((reach) => {
+      const definition = heroNetwork.reachById.get(reach.id);
+
+      return getReachRowFrame(position, reach, definition.from === junction.nodeId ? 'start' : 'end');
+    });
+
+    for (let left = 0; left < armFrames.length - 1; left += 1) {
+      for (let right = left + 1; right < armFrames.length; right += 1) {
+        const a = armFrames[left];
+        const b = armFrames[right];
+
+        assert.ok(Math.hypot(a.x - b.x, a.z - b.z) > (a.width + b.width) * 0.5);
+        assert.equal(rowSegmentsIntersect(a, b), false);
+      }
+    }
+
+    const maximumHalfWidth = Math.max(...armFrames.map((frame) => frame.width * 0.5));
+    const maximumBoundaryRadius = Math.max(...junction.boundaryVertices.map((vertex) => (
+      Math.hypot(
+        position.getX(vertex) - node.position[0],
+        position.getZ(vertex) - node.position[1],
+      )
+    )));
+
+    assert.ok(maximumBoundaryRadius <= node.poolRadius + maximumHalfWidth + 1e-3);
+
+    const nodeU = uv.getX(junction.centerVertex);
+    const boundaryUs = junction.boundaryVertices.map((vertex) => uv.getX(vertex));
+    const minimumU = Math.min(...boundaryUs);
+    const maximumU = Math.max(...boundaryUs);
+    const centerFlowX = flowDirection.getX(junction.centerVertex);
+    const centerFlowZ = flowDirection.getY(junction.centerVertex);
+
+    assert.ok(minimumU < nodeU && maximumU > nodeU);
+
+    for (
+      let vertex = junction.firstPatchVertex;
+      vertex < junction.firstPatchVertex + junction.patchVertexCount;
+      vertex += 1
+    ) {
+      const u = uv.getX(vertex);
+      const v = uv.getY(vertex);
+      const flowX = flowDirection.getX(vertex);
+      const flowZ = flowDirection.getY(vertex);
+
+      assert.ok(Number.isFinite(u) && Number.isFinite(v));
+      assert.ok(Number.isFinite(flowUv.getX(vertex)) && Number.isFinite(flowUv.getY(vertex)));
+      assert.ok(u >= minimumU - 1e-5 && u <= maximumU + 1e-5);
+      assert.ok(v >= 0 && v <= 1);
+      assert.ok(Math.abs(Math.hypot(flowX, flowZ) - 1) < 1e-5);
+      assert.ok(flowX * centerFlowX + flowZ * centerFlowZ > 0.99);
+    }
+
+    let polygonAreaTwice = 0;
+    let patchArea = 0;
+
+    for (let index = 0; index < junction.boundaryVertices.length; index += 1) {
+      const a = junction.boundaryVertices[index];
+      const b = junction.boundaryVertices[(index + 1) % junction.boundaryVertices.length];
+
+      polygonAreaTwice += position.getX(a) * position.getZ(b)
+        - position.getZ(a) * position.getX(b);
+    }
 
     for (
       let offset = junction.startIndex;
@@ -426,9 +522,14 @@ test('hero J1/J2 use smooth non-overlapping Y patches within the mesh budget', (
         * (position.getX(c) - position.getX(a))
         - (position.getX(b) - position.getX(a))
         * (position.getZ(c) - position.getZ(a));
+      const triangleU = [uv.getX(a), uv.getX(b), uv.getX(c)];
 
       assert.ok(crossY > 1e-8);
+      assert.ok(Math.max(...triangleU) - Math.min(...triangleU) <= node.poolRadius + 1e-3);
+      patchArea += crossY * 0.5;
     }
+
+    assert.ok(Math.abs(patchArea - Math.abs(polygonAreaTwice) * 0.5) < 1e-3);
   }
 });
 
@@ -447,11 +548,74 @@ function getReachRowFrame(position, reach, end) {
   return {
     x: x / reach.rowSize,
     z: z / reach.rowSize,
+    leftX: position.getX(rowStart),
+    leftZ: position.getZ(rowStart),
+    rightX: position.getX(rowStart + reach.rowSize - 1),
+    rightZ: position.getZ(rowStart + reach.rowSize - 1),
     width: Math.hypot(
       position.getX(rowStart + reach.rowSize - 1) - position.getX(rowStart),
       position.getZ(rowStart + reach.rowSize - 1) - position.getZ(rowStart),
     ),
   };
+}
+
+function getMaximumFlowUvStretch(geometry, startIndex, indexCount) {
+  const positions = geometry.getAttribute('position');
+  const flowUv = geometry.getAttribute('flowUv');
+  const indices = geometry.index.array;
+  let maximumStretch = 0;
+
+  for (let offset = startIndex; offset < startIndex + indexCount; offset += 3) {
+    const a = indices[offset];
+    const b = indices[offset + 1];
+    const c = indices[offset + 2];
+    const abX = positions.getX(b) - positions.getX(a);
+    const abZ = positions.getZ(b) - positions.getZ(a);
+    const acX = positions.getX(c) - positions.getX(a);
+    const acZ = positions.getZ(c) - positions.getZ(a);
+    const determinant = abX * acZ - acX * abZ;
+
+    if (Math.abs(determinant) <= 1e-8) continue;
+
+    const abU = flowUv.getX(b) - flowUv.getX(a);
+    const abV = flowUv.getY(b) - flowUv.getY(a);
+    const acU = flowUv.getX(c) - flowUv.getX(a);
+    const acV = flowUv.getY(c) - flowUv.getY(a);
+    const j00 = (abU * acZ - acU * abZ) / determinant;
+    const j01 = (-abU * acX + acU * abX) / determinant;
+    const j10 = (abV * acZ - acV * abZ) / determinant;
+    const j11 = (-abV * acX + acV * abX) / determinant;
+    const squaredNorm = j00 * j00 + j01 * j01 + j10 * j10 + j11 * j11;
+    const jacobianDeterminant = j00 * j11 - j01 * j10;
+    const discriminant = Math.max(
+      squaredNorm * squaredNorm - 4 * jacobianDeterminant * jacobianDeterminant,
+      0,
+    );
+
+    maximumStretch = Math.max(
+      maximumStretch,
+      Math.sqrt((squaredNorm + Math.sqrt(discriminant)) * 0.5),
+    );
+  }
+
+  return maximumStretch;
+}
+
+function rowSegmentsIntersect(a, b) {
+  const aLeft = { x: a.leftX, z: a.leftZ };
+  const aRight = { x: a.rightX, z: a.rightZ };
+  const bLeft = { x: b.leftX, z: b.leftZ };
+  const bRight = { x: b.rightX, z: b.rightZ };
+  const aToLeft = orientation(aLeft, aRight, bLeft);
+  const aToRight = orientation(aLeft, aRight, bRight);
+  const bToLeft = orientation(bLeft, bRight, aLeft);
+  const bToRight = orientation(bLeft, bRight, aRight);
+
+  return aToLeft * aToRight <= 0 && bToLeft * bToRight <= 0;
+}
+
+function orientation(a, b, point) {
+  return (b.x - a.x) * (point.z - a.z) - (b.z - a.z) * (point.x - a.x);
 }
 
 function sampleCompiledReach(reach, distance) {
