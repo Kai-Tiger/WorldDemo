@@ -3,11 +3,13 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import * as THREE from 'three';
 import {
+  createComposerRenderTarget,
   getGtaoExcludedRoots,
   getPhysicalRenderSize,
   getPhysicalTexelSize,
   getPostProcessingPassOrder,
   renderWithGtaoExclusions,
+  WaterCompositePass,
 } from '../src/postProcessing.js';
 import {
   getShadowCameraFit,
@@ -21,12 +23,18 @@ test('post-processing uses FXAA after output or SMAA before output and never use
     ['RenderPass', 'ColorGradePass', 'OutputPass', 'FXAAPass'],
   );
   assert.deepEqual(
-    getPostProcessingPassOrder(RENDER_QUALITY_PRESETS.balanced.postProcessing),
-    ['RenderPass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
+    getPostProcessingPassOrder(
+      RENDER_QUALITY_PRESETS.balanced.postProcessing,
+      RENDER_QUALITY_PRESETS.balanced.water.singleLayerWater,
+    ),
+    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
   );
   assert.deepEqual(
-    getPostProcessingPassOrder(RENDER_QUALITY_PRESETS.quality.postProcessing),
-    ['RenderPass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
+    getPostProcessingPassOrder(
+      RENDER_QUALITY_PRESETS.quality.postProcessing,
+      RENDER_QUALITY_PRESETS.quality.water.singleLayerWater,
+    ),
+    ['BaseRenderPass', 'WaterCompositePass', 'GTAOPass', 'ColorGradePass', 'SMAAPass', 'OutputPass'],
   );
 
   const source = await readFile(new URL('../src/postProcessing.js', import.meta.url), 'utf8');
@@ -36,6 +44,144 @@ test('post-processing uses FXAA after output or SMAA before output and never use
   assert.match(source, /setResolutionScale/);
   assert.match(source, /getResolutionScaleRange/);
   assert.match(source, /getTargetFrameMs/);
+  assert.match(source, /depthTexture\.image\.width = target\.width/);
+});
+
+test('single-layer water composer targets use independent depth textures', () => {
+  const renderer = {
+    getSize(target) {
+      return target.set(100, 80);
+    },
+  };
+  const performanceTarget = createComposerRenderTarget(renderer, false);
+  const waterTarget = createComposerRenderTarget(renderer, true);
+  const waterTargetClone = waterTarget.clone();
+
+  assert.equal(performanceTarget.texture.type, THREE.HalfFloatType);
+  assert.equal(performanceTarget.depthTexture, null);
+  assert.equal(waterTarget.texture.type, THREE.HalfFloatType);
+  assert.equal(waterTarget.depthTexture.isDepthTexture, true);
+  assert.equal(waterTarget.depthTexture.format, THREE.DepthFormat);
+  assert.equal(waterTarget.depthTexture.type, THREE.UnsignedIntType);
+  assert.equal(waterTarget.depthTexture.minFilter, THREE.NearestFilter);
+  assert.notEqual(waterTargetClone.depthTexture, waterTarget.depthTexture);
+  assert.equal(waterTargetClone.width, waterTarget.width);
+  assert.equal(waterTargetClone.height, waterTarget.height);
+
+  performanceTarget.dispose();
+  waterTarget.dispose();
+  waterTargetClone.dispose();
+});
+
+test('water composite copies the current buffers and restores scene state', () => {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  const water = new THREE.Group();
+  const terrain = new THREE.Group();
+  const hiddenLight = new THREE.Group();
+  const originalBackground = new THREE.Color(0x123456);
+  const originalTarget = { name: 'original' };
+  const writeBuffer = {
+    texture: { name: 'write-color' },
+    depthTexture: { name: 'write-depth' },
+    width: 64,
+    height: 48,
+  };
+  const readBuffer = {
+    texture: { name: 'read-color' },
+    depthTexture: { name: 'read-depth' },
+    width: 64,
+    height: 48,
+  };
+  const events = [];
+  let currentTarget = originalTarget;
+
+  hiddenLight.visible = false;
+  scene.background = originalBackground;
+  scene.add(water, terrain, hiddenLight);
+
+  const renderer = {
+    autoClear: true,
+    shadowMap: { autoUpdate: true },
+    getRenderTarget: () => currentTarget,
+    setRenderTarget(target) {
+      currentTarget = target;
+      events.push(['target', target]);
+    },
+    render(renderedScene) {
+      if (renderedScene !== scene) {
+        events.push(['copy']);
+        return;
+      }
+
+      events.push(['water']);
+      assert.equal(currentTarget, writeBuffer);
+      assert.equal(this.autoClear, false);
+      assert.equal(water.visible, true);
+      assert.equal(terrain.visible, false);
+      assert.equal(hiddenLight.visible, false);
+      assert.equal(scene.background, null);
+      assert.equal(scene.matrixWorldAutoUpdate, false);
+      assert.equal(this.shadowMap.autoUpdate, false);
+    },
+  };
+  const pass = new WaterCompositePass(
+    scene,
+    camera,
+    [water],
+    (frame) => {
+      events.push(['bind', frame.colorTexture, frame.depthTexture]);
+      assert.equal(frame.colorTexture, readBuffer.texture);
+      assert.equal(frame.depthTexture, readBuffer.depthTexture);
+      assert.equal(frame.width, 64);
+      assert.equal(frame.height, 48);
+    },
+  );
+
+  pass.render(renderer, writeBuffer, readBuffer);
+
+  assert.deepEqual(events.map((event) => event[0]), [
+    'target',
+    'copy',
+    'bind',
+    'water',
+    'target',
+  ]);
+  assert.equal(currentTarget, originalTarget);
+  assert.equal(renderer.autoClear, true);
+  assert.equal(renderer.shadowMap.autoUpdate, true);
+  assert.equal(scene.background, originalBackground);
+  assert.equal(scene.matrixWorldAutoUpdate, true);
+  assert.equal(water.visible, true);
+  assert.equal(terrain.visible, true);
+  assert.equal(hiddenLight.visible, false);
+  assert.equal(pass.needsSwap, true);
+  assert.equal(pass.copyMaterial.blending, THREE.NoBlending);
+  assert.equal(pass.copyMaterial.depthTest, true);
+  assert.equal(pass.copyMaterial.depthFunc, THREE.AlwaysDepth);
+  assert.equal(pass.copyMaterial.depthWrite, true);
+
+  renderer.render = (renderedScene) => {
+    if (renderedScene !== scene) return;
+    assert.equal(terrain.visible, false);
+    assert.equal(renderer.shadowMap.autoUpdate, false);
+    throw new Error('water render failed');
+  };
+
+  assert.throws(
+    () => pass.render(renderer, writeBuffer, readBuffer),
+    /water render failed/,
+  );
+  assert.equal(currentTarget, originalTarget);
+  assert.equal(renderer.autoClear, true);
+  assert.equal(renderer.shadowMap.autoUpdate, true);
+  assert.equal(scene.background, originalBackground);
+  assert.equal(scene.matrixWorldAutoUpdate, true);
+  assert.equal(water.visible, true);
+  assert.equal(terrain.visible, true);
+  assert.equal(hiddenLight.visible, false);
+
+  pass.dispose();
 });
 
 test('color-grade texel size follows scaled composer physical dimensions', () => {
@@ -133,6 +279,14 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.water.reflectionMode),
     ['environment', 'probe', 'planar'],
   );
+  assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.water.singleLayerWater),
+    [false, true, true],
+  );
+  assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.water.refractionPixels),
+    [0, 1, 1.5],
+  );
 });
 
 test('render entry gates capture buffers and adapts only internal resolution', async () => {
@@ -142,5 +296,7 @@ test('render entry gates capture buffers and adapts only internal resolution', a
   assert.match(source, /requestAnimationFrame\(animate\)/);
   assert.match(source, /DYNAMIC_RESOLUTION/);
   assert.match(source, /postProcessing\.setResolutionScale/);
+  assert.match(source, /const waterRoots = \[water, waterSystem\.group, smallLakes\];/);
+  assert.match(source, /bindWaterSceneBuffers: waterRenderController\.bindSceneBuffers/);
   assert.doesNotMatch(source, /renderer\.setPixelRatio\([^\n]*resolutionScale/);
 });

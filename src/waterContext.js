@@ -112,6 +112,15 @@ export function createWaterRenderController({
   environmentTexture,
 }) {
   const waterRoots = roots.filter(Boolean);
+  const flowingMaterials = new Set();
+
+  for (const root of waterRoots) {
+    root.traverse((object) => {
+      const material = object.material;
+      if (material?.uniforms?.uSceneColor) flowingMaterials.add(material);
+    });
+  }
+
   const probeTarget = new THREE.WebGLCubeRenderTarget(128, {
     type: THREE.HalfFloatType,
     generateMipmaps: true,
@@ -169,6 +178,23 @@ export function createWaterRenderController({
       const interval = Math.max(1, quality.reflectionUpdateFrames || 2);
       reflector.visible = frame % interval === 0;
     },
+    bindSceneBuffers({
+      colorTexture,
+      depthTexture,
+      width,
+      height,
+      camera,
+    }) {
+      forEachFlowingMaterial((material) => {
+        const uniforms = material.uniforms;
+
+        uniforms.uSceneColor.value = colorTexture;
+        uniforms.uSceneDepth.value = depthTexture;
+        uniforms.uSceneResolution.value.set(width, height);
+        uniforms.uCameraNear.value = camera.near;
+        uniforms.uCameraFar.value = camera.far;
+      });
+    },
     refreshProbe,
     dispose() {
       if (disposed) return;
@@ -211,7 +237,8 @@ export function createWaterRenderController({
 
     for (const root of waterRoots) {
       root.traverse((object) => {
-        const uniforms = object.material?.uniforms;
+        const material = object.material;
+        const uniforms = material?.uniforms;
         if (!uniforms?.uWaterReflectionMode) return;
         const objectMode = Math.min(
           mode,
@@ -229,8 +256,37 @@ export function createWaterRenderController({
             ? 0.58
             : 0.7;
         uniforms.uDepthShorelineEnabled.value = quality?.depthShoreline ? 1 : 0;
+
+        if (uniforms.uSceneColor) {
+          const singleLayerWater = quality?.singleLayerWater === true;
+          const wasSingleLayerWater = material.defines?.USE_SINGLE_LAYER_WATER === 1;
+
+          if (singleLayerWater !== wasSingleLayerWater) {
+            material.defines ??= {};
+            if (singleLayerWater) {
+              material.defines.USE_SINGLE_LAYER_WATER = 1;
+            } else {
+              delete material.defines.USE_SINGLE_LAYER_WATER;
+            }
+            material.needsUpdate = true;
+          }
+
+          material.blending = singleLayerWater
+            ? THREE.NoBlending
+            : THREE.NormalBlending;
+          uniforms.uRefractionPixels.value = quality?.refractionPixels ?? 0;
+
+          if (!singleLayerWater) {
+            uniforms.uSceneColor.value = null;
+            uniforms.uSceneDepth.value = null;
+          }
+        }
       });
     }
+  }
+
+  function forEachFlowingMaterial(callback) {
+    flowingMaterials.forEach(callback);
   }
 }
 

@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { FullScreenQuad, Pass } from 'three/examples/jsm/postprocessing/Pass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
@@ -76,15 +77,47 @@ const COLOR_GRADE_SHADER = {
   `,
 };
 
+const COPY_COLOR_DEPTH_SHADER = {
+  uniforms: {
+    tColor: { value: null },
+    tDepth: { value: null },
+  },
+  vertexShader: `
+    void main() {
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tColor;
+    uniform sampler2D tDepth;
+
+    void main() {
+      ivec2 pixel = ivec2(gl_FragCoord.xy);
+      gl_FragColor = texelFetch(tColor, pixel, 0);
+      gl_FragDepth = texelFetch(tDepth, pixel, 0).r;
+    }
+  `,
+};
+
 export function configureRenderer(renderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = VISUAL_ENVIRONMENT.exposure;
 }
 
-export function createPostProcessing(renderer, scene, camera, quality) {
-  const composer = new EffectComposer(renderer);
+export function createPostProcessing(
+  renderer,
+  scene,
+  camera,
+  quality,
+  { waterRoots = [], bindWaterSceneBuffers = null } = {},
+) {
+  let singleLayerWaterEnabled = quality.water?.singleLayerWater === true;
+  const composer = singleLayerWaterEnabled
+    ? new EffectComposer(renderer, createComposerRenderTarget(renderer, true))
+    : new EffectComposer(renderer);
   const rendererSize = renderer.getSize(new THREE.Vector2());
+  const resolvedWaterRoots = waterRoots.filter(Boolean);
   let logicalWidth = rendererSize.x;
   let logicalHeight = rendererSize.y;
   let basePixelRatio = renderer.getPixelRatio();
@@ -154,12 +187,33 @@ export function createPostProcessing(renderer, scene, camera, quality) {
     antiAliasingPass = null;
     activeQuality = nextQuality;
     resolutionScale = clampResolutionScale(resolutionScale, activeQuality);
+    const nextSingleLayerWaterEnabled = nextQuality.water?.singleLayerWater === true;
+
+    if (nextSingleLayerWaterEnabled !== singleLayerWaterEnabled) {
+      singleLayerWaterEnabled = nextSingleLayerWaterEnabled;
+      composer.reset(createComposerRenderTarget(renderer, singleLayerWaterEnabled));
+    }
+
     composer.setPixelRatio(basePixelRatio * resolutionScale);
 
     const settings = nextQuality.postProcessing;
 
-    for (const passName of getPostProcessingPassOrder(settings)) {
+    for (const passName of getPostProcessingPassOrder(
+      settings,
+      singleLayerWaterEnabled,
+    )) {
       if (passName === 'RenderPass') composer.addPass(new RenderPass(scene, camera));
+      if (passName === 'BaseRenderPass') {
+        composer.addPass(createBaseRenderPass(scene, camera, resolvedWaterRoots));
+      }
+      if (passName === 'WaterCompositePass') {
+        composer.addPass(new WaterCompositePass(
+          scene,
+          camera,
+          resolvedWaterRoots,
+          bindWaterSceneBuffers,
+        ));
+      }
       if (passName === 'GTAOPass') composer.addPass(createGtaoPass(scene, camera, settings));
       if (passName === 'ColorGradePass') {
         colorGradePass = new ShaderPass(COLOR_GRADE_SHADER);
@@ -190,6 +244,22 @@ export function createPostProcessing(renderer, scene, camera, quality) {
   }
 
   function syncPhysicalResolutions() {
+    for (const target of [composer.renderTarget1, composer.renderTarget2]) {
+      const depthTexture = target.depthTexture;
+
+      if (
+        depthTexture
+        && (
+          depthTexture.image.width !== target.width
+          || depthTexture.image.height !== target.height
+        )
+      ) {
+        depthTexture.image.width = target.width;
+        depthTexture.image.height = target.height;
+        depthTexture.needsUpdate = true;
+      }
+    }
+
     const { width, height } = getPhysicalRenderSize(
       logicalWidth,
       logicalHeight,
@@ -206,15 +276,131 @@ export function createPostProcessing(renderer, scene, camera, quality) {
   }
 }
 
-export function getPostProcessingPassOrder(settings) {
+export function getPostProcessingPassOrder(settings, singleLayerWater = false) {
   return [
-    'RenderPass',
+    ...(singleLayerWater
+      ? ['BaseRenderPass', 'WaterCompositePass']
+      : ['RenderPass']),
     ...(settings.gtao ? ['GTAOPass'] : []),
     'ColorGradePass',
     ...(settings.antiAliasing === 'smaa' ? ['SMAAPass'] : []),
     'OutputPass',
     ...(settings.antiAliasing === 'fxaa' ? ['FXAAPass'] : []),
   ];
+}
+
+export function createComposerRenderTarget(renderer, withDepthTexture) {
+  const size = renderer.getSize(new THREE.Vector2());
+  const depthTexture = withDepthTexture
+    ? new THREE.DepthTexture(size.x, size.y, THREE.UnsignedIntType)
+    : null;
+
+  if (depthTexture) {
+    depthTexture.format = THREE.DepthFormat;
+    depthTexture.minFilter = THREE.NearestFilter;
+    depthTexture.magFilter = THREE.NearestFilter;
+    depthTexture.generateMipmaps = false;
+    depthTexture.name = 'EffectComposer.depth1';
+  }
+
+  const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+    type: THREE.HalfFloatType,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    depthBuffer: true,
+    stencilBuffer: false,
+    depthTexture,
+  });
+
+  target.texture.name = 'EffectComposer.color1';
+  return target;
+}
+
+export function createBaseRenderPass(scene, camera, waterRoots) {
+  const pass = new RenderPass(scene, camera);
+  const renderBase = pass.render.bind(pass);
+
+  pass.render = (...args) => renderWithGtaoExclusions(
+    waterRoots,
+    () => renderBase(...args),
+  );
+
+  return pass;
+}
+
+export class WaterCompositePass extends Pass {
+  constructor(scene, camera, waterRoots, bindSceneBuffers) {
+    super();
+    this.scene = scene;
+    this.camera = camera;
+    this.waterRootSet = new Set(waterRoots);
+    this.bindSceneBuffers = bindSceneBuffers;
+    this.copyMaterial = new THREE.ShaderMaterial({
+      ...COPY_COLOR_DEPTH_SHADER,
+      uniforms: THREE.UniformsUtils.clone(COPY_COLOR_DEPTH_SHADER.uniforms),
+      depthTest: true,
+      depthFunc: THREE.AlwaysDepth,
+      depthWrite: true,
+      blending: THREE.NoBlending,
+      toneMapped: false,
+    });
+    this.fullScreenQuad = new FullScreenQuad(this.copyMaterial);
+    this.needsSwap = true;
+  }
+
+  render(renderer, writeBuffer, readBuffer) {
+    if (!readBuffer.depthTexture || !writeBuffer.depthTexture) {
+      throw new Error('WaterCompositePass requires composer depth textures.');
+    }
+
+    const previousTarget = renderer.getRenderTarget();
+    const previousAutoClear = renderer.autoClear;
+    const previousBackground = this.scene.background;
+    const previousMatrixWorldAutoUpdate = this.scene.matrixWorldAutoUpdate;
+    const previousShadowAutoUpdate = renderer.shadowMap?.autoUpdate;
+    const nonWaterRoots = this.scene.children.filter(
+      (child) => !this.waterRootSet.has(child),
+    );
+    const visibility = nonWaterRoots.map((root) => root.visible);
+
+    try {
+      this.copyMaterial.uniforms.tColor.value = readBuffer.texture;
+      this.copyMaterial.uniforms.tDepth.value = readBuffer.depthTexture;
+      renderer.setRenderTarget(writeBuffer);
+      renderer.autoClear = false;
+      this.fullScreenQuad.render(renderer);
+
+      this.bindSceneBuffers?.({
+        colorTexture: readBuffer.texture,
+        depthTexture: readBuffer.depthTexture,
+        width: readBuffer.width,
+        height: readBuffer.height,
+        camera: this.camera,
+      });
+
+      nonWaterRoots.forEach((root) => { root.visible = false; });
+      this.scene.background = null;
+      this.scene.matrixWorldAutoUpdate = false;
+      if (renderer.shadowMap) renderer.shadowMap.autoUpdate = false;
+      renderer.render(this.scene, this.camera);
+    } finally {
+      if (renderer.shadowMap) {
+        renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
+      }
+      this.scene.matrixWorldAutoUpdate = previousMatrixWorldAutoUpdate;
+      this.scene.background = previousBackground;
+      nonWaterRoots.forEach((root, index) => {
+        root.visible = visibility[index];
+      });
+      renderer.autoClear = previousAutoClear;
+      renderer.setRenderTarget(previousTarget);
+    }
+  }
+
+  dispose() {
+    this.copyMaterial.dispose();
+    this.fullScreenQuad.dispose();
+  }
 }
 
 export function getPhysicalTexelSize(width, height, effectivePixelRatio) {

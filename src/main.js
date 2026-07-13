@@ -110,13 +110,23 @@ sunLight.shadow.camera.layers.enable(terrain.shadowProxyLayer);
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 1800);
 loadingStatus.textContent = 'Lighting the cold morning';
 const environmentLighting = await applyEnvironmentLighting(renderer, scene, hemisphereLight);
+const waterRoots = [water, waterSystem.group, smallLakes];
 const waterRenderController = createWaterRenderController({
   renderer,
   scene,
-  roots: [water, waterSystem.group, smallLakes],
+  roots: waterRoots,
   environmentTexture: environmentLighting.sourceTexture,
 });
-const postProcessing = createPostProcessing(renderer, scene, camera, renderQuality);
+const postProcessing = createPostProcessing(
+  renderer,
+  scene,
+  camera,
+  renderQuality,
+  {
+    waterRoots,
+    bindWaterSceneBuffers: waterRenderController.bindSceneBuffers,
+  },
+);
 let resolutionAdjustmentNotBefore = performance.now() + DYNAMIC_RESOLUTION.warmupMs;
 
 const input = new Input(canvas);

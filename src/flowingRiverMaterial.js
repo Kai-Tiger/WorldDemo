@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  WATER_FOG_FRAGMENT_GLSL,
   WATER_FOG_FRAGMENT_PARS_GLSL,
   WATER_FOG_VERTEX_GLSL,
   WATER_FOG_VERTEX_PARS_GLSL,
@@ -27,6 +26,12 @@ export function createFlowingRiverMaterial() {
       uDeepColor: { value: new THREE.Color(FLOWING_RIVER_DEEP_COLOR) },
       uFoamColor: { value: new THREE.Color(FLOWING_RIVER_FOAM_COLOR) },
       uSedimentColor: { value: new THREE.Color(FLOWING_RIVER_SEDIMENT_COLOR) },
+      uSceneColor: { value: null },
+      uSceneDepth: { value: null },
+      uSceneResolution: { value: new THREE.Vector2(1, 1) },
+      uCameraNear: { value: 0.25 },
+      uCameraFar: { value: 1800 },
+      uRefractionPixels: { value: 0 },
     }),
     vertexShader: `
       attribute float waterDepth;
@@ -54,6 +59,7 @@ export function createFlowingRiverMaterial() {
       varying float vJunctionMask;
       varying vec2 vJunctionFlowDirection;
       varying float vViewDistance;
+      varying float vWaterViewDepth;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
       void main() {
@@ -71,9 +77,11 @@ export function createFlowingRiverMaterial() {
         vViewDistance = viewDistance;
 
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vec4 viewPosition = viewMatrix * worldPosition;
         vWorldPosition = worldPosition.xyz;
+        vWaterViewDepth = -viewPosition.z;
         ${WATER_FOG_VERTEX_GLSL}
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        gl_Position = projectionMatrix * viewPosition;
       }
     `,
     fragmentShader: `
@@ -88,6 +96,14 @@ export function createFlowingRiverMaterial() {
       uniform vec3 uSunReflectionColor;
       uniform vec3 uSunDirection;
       uniform float uSunIntensity;
+      #ifdef USE_SINGLE_LAYER_WATER
+        uniform sampler2D uSceneColor;
+        uniform sampler2D uSceneDepth;
+        uniform vec2 uSceneResolution;
+        uniform float uCameraNear;
+        uniform float uCameraFar;
+        uniform float uRefractionPixels;
+      #endif
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
@@ -102,6 +118,7 @@ export function createFlowingRiverMaterial() {
       varying float vJunctionMask;
       varying vec2 vJunctionFlowDirection;
       varying float vViewDistance;
+      varying float vWaterViewDepth;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
       ${WATER_NOISE_GLSL}
@@ -246,6 +263,141 @@ export function createFlowingRiverMaterial() {
         return fresnel * distribution * visibility * nDotL;
       }
 
+      #ifdef USE_SINGLE_LAYER_WATER
+        float getLinearViewDepth(float depth) {
+          float denominator = uCameraFar
+            - depth * (uCameraFar - uCameraNear);
+
+          return (uCameraNear * uCameraFar) / max(denominator, 0.000001);
+        }
+
+        vec3 getSingleLayerWaterVolume(
+          vec3 surfaceNormal,
+          vec3 viewDirection,
+          vec3 geometricNormal,
+          float shoreAlpha,
+          out vec3 undistortedScene
+        ) {
+          vec2 inverseResolution = 1.0 / max(uSceneResolution, vec2(1.0));
+          vec2 screenUv = gl_FragCoord.xy * inverseResolution;
+          vec2 safeMinimum = inverseResolution * 0.5;
+          vec2 safeMaximum = vec2(1.0) - safeMinimum;
+          vec3 viewNormal = normalize(mat3(viewMatrix) * surfaceNormal);
+          float refractionFade = shoreAlpha
+            * vWaterFade
+            * smoothstep(0.08, 0.6, vWaterDepth);
+          vec2 candidateUv = screenUv
+            + viewNormal.xy
+            * uRefractionPixels
+            * inverseResolution
+            * refractionFade;
+          vec2 insideMinimum = step(safeMinimum, candidateUv);
+          vec2 insideMaximum = step(candidateUv, safeMaximum);
+          float uvIsValid = insideMinimum.x
+            * insideMinimum.y
+            * insideMaximum.x
+            * insideMaximum.y;
+          vec2 clampedCandidateUv = clamp(
+            candidateUv,
+            safeMinimum,
+            safeMaximum
+          );
+          float undistortedRawDepth = texture2D(uSceneDepth, screenUv).r;
+          float refractedRawDepth = texture2D(
+            uSceneDepth,
+            clampedCandidateUv
+          ).r;
+          float undistortedViewDepth = getLinearViewDepth(
+            undistortedRawDepth
+          );
+          float refractedViewDepth = getLinearViewDepth(refractedRawDepth);
+          float depthIsBehindWater = step(
+            vWaterViewDepth + 0.01,
+            refractedViewDepth
+          );
+          float depthIsFinite = (1.0 - step(0.999999, undistortedRawDepth))
+            * (1.0 - step(0.999999, refractedRawDepth));
+          float depthContinuity = 1.0 - step(
+            max(0.75, undistortedViewDepth * 0.015),
+            abs(refractedViewDepth - undistortedViewDepth)
+          );
+          float validRefraction = uvIsValid
+            * depthIsBehindWater
+            * depthIsFinite
+            * depthContinuity;
+          vec2 refractedUv = mix(
+            screenUv,
+            clampedCandidateUv,
+            validRefraction
+          );
+
+          undistortedScene = texture2D(uSceneColor, screenUv).rgb;
+          vec3 refractedScene = texture2D(uSceneColor, refractedUv).rgb;
+
+          float surfaceFacing = max(
+            abs(dot(viewDirection, geometricNormal)),
+            0.2
+          );
+          float authoredPathLength = clamp(
+            max(vWaterDepth, 0.0) / surfaceFacing,
+            0.0,
+            6.0
+          );
+          float viewRayCosine = clamp(
+            vWaterViewDepth / max(
+              distance(uCameraPosition, vWorldPosition),
+              0.0001
+            ),
+            0.25,
+            1.0
+          );
+          float screenPathLength = clamp(
+            max(refractedViewDepth - vWaterViewDepth, 0.0)
+              / viewRayCosine,
+            0.0,
+            6.0
+          );
+          float pathLengthLimit = min(
+            6.0,
+            max(authoredPathLength * 1.5, 0.08)
+          );
+          float opticalPathLength = mix(
+            authoredPathLength,
+            min(screenPathLength, pathLengthLimit),
+            validRefraction
+          );
+
+          vec3 absorption = vec3(0.32, 0.14, 0.08);
+          vec3 scattering = vec3(0.025, 0.045, 0.060);
+          vec3 transmittance = exp(
+            -(absorption + scattering) * opticalPathLength
+          );
+          const float phaseG = 0.15;
+          float lightViewCosine = clamp(
+            dot(normalize(uSunDirection), viewDirection),
+            -1.0,
+            1.0
+          );
+          float phaseDenominator = pow(
+            max(
+              1.0 + phaseG * phaseG
+                - 2.0 * phaseG * lightViewCosine,
+              0.01
+            ),
+            1.5
+          );
+          float phase = clamp(
+            (1.0 - phaseG * phaseG) / phaseDenominator,
+            0.65,
+            1.35
+          );
+          vec3 scatteringColor = mix(uDeepColor, uShallowColor, 0.68);
+
+          return refractedScene * transmittance
+            + scatteringColor * (1.0 - transmittance) * phase;
+        }
+      #endif
+
       float getFoamPattern(vec2 primaryFlowDomain, vec2 detailFlowDomain) {
         float foamBody = smoothstep(
           0.50,
@@ -342,10 +494,23 @@ export function createFlowingRiverMaterial() {
         float nDotV = max(dot(normal, viewDir), 0.0001);
         vec3 waterFresnel = fresnelSchlick(nDotV, vec3(0.02037));
         float foamSpecularAttenuation = 1.0 - foam * 0.9;
-        vec3 color = mix(uShallowColor, uDeepColor, depthMask);
-        float sedimentVisibility = (1.0 - depthMask) * (1.0 - centerMask * 0.35);
-        color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
-        color *= 1.0 + flowTone * mix(1.0, 0.55, depthMask);
+        #ifdef USE_SINGLE_LAYER_WATER
+          vec3 undistortedScene;
+          vec3 color = getSingleLayerWaterVolume(
+            normal,
+            viewDir,
+            geometricNormal,
+            shoreAlpha,
+            undistortedScene
+          );
+          color *= 1.0 + flowTone * mix(0.45, 0.25, depthMask);
+        #else
+          vec3 color = mix(uShallowColor, uDeepColor, depthMask);
+          float sedimentVisibility = (1.0 - depthMask)
+            * (1.0 - centerMask * 0.35);
+          color = mix(color, uSedimentColor, sedimentVisibility * 0.3);
+          color *= 1.0 + flowTone * mix(1.0, 0.55, depthMask);
+        #endif
 
         vec3 reflection = getTieredWaterReflection(
           mix(
@@ -395,8 +560,23 @@ export function createFlowingRiverMaterial() {
         );
         alpha *= vWaterFade * viewDistanceFade;
 
-        gl_FragColor = vec4(color, alpha);
-        ${WATER_FOG_FRAGMENT_GLSL}
+        float waterFogFactor = 1.0 - exp(
+          -uWaterFogDensity * uWaterFogDensity
+            * vWaterFogDepth * vWaterFogDepth
+        );
+        vec3 foggedWaterColor = mix(
+          color,
+          uWaterFogColor,
+          clamp(waterFogFactor, 0.0, 1.0)
+        );
+        #ifdef USE_SINGLE_LAYER_WATER
+          gl_FragColor = vec4(
+            mix(undistortedScene, foggedWaterColor, alpha),
+            1.0
+          );
+        #else
+          gl_FragColor = vec4(foggedWaterColor, alpha);
+        #endif
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }

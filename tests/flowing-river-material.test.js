@@ -83,7 +83,42 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.doesNotMatch(material.fragmentShader, /float broad = sin|float detail = sin/);
   assert.doesNotMatch(material.fragmentShader, /staticShoreFoam|foamThreads/);
   assert.doesNotMatch(material.fragmentShader, /featureMask/);
-  assert.doesNotMatch(material.fragmentShader, /DepthTexture|uDepthTexture|refraction/i);
+  assert.equal(material.uniforms.uSceneColor.value, null);
+  assert.equal(material.uniforms.uSceneDepth.value, null);
+  assert.deepEqual(material.uniforms.uSceneResolution.value.toArray(), [1, 1]);
+  assert.equal(material.uniforms.uRefractionPixels.value, 0);
+  assert.equal(material.defines.USE_SINGLE_LAYER_WATER, undefined);
+
+  material.dispose();
+});
+
+test('flowing river single-layer optics validates depth and precomposes coverage', () => {
+  const material = createFlowingRiverMaterial();
+  const vertexShader = material.vertexShader;
+  const fragmentShader = material.fragmentShader;
+
+  assert.match(vertexShader, /varying float vWaterViewDepth;/);
+  assert.match(vertexShader, /vWaterViewDepth = -viewPosition\.z;/);
+  assert.match(fragmentShader, /#ifdef USE_SINGLE_LAYER_WATER/);
+  assert.match(fragmentShader, /uniform sampler2D uSceneColor;/);
+  assert.match(fragmentShader, /uniform sampler2D uSceneDepth;/);
+  assert.match(fragmentShader, /float getLinearViewDepth\(float depth\)/);
+  assert.match(fragmentShader, /uCameraFar\s+- depth \* \(uCameraFar - uCameraNear\)/);
+  assert.match(fragmentShader, /vec3 viewNormal = normalize\(mat3\(viewMatrix\) \* surfaceNormal\);/);
+  assert.match(fragmentShader, /vec2 safeMinimum = inverseResolution \* 0\.5;/);
+  assert.match(fragmentShader, /float depthIsBehindWater = step\(/);
+  assert.match(fragmentShader, /1\.0 - step\(0\.999999, refractedRawDepth\)/);
+  assert.match(fragmentShader, /float depthContinuity = 1\.0 - step\(/);
+  assert.match(fragmentShader, /max\(vWaterDepth, 0\.0\) \/ surfaceFacing/);
+  assert.match(fragmentShader, /0\.0,\s+6\.0/);
+  assert.match(fragmentShader, /vec3 absorption = vec3\(0\.32, 0\.14, 0\.08\);/);
+  assert.match(fragmentShader, /vec3 scattering = vec3\(0\.025, 0\.045, 0\.060\);/);
+  assert.match(fragmentShader, /transmittance = exp\(/);
+  assert.match(fragmentShader, /const float phaseG = 0\.15;/);
+  assert.match(fragmentShader, /return refractedScene \* transmittance/);
+  assert.match(fragmentShader, /mix\(undistortedScene, foggedWaterColor, alpha\),\s+1\.0/);
+  assert.match(fragmentShader, /#else\s+gl_FragColor = vec4\(foggedWaterColor, alpha\);/);
+  assert.doesNotMatch(fragmentShader, /gl_FragColor = vec4\(color, alpha\);/);
 
   material.dispose();
 });
