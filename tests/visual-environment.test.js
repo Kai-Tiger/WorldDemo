@@ -22,8 +22,8 @@ test('clear alpine fill lighting uses the calibrated clear-weather values', () =
   assert.equal(VISUAL_ENVIRONMENT.exposure, 1.14);
   assert.equal(VISUAL_ENVIRONMENT.fog.density, 0.00045);
   assert.equal(VISUAL_ENVIRONMENT.sky.cloudCover, 0.43);
-  assert.equal(VISUAL_ENVIRONMENT.environmentMap.intensity, 1.05);
-  assert.equal(VISUAL_ENVIRONMENT.hemisphere.intensity, 1.42);
+  assert.equal(VISUAL_ENVIRONMENT.environmentMap.intensity, 1.20);
+  assert.equal(VISUAL_ENVIRONMENT.hemisphere.intensity, 2.15);
 });
 
 test('aerial perspective exposes one shared clear-air atmosphere profile', () => {

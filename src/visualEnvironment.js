@@ -77,12 +77,12 @@ export const VISUAL_ENVIRONMENT = Object.freeze({
   hemisphere: Object.freeze({
     skyColor: new THREE.Color('#9bbdca'),
     groundColor: new THREE.Color('#687568'),
-    intensity: 1.42,
+    intensity: 2.15,
   }),
   environmentMap: Object.freeze({
     width: ENVIRONMENT_MAP_WIDTH,
     height: ENVIRONMENT_MAP_HEIGHT,
-    intensity: 1.05,
+    intensity: 1.20,
     sunRadiance: 24,
   }),
 });
