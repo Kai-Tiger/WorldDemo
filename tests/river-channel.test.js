@@ -140,7 +140,7 @@ test('hero river material masks separate bed, wet bank, and dry gravel bank', ()
 
   assert.ok(bed.riverBedMask > 0.9);
   assert.ok(wet.riverMask > 0.5);
-  assert.ok(gravel.riverGravelMask > 0.5);
+  assert.ok(gravel.riverGravelMask > 0.4);
   assert.ok(confluenceCenter.riverBedMask > 0.9);
   assert.ok(confluenceCenter.riverUnderwaterMask > 0.9);
   assert.ok(confluenceWedge.riverBedMask < 0.9);

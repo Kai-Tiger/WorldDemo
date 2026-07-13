@@ -239,7 +239,7 @@ test('hero river is a frozen five-reach DAG with the locked confluences and prof
   }));
 
   assert.deepEqual(profiles, [
-    { id: 'hero-main-upper', width: [5.2, 7], depth: [0.8, 1], wet: [1.2, 1.8], gravel: [2, 8], blend: [5, 5], flow: [0.55, 0.75] },
+    { id: 'hero-main-upper', width: [5.2, 7], depth: [1.5, 1], wet: [0.75, 1.25], gravel: [1, 4.5], blend: [2.5, 3.5], flow: [0.55, 0.75] },
     { id: 'hero-main-middle', width: [7, 8.2], depth: [1, 1.15], wet: [1.8, 2], gravel: [8, 10], blend: [5, 5], flow: [0.65, 0.8] },
     { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.15, 1], wet: [2, 1.5], gravel: [10, 6], blend: [5, 5], flow: [0.7, 0.55] },
     { id: 'hero-west-tributary', width: [2, 3.3], depth: [0.35, 0.65], wet: [0.7, 1.2], gravel: [3, 5], blend: [3, 3], flow: [0.75, 1] },
@@ -385,6 +385,31 @@ test('hero river corridor shares layered bed, wet bank, gravel bank, and blend t
   assert.ok(gravel.frame.gravelBankMask > 0.25);
   assert.ok(gravel.frame.gravelBankMask <= 0.8);
   assert.ok(gravel.frame.vegetationMask > 0.9);
+});
+
+test('waterfall outlet keeps a deeper channel with steeper upper-reach banks', () => {
+  const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
+  const outletPoint = getReachPointAtDistance(reach, 24);
+  const outlet = getHeroRiverCorridorFrame(outletPoint.x, outletPoint.z);
+  const bankPoint = getReachPointAtDistance(reach, 80);
+  const bank = getHeroRiverCorridorFrame(bankPoint.x, bankPoint.z);
+  const sampleTarget = (lateral) => {
+    const x = bank.center.x + bank.side.x * lateral;
+    const z = bank.center.z + bank.side.z * lateral;
+
+    return getHeroRiverTerrainTarget(getLowlandTerrainHeight(x, z), x, z);
+  };
+  const waterEdge = sampleTarget(bank.halfWidth * 0.98);
+  const bankCrest = sampleTarget(
+    bank.halfWidth + bank.wetBankWidth + bank.gravelBankWidth * 0.98,
+  );
+  const bankRun = bank.wetBankWidth + bank.gravelBankWidth;
+  const bankSlope = (bankCrest.height - waterEdge.height) / bankRun;
+
+  assert.ok(outlet.waterDepth >= 1.35);
+  assert.ok(bankRun <= 4.5);
+  assert.ok(bank.terrainBlendWidth <= 3.1);
+  assert.ok(bankSlope >= 0.32);
 });
 
 test('hero river material masks widen wet gravel and keep dry gravel softly partial', () => {
