@@ -5,7 +5,11 @@ import {
   compileRiverNetwork,
 } from '../src/hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
-import { HERO_RIVER_NETWORK_DEFINITION } from '../src/lowlandHeightPlan.js';
+import { getHeroRiverRockPlacements } from '../src/heroRocks.js';
+import {
+  getHeroRiverCorridorFrame,
+  HERO_RIVER_NETWORK_DEFINITION,
+} from '../src/lowlandHeightPlan.js';
 
 const result = createRiverNetworkWaterGeometry();
 const heroNetwork = compileRiverNetwork(HERO_RIVER_NETWORK_DEFINITION);
@@ -207,8 +211,31 @@ test('trunk tessellation uses eight lateral segments and about 0.75 meter rows',
   assert.ok(trunk.stats.triangleCount < 12000);
 });
 
+test('reach strips encode signed lateral flow coordinates in meters', () => {
+  const { geometry, stats } = createRiverNetworkWaterGeometry(
+    createSingleReachNetwork(0, 'trunk'),
+  );
+  const position = geometry.getAttribute('position');
+  const flowUv = geometry.getAttribute('flowUv');
+  const reach = stats.reaches[0];
+
+  for (let row = 0; row < reach.rowCount; row += 1) {
+    const left = reach.startVertex + row * reach.rowSize;
+    const center = left + Math.floor(reach.rowSize / 2);
+    const right = left + reach.rowSize - 1;
+    const width = Math.hypot(
+      position.getX(right) - position.getX(left),
+      position.getZ(right) - position.getZ(left),
+    );
+
+    assert.ok(Math.abs(flowUv.getY(left) + width * 0.5) < 1e-5);
+    assert.equal(flowUv.getY(center), 0);
+    assert.ok(Math.abs(flowUv.getY(right) - width * 0.5) < 1e-5);
+  }
+});
+
 test('authored disturbances produce a smooth downstream-biased wake mask', () => {
-  const disturbance = { distanceM: 50, lateral: 0, radius: 0.3, strength: 0.9 };
+  const disturbance = { distanceM: 50, lateral: 0, radius: 2, strength: 0.9 };
   const wake = createRiverNetworkWaterGeometry(
     createSingleReachNetwork(0, 'trunk', [disturbance]),
   );
@@ -222,12 +249,64 @@ test('authored disturbances produce a smooth downstream-biased wake mask', () =>
   const center = reach.startVertex + obstacleRow * reach.rowSize + 4;
   const upstream = center - reach.rowSize;
   const downstream = center + reach.rowSize;
+  const farDownstream = center + reach.rowSize * 8;
   const leftEdge = center - 4;
 
-  assert.ok(Math.abs(mask.getX(center) - disturbance.strength) < 1e-5);
+  assert.ok(mask.getX(center) > disturbance.strength * 0.45);
   assert.equal(mask.getX(upstream), 0);
-  assert.ok(mask.getX(downstream) > 0);
+  assert.ok(mask.getX(downstream) >= mask.getX(center));
+  assert.equal(mask.getX(farDownstream), 0);
   assert.equal(mask.getX(leftEdge), 0);
+});
+
+test('hero rock wakes remain sheltered and short after runtime triangle interpolation', () => {
+  const { geometry, stats } = heroResult;
+
+  for (const placement of getHeroRiverRockPlacements()) {
+    const reach = HERO_RIVER_NETWORK_DEFINITION.reaches.find(
+      (candidate) => candidate.id === placement.reachId,
+    );
+    const reachStats = stats.reaches.find((candidate) => candidate.id === placement.reachId);
+    const disturbance = reach.disturbances.find(
+      (candidate) => candidate.distanceM === placement.distanceM,
+    );
+    const frame = getHeroRiverCorridorFrame(placement.x, placement.z);
+    const sample = (alongRadii, lateralRadii = 0) => sampleReachAttribute(
+      geometry,
+      reachStats,
+      'disturbanceMask',
+      placement.x
+        + frame.flowDirection.x * disturbance.radius * alongRadii
+        + frame.side.x * disturbance.radius * lateralRadii,
+      placement.z
+        + frame.flowDirection.z * disturbance.radius * alongRadii
+        + frame.side.z * disturbance.radius * lateralRadii,
+    );
+    const sampleWake = (alongRadii, lateralRadii = 0) => getRuntimeWakeShear(
+      geometry,
+      reachStats,
+      placement.x
+        + frame.flowDirection.x * disturbance.radius * alongRadii
+        + frame.side.x * disturbance.radius * lateralRadii,
+      placement.z
+        + frame.flowDirection.z * disturbance.radius * alongRadii
+        + frame.side.z * disturbance.radius * lateralRadii,
+    );
+    const centerMask = sample(0);
+    const downstreamMask = sample(0.75);
+
+    assert.ok(sampleWake(-0.25) <= 0.02, `${placement.reachId} wake leaks upstream`);
+    assert.ok(centerMask >= disturbance.strength * 0.2);
+    assert.ok(sampleWake(0) <= 0.55, `${placement.reachId} shelter core is too bright`);
+    assert.ok(downstreamMask > centerMask);
+    assert.ok(sampleWake(2.6) <= 0.005, `${placement.reachId} wake exceeds 2.6 radii`);
+
+    const tailBand = [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6]
+      .map((lateral) => sampleWake(2.55, lateral))
+      .filter((wake) => wake > 0.5);
+
+    assert.ok(tailBand.length < 4, `${placement.reachId} wake forms a cross-river tail cap`);
+  }
 });
 
 test('source and lake-entry ends fade while steep reaches transition out', () => {
@@ -279,6 +358,74 @@ test('the alpine inlet fades only after overlapping the lake surface', () => {
   assert.ok(endpointRadius <= lake.radius - fadeLength);
 });
 
+test('the hero terminal inlet aligns at shore and fades over the final four meters outside', () => {
+  const transition = HERO_RIVER_NETWORK_DEFINITION.terminalLakeTransition;
+  const reach = heroResult.stats.reaches.find((entry) => entry.id === 'hero-main-lower');
+  const position = heroResult.geometry.getAttribute('position');
+  const waterFade = heroResult.geometry.getAttribute('waterFade');
+  const centerOffset = Math.floor(reach.rowSize / 2);
+  const rows = [];
+
+  for (let row = 0; row < reach.rowCount; row += 1) {
+    const vertex = reach.startVertex + row * reach.rowSize + centerOffset;
+
+    rows.push({
+      vertex,
+      distance: reach.startDistance
+        + (reach.endDistance - reach.startDistance) * row / (reach.rowCount - 1),
+      lakeDistance: Math.hypot(
+        position.getX(vertex) - transition.center[0],
+        position.getZ(vertex) - transition.center[1],
+      ),
+      waterLevel: position.getY(vertex),
+    });
+  }
+
+  const finalRow = rows.at(-1);
+  const halfFadeRow = rows.reduce((closest, row) => (
+    Math.abs(row.lakeDistance - (transition.radius + transition.fadeLength * 0.5))
+      < Math.abs(closest.lakeDistance - (transition.radius + transition.fadeLength * 0.5))
+      ? row
+      : closest
+  ));
+
+  assert.equal(transition.fadeLength, 4);
+  assert.equal(transition.levelBlendLength, 12);
+  assert.ok(Math.abs(
+    reach.endDistance - reach.terminalLakeBoundaryDistance
+  ) < 1e-6);
+  assert.ok(Math.abs(finalRow.waterLevel - 1.6) < 1e-5);
+  assert.ok(Math.abs(finalRow.lakeDistance - transition.radius) < 0.02);
+  assert.equal(waterFade.getX(finalRow.vertex), 0);
+  assert.ok(Math.abs(waterFade.getX(halfFadeRow.vertex) - 0.5) < 0.12);
+  assert.ok(rows.every((row) => row.lakeDistance >= transition.radius - 1e-5));
+  for (
+    let vertex = reach.startVertex;
+    vertex < reach.startVertex + reach.vertexCount;
+    vertex += 1
+  ) {
+    assert.ok(Math.hypot(
+      position.getX(vertex) - transition.center[0],
+      position.getZ(vertex) - transition.center[1],
+    ) >= transition.radius - 1e-5);
+  }
+  const finalRowStart = reach.startVertex + (reach.rowCount - 1) * reach.rowSize;
+
+  for (let lateral = 0; lateral < reach.rowSize; lateral += 1) {
+    const vertex = finalRowStart + lateral;
+
+    assert.ok(Math.abs(Math.hypot(
+      position.getX(vertex) - transition.center[0],
+      position.getZ(vertex) - transition.center[1],
+    ) - transition.radius) < 1e-4);
+    assert.equal(waterFade.getX(vertex), 0);
+  }
+
+  for (let row = 1; row < rows.length; row += 1) {
+    assert.ok(rows[row].waterLevel <= rows[row - 1].waterLevel + 1e-5);
+  }
+});
+
 test('four trimmed confluences use non-overlapping upward Y patches', () => {
   const { geometry, stats } = result;
   const position = geometry.getAttribute('position');
@@ -324,6 +471,7 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
     );
 
     const nodeU = uv.getX(junction.centerVertex);
+    const node = RIVER_NETWORK.nodeById.get(junction.nodeId);
     const incoming = RIVER_NETWORK.incomingByNode.get(junction.nodeId);
     const outgoing = RIVER_NETWORK.outgoingByNode.get(junction.nodeId)[0];
 
@@ -350,11 +498,20 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
     assert.ok(actualX * expectedX + actualZ * expectedZ > 0.99);
 
     for (const endpoint of junction.boundaryVertices) {
+      const deltaX = position.getX(endpoint) - node.position[0];
+      const deltaZ = position.getZ(endpoint) - node.position[1];
+
       assert.ok(
         junctionFlowDirection.getX(endpoint) * expectedX
           + junctionFlowDirection.getY(endpoint) * expectedZ
           > 0.99,
       );
+      assert.ok(Math.abs(
+        flowUv.getX(endpoint) - (nodeU + deltaX * actualX + deltaZ * actualZ)
+      ) < 1e-4);
+      assert.ok(Math.abs(
+        flowUv.getY(endpoint) - (deltaX * -actualZ + deltaZ * actualX)
+      ) < 1e-4);
     }
 
     for (
@@ -362,6 +519,9 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
       vertex < junction.firstPatchVertex + junction.patchVertexCount;
       vertex += 1
     ) {
+      const deltaX = position.getX(vertex) - node.position[0];
+      const deltaZ = position.getZ(vertex) - node.position[1];
+
       assert.ok(
         flowDirection.getX(vertex) * expectedX
           + flowDirection.getY(vertex) * expectedZ
@@ -374,6 +534,12 @@ test('four trimmed confluences use non-overlapping upward Y patches', () => {
       );
       assert.ok(Number.isFinite(flowUv.getX(vertex)));
       assert.ok(Number.isFinite(flowUv.getY(vertex)));
+      assert.ok(Math.abs(
+        flowUv.getX(vertex) - (nodeU + deltaX * actualX + deltaZ * actualZ)
+      ) < 1e-4);
+      assert.ok(Math.abs(
+        flowUv.getY(vertex) - (deltaX * -actualZ + deltaZ * actualX)
+      ) < 1e-4);
     }
 
     let polygonAreaTwice = 0;
@@ -419,8 +585,8 @@ test('hero J1/J2 use naturally curved non-overlapping Y patches within the mesh 
     getMaximumFlowUvStretch(geometry, reach.startIndex, reach.indexCount)
   )));
 
-  for (const reachStats of stats.reaches.filter((reach) => reach.id.startsWith('hero-main-'))) {
-    assert.equal(reachStats.targetSpacing, 0.75);
+  for (const reachStats of stats.reaches) {
+    assert.equal(reachStats.targetSpacing, 0.6);
     assert.equal(reachStats.lateralSegments, 8);
   }
 
@@ -676,6 +842,64 @@ function sampleCompiledReach(reach, distance) {
     width: start.width + (end.width - start.width) * t,
     waterLevel: start.waterLevel + (end.waterLevel - start.waterLevel) * t,
   };
+}
+
+function sampleReachAttribute(geometry, reachStats, attributeName, x, z) {
+  const positions = geometry.getAttribute('position');
+  const attribute = geometry.getAttribute(attributeName);
+  const indices = geometry.index.array;
+
+  for (
+    let offset = reachStats.startIndex;
+    offset < reachStats.startIndex + reachStats.indexCount;
+    offset += 3
+  ) {
+    const a = indices[offset];
+    const b = indices[offset + 1];
+    const c = indices[offset + 2];
+    const ax = positions.getX(a);
+    const az = positions.getZ(a);
+    const bx = positions.getX(b);
+    const bz = positions.getZ(b);
+    const cx = positions.getX(c);
+    const cz = positions.getZ(c);
+    const denominator = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    const aWeight = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / denominator;
+    const bWeight = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / denominator;
+    const cWeight = 1 - aWeight - bWeight;
+
+    if (aWeight < -1e-6 || bWeight < -1e-6 || cWeight < -1e-6) continue;
+
+    return aWeight * attribute.getX(a)
+      + bWeight * attribute.getX(b)
+      + cWeight * attribute.getX(c);
+  }
+
+  return 0;
+}
+
+function getWakeShearBand(mask) {
+  return smoothstep(0.04, 0.14, mask) * (1 - smoothstep(0.18, 0.34, mask));
+}
+
+function getRuntimeWakeShear(geometry, reachStats, x, z) {
+  const mask = sampleReachAttribute(geometry, reachStats, 'disturbanceMask', x, z);
+  const rapidMask = sampleReachAttribute(geometry, reachStats, 'rapidMask', x, z);
+  const waterDepth = sampleReachAttribute(geometry, reachStats, 'waterDepth', x, z);
+  const flowSpeed = sampleReachAttribute(geometry, reachStats, 'flowSpeed', x, z);
+  const shallowSupport = 1 - smoothstep(0.45, 1.15, waterDepth);
+  const hydraulic = Math.max(
+    smoothstep(0.28, 0.72, rapidMask),
+    shallowSupport * smoothstep(0.9, 1.35, flowSpeed),
+  );
+
+  return getWakeShearBand(mask) * hydraulic;
+}
+
+function smoothstep(minimum, maximum, value) {
+  const t = Math.max(0, Math.min(1, (value - minimum) / (maximum - minimum)));
+
+  return t * t * (3 - 2 * t);
 }
 
 function createSingleReachNetwork(slopeDegrees, style = 'headwater', disturbances = []) {

@@ -6,7 +6,10 @@ import {
   getHeroRiverRockPlacements,
   HERO_RIVER_ROCK_SEED,
 } from '../src/heroRocks.js';
-import { getHeroRiverCorridorFrame } from '../src/lowlandHeightPlan.js';
+import {
+  getHeroRiverCorridorFrame,
+  HERO_RIVER_NETWORK_DEFINITION,
+} from '../src/lowlandHeightPlan.js';
 
 test('hero river rock placements deterministically mirror the authored disturbances', () => {
   const first = getHeroRiverRockPlacements();
@@ -44,8 +47,29 @@ test('hero river rock placements deterministically mirror the authored disturban
     assert.ok(placement.modelIndex === 1 || placement.modelIndex === 4 || placement.modelIndex === 7);
 
     const frame = getHeroRiverCorridorFrame(placement.x, placement.z);
+    const reach = HERO_RIVER_NETWORK_DEFINITION.reaches.find(
+      (candidate) => candidate.id === placement.reachId,
+    );
+    const disturbance = reach.disturbances.find(
+      (candidate) => candidate.distanceM === placement.distanceM,
+    );
+    const wakeFrame = getHeroRiverCorridorFrame(
+      placement.x + frame.flowDirection.x * disturbance.radius * 0.75,
+      placement.z + frame.flowDirection.z * disturbance.radius * 0.75,
+    );
+    const upstreamFrame = getHeroRiverCorridorFrame(
+      placement.x - frame.flowDirection.x * disturbance.radius * 0.25,
+      placement.z - frame.flowDirection.z * disturbance.radius * 0.25,
+    );
+    const tailFrame = getHeroRiverCorridorFrame(
+      placement.x + frame.flowDirection.x * disturbance.radius * 2.6,
+      placement.z + frame.flowDirection.z * disturbance.radius * 2.6,
+    );
 
-    assert.ok(frame.disturbanceMask > 0.45);
+    assert.ok(frame.disturbanceMask > disturbance.strength * 0.55);
+    assert.equal(upstreamFrame.disturbanceMask, 0);
+    assert.ok(wakeFrame.disturbanceMask > disturbance.strength * 0.9);
+    assert.equal(tailFrame.disturbanceMask, 0);
     assert.ok(frame.bedMask > 0.5);
   }
 

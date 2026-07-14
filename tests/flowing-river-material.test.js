@@ -33,25 +33,30 @@ test('flowing river material consumes the terrain-aware river geometry contract'
 
   assert.match(material.fragmentShader, /smoothstep\(0\.35, 1\.8, vWaterDepth\)/);
   assert.match(material.fragmentShader, /smoothstep\(0\.12, 0\.85, perturbedShoreDistance\)/);
+  assert.match(material.fragmentShader, /smoothstep\(\s+0\.03,\s+0\.32,\s+vShoreDistance \+ foamShoreNoise\s+\)/);
   assert.match(material.fragmentShader, /float primaryFlowMeters = vFlowUv\.x - uTime \* 0\.85;/);
   assert.match(material.fragmentShader, /float detailFlowMeters = vFlowUv\.x - uTime \* 1\.15;/);
-  assert.match(material.fragmentShader, /vec2 primaryFlowDomain = vec2\(primaryFlowMeters, vFlowUv\.y\);/);
-  assert.match(material.fragmentShader, /-vFlowUv\.y \+ 7\.6/);
+  assert.match(material.fragmentShader, /vec2 macroFlowDomain = vec2\(primaryFlowMeters, vFlowUv\.y\);/);
+  assert.match(material.fragmentShader, /0\.89100652,\s+0\.45399050/);
+  assert.match(material.fragmentShader, /0\.85716730,\s+-0\.51503807/);
   assert.doesNotMatch(material.fragmentShader, /centerSpeedScale|localFlowSpeed/);
   assert.doesNotMatch(material.fragmentShader, /uTime \* (?:vFlowSpeed|centerMask)/);
-  assert.match(material.fragmentShader, /mix\(0\.03, 0\.05, centerMask\)/);
-  assert.match(material.fragmentShader, /mix\(0\.075, 0\.095, centerMask\)/);
+  assert.match(material.fragmentShader, /mix\(0\.055, 0\.075, centerMask\)/);
+  assert.match(material.fragmentShader, /mix\(0\.13, 0\.16, centerMask\)/);
+  assert.match(material.fragmentShader, /maximumSurfaceSlope = mix\(0\.14, 0\.25, normalFeatureMask\)/);
   assert.match(material.fragmentShader, /vec3 reflectedEnergy = waterFresnel \* foamSpecularAttenuation \* 0\.26;/);
-  assert.match(material.fragmentShader, /color = color \* \(1\.0 - reflectedEnergy\) \+ reflection \* reflectedEnergy;/);
+  assert.match(material.fragmentShader, /volume \* \(1\.0 - reflectedEnergy\)\s+\+ reflection \* reflectedEnergy/);
   assert.doesNotMatch(material.fragmentShader, /junctionSpecularScale/);
   assert.match(material.fragmentShader, /float broadFlowTone = waterNoise/);
   assert.match(material.fragmentShader, /float localFlowTone = waterNoise/);
-  assert.match(material.fragmentShader, /primaryFlowDomain \* vec2\(0\.11, 0\.30\)/);
-  assert.match(material.fragmentShader, /detailFlowDomain \* vec2\(0\.24, 0\.68\)/);
-  assert.match(material.fragmentShader, /-0\.03,\s+0\.04/);
-  assert.match(material.fragmentShader, /flowTone \* mix\(1\.0, 0\.55, depthMask\)/);
+  assert.match(material.fragmentShader, /macroFlowDomain \* vec2\(0\.14, 0\.32\)/);
+  assert.match(material.fragmentShader, /middleFlowDomain \* vec2\(0\.75, 1\.60\)/);
+  assert.match(material.fragmentShader, /microFlowDomain \* vec2\(2\.20, 4\.20\)/);
+  assert.match(material.fragmentShader, /-0\.05,\s+0\.08/);
+  assert.match(material.fragmentShader, /flowTone \* mix\(0\.75, 0\.55, depthMask\)/);
   assert.match(material.fragmentShader, /max\(vRapidMask, vJunctionMask \* 0\.35\)/);
-  assert.match(material.fragmentShader, /normalize\(cross\(\s+dFdx\(vWorldPosition\),\s+dFdy\(vWorldPosition\)\s+\)\)/);
+  assert.match(material.vertexShader, /vWorldNormal = normalize\(mat3\(modelMatrix\) \* normal\);/);
+  assert.match(material.fragmentShader, /vec3 geometricNormal = normalize\(vWorldNormal\);/);
   assert.match(material.fragmentShader, /flowTangent - geometricNormal \* dot\(flowTangent, geometricNormal\)/);
   assert.match(material.fragmentShader, /cross\(flowTangent, geometricNormal\)/);
   assert.match(material.fragmentShader, /if \(!gl_FrontFacing\) \{\s+normal = -normal;/);
@@ -62,37 +67,79 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.match(material.fragmentShader, /vec3 waterF0 = vec3\(0\.02037\);/);
   assert.match(material.fragmentShader, /vec3 normalDx = dFdx\(normal\);/);
   assert.match(material.fragmentShader, /vec3 normalDy = dFdy\(normal\);/);
-  assert.match(material.fragmentShader, /float calmRoughness = mix\(0\.24, 0\.18, centerMask\);/);
-  assert.match(material.fragmentShader, /float rapidRoughness = mix\(0\.36, 0\.28, centerMask\);/);
-  assert.match(material.fragmentShader, /roughness = mix\(roughness, 0\.72, foam\);/);
+  assert.match(material.fragmentShader, /float macroRoughness = mix\(0\.22, 0\.32, rapidSurface\);/);
+  assert.match(material.fragmentShader, /float microRoughness = mix\(0\.09, 0\.12, rapidSurface\);/);
+  assert.match(material.fragmentShader, /mix\(macroRoughness, 0\.78, foam\)/);
+  assert.match(material.fragmentShader, /mix\(microRoughness, 0\.82, foam\)/);
   assert.match(material.fragmentShader, /evaluateWaterSpecular\(/);
-  assert.match(material.fragmentShader, /\* uSunReflectionColor \* uSunIntensity;/);
+  assert.match(material.fragmentShader, /macroSpecular \* 0\.65\s+\+ microSpecular \* 0\.35/);
+  assert.match(material.fragmentShader, /mix\(\s+vec3\(1\.0\),\s+uSunReflectionColor,\s+0\.35\s+\)/);
+  assert.match(material.fragmentShader, /directSpecular \/= vec3\(1\.0\) \+ directSpecular \/ 1\.35;/);
   assert.doesNotMatch(material.fragmentShader, /pow\(max\(dot\(normal, halfDirection\)/);
-  assert.match(material.fragmentShader, /float foamDriver = clamp/);
-  assert.match(material.fragmentShader, /vRapidMask \* 0\.72/);
-  assert.match(material.fragmentShader, /vJunctionMask \* 0\.10/);
-  assert.match(material.fragmentShader, /smoothstep\(0\.18, 0\.58, vDisturbanceMask\)/);
-  assert.match(material.fragmentShader, /primaryFlowDomain \* vec2\(0\.18, 0\.55\)/);
-  assert.match(material.fragmentShader, /detailFlowDomain \* vec2\(0\.42, 1\.10\)/);
-  assert.match(material.fragmentShader, /float foam = foamDriver \* foamPattern/);
-  assert.match(material.fragmentShader, /mix\(color, uFoamColor, foam \* 0\.58\)/);
-  assert.match(material.fragmentShader, /foam \* \(1\.0 - alpha\) \* 0\.35/);
-  assert.match(material.fragmentShader, /float foamSpecularAttenuation = 1\.0 - foam \* 0\.9;/);
+  assert.match(material.fragmentShader, /float baseFoamDriver = clamp/);
+  assert.match(material.fragmentShader, /smoothstep\(0\.08, 0\.82, vRapidMask\)/);
+  assert.match(material.fragmentShader, /hydraulicSupport = shallowFoamSupport\s+\* movingFoamSupport\s+\* 0\.22/);
+  assert.match(material.fragmentShader, /vJunctionMask \* 0\.08/);
+  const baseFoamDriverSource = material.fragmentShader.slice(
+    material.fragmentShader.indexOf('float baseFoamDriver = clamp('),
+    material.fragmentShader.indexOf('float wakeHydraulic ='),
+  );
+  assert.doesNotMatch(baseFoamDriverSource, /vDisturbanceMask/);
+  assert.match(material.fragmentShader, /macroFlowDomain \* vec2\(0\.28, 0\.82\)/);
+  assert.match(material.fragmentShader, /float foamMass = smoothstep\(\s+0\.46,\s+0\.82,/);
+  assert.match(material.fragmentShader, /middleFlowDomain \* vec2\(0\.75, 1\.80\)/);
+  assert.match(material.fragmentShader, /float foamBreakup = smoothstep\(\s+0\.36,\s+0\.78,/);
+  assert.match(material.fragmentShader, /microFlowDomain \* vec2\(1\.55, 3\.20\)/);
+  assert.match(material.fragmentShader, /float foamPattern = foamMass \* foamBreakup;/);
+  assert.doesNotMatch(material.fragmentShader, /foamMass \* mix\(/);
+  assert.match(material.fragmentShader, /foamPattern \*= mix\(0\.18, 1\.0, foamFleck\);/);
+  assert.match(material.fragmentShader, /foamPattern \+= foamMass \* foamFleck \* 0\.10;/);
+  assert.match(material.fragmentShader, /float getWakePattern\(/);
+  assert.match(material.fragmentShader, /anchoredFlowDomain \* vec2\(0\.72, 3\.60\)/);
+  assert.match(material.fragmentShader, /float wakeHydraulic = max\(/);
+  assert.match(material.fragmentShader, /smoothstep\(0\.28, 0\.72, vRapidMask\)/);
+  assert.match(material.fragmentShader, /float wakeEnvelope = smoothstep\(0\.04, 0\.14, vDisturbanceMask\);/);
+  assert.match(material.fragmentShader, /float wakeShelter = smoothstep\(0\.18, 0\.34, vDisturbanceMask\);/);
+  assert.match(material.fragmentShader, /1\.0 - wakeShelter/);
+  assert.match(material.fragmentShader, /float wakePattern = getWakePattern\(vFlowUv, foamPattern\);/);
+  assert.match(material.fragmentShader, /\* \(1\.0 - wakeEnvelope \* wakeHydraulic\)/);
+  assert.match(material.fragmentShader, /float wakeFoamMask = wakeShear \* wakePattern \* 0\.38;/);
+  assert.match(material.fragmentShader, /float foam = foamMask;/);
+  assert.match(material.fragmentShader, /float foamCore = foamCoreMask;/);
+  assert.match(
+    material.fragmentShader,
+    /baseFoamMask \* 0\.50\s+\+ foamCore \* 0\.36\s+\+ wakeFoamMask \* 0\.28/,
+  );
+  assert.match(material.fragmentShader, /0\.0,\s+0\.86/);
+  assert.match(material.fragmentShader, /float foamSpecularAttenuation = 1\.0 - foam \* 0\.88;/);
   assert.match(material.fragmentShader, /color \+= directSpecular \* foamSpecularAttenuation \* 0\.40;/);
-  assert.equal(material.fragmentShader.match(/vDisturbanceMask/g)?.length, 2);
+  assert.equal(material.fragmentShader.match(/vDisturbanceMask/g)?.length, 3);
   assert.doesNotMatch(material.fragmentShader, /float broad = sin|float detail = sin/);
+  assert.doesNotMatch(material.fragmentShader, /ridge/i);
   assert.doesNotMatch(material.fragmentShader, /staticShoreFoam|foamThreads/);
   assert.doesNotMatch(material.fragmentShader, /featureMask/);
   assert.equal(material.uniforms.uSceneColor.value, null);
   assert.equal(material.uniforms.uSceneDepth.value, null);
   assert.deepEqual(material.uniforms.uSceneResolution.value.toArray(), [1, 1]);
   assert.equal(material.uniforms.uRefractionPixels.value, 0);
+  assert.deepEqual(
+    material.uniforms.uTerminalLakeBoundary.value.toArray(),
+    [690, -340, 20, 4],
+  );
+  assert.match(material.fragmentShader, /uniform vec4 uTerminalLakeBoundary;/);
+  assert.match(material.fragmentShader, /float terminalLakeSignedDistance = distance\(/);
+  assert.match(material.fragmentShader, /float terminalLakeFade = smoothstep\(/);
+  assert.match(material.fragmentShader, /float effectiveWaterFade = min\(vWaterFade, terminalLakeFade\);/);
+  assert.match(
+    material.fragmentShader,
+    /if \(effectiveWaterFade <= 0\.0001\) \{\s+discard;\s+\}/,
+  );
   assert.equal(material.defines.USE_SINGLE_LAYER_WATER, undefined);
 
   material.dispose();
 });
 
-test('flowing river single-layer optics validates depth and precomposes coverage', () => {
+test('flowing river single-layer optics validates depth and composites coverage once', () => {
   const material = createFlowingRiverMaterial();
   const vertexShader = material.vertexShader;
   const fragmentShader = material.fragmentShader;
@@ -117,29 +164,31 @@ test('flowing river single-layer optics validates depth and precomposes coverage
   assert.match(fragmentShader, /transmittance = exp\(/);
   assert.match(fragmentShader, /const float phaseG = 0\.15;/);
   assert.match(fragmentShader, /return refractedScene \* transmittance/);
-  assert.match(fragmentShader, /mix\(undistortedScene, foggedWaterColor, alpha\),\s+1\.0/);
-  assert.match(fragmentShader, /#else\s+gl_FragColor = vec4\(foggedWaterColor, alpha\);/);
+  assert.match(fragmentShader, /out float waterThickness/);
+  assert.match(fragmentShader, /waterThickness = clamp\(opticalPathLength, 0\.0, 6\.0\);/);
+  assert.match(fragmentShader, /vec3 volume = getSingleLayerWaterVolume\(/);
+  assert.match(fragmentShader, /float depthCoverage = mix\(\s+0\.78,\s+1\.0,/);
+  assert.match(fragmentShader, /max\(\s+shoreAlpha \* depthCoverage,\s+foamShoreAlpha \* foamCoverage\s+\) \* effectiveWaterFade \* viewDistanceFade/);
+  assert.match(fragmentShader, /mix\(undistortedScene, foggedWaterColor, coverage\),\s+1\.0/);
+  assert.doesNotMatch(fragmentShader, /mix\(undistortedScene, foggedWaterColor, alpha\)/);
+  assert.match(fragmentShader, /gl_FragColor = vec4\(foggedWaterColor, alpha\);/);
+  assert.match(fragmentShader, /foamShoreAlpha \* foamCoverage \* \(1\.0 - alpha\) \* 0\.55/);
+  assert.match(fragmentShader, /alpha \*= effectiveWaterFade \* viewDistanceFade;/);
   assert.doesNotMatch(fragmentShader, /gl_FragColor = vec4\(color, alpha\);/);
 
   material.dispose();
 });
 
-test('flowing river reflection samples only the selected tier', () => {
+test('flowing river reflection always samples the procedural environment', () => {
   const material = createFlowingRiverMaterial();
   const shader = material.fragmentShader;
-  const planarBranch = shader.indexOf('if (uWaterReflectionMode > 1.5)');
-  const probeBranch = shader.indexOf('else if (uWaterReflectionMode > 0.5)');
-  const environmentBranch = shader.indexOf('else {', probeBranch);
 
-  assert.ok(planarBranch > -1);
-  assert.ok(probeBranch > planarBranch);
-  assert.ok(environmentBranch > probeBranch);
-  assert.ok(shader.indexOf('uWaterPlanarReflection', planarBranch) < probeBranch);
-  assert.ok(shader.indexOf('uWaterReflectionProbe', probeBranch) < environmentBranch);
-  assert.ok(shader.indexOf('uWaterEnvironmentMap', environmentBranch) > environmentBranch);
-  assert.doesNotMatch(shader, /vec3 environmentReflection|vec3 probeReflection|vec3 planarReflection/);
-  assert.equal(shader.match(/texture2DProj\(/g)?.length, 1);
-  assert.equal(shader.match(/textureCube\(/g)?.length, 1);
+  assert.match(shader, /vec3 getFlowingWaterReflection\(/);
+  assert.match(shader, /texture2D\(\s+uWaterEnvironmentMap,\s+waterEquirectUv\(reflectionDirection\)\s+\)/);
+  assert.match(shader, /vec3 reflection = getFlowingWaterReflection\(/);
+  assert.doesNotMatch(shader, /getTieredWaterReflection/);
+  assert.doesNotMatch(shader, /uWaterReflectionProbe|uWaterPlanarReflection/);
+  assert.doesNotMatch(shader, /textureCube|texture2DProj/);
 
   material.dispose();
 });
@@ -152,13 +201,16 @@ test('flowing river material keeps Y junctions continuous and foam inside the sh
   assert.match(material.fragmentShader, /float junctionBlend = smoothstep\(0\.0, 1\.0, vJunctionMask\);/);
   assert.match(material.fragmentShader, /float centerMask = mix\(stripCenterMask, 1\.0, junctionBlend\);/);
   assert.match(material.fragmentShader, /vec2 junctionDirection = normalize\(vJunctionFlowDirection\);/);
-  assert.match(material.fragmentShader, /vec2 primaryFlowDomain = vec2\(primaryFlowMeters, vFlowUv\.y\);/);
-  assert.match(material.fragmentShader, /vec3 normal = getFlowNormal\(\s+primaryFlowDomain,\s+detailFlowDomain,/);
-  assert.equal(material.fragmentShader.match(/getFlowTone\(primaryFlowDomain, detailFlowDomain\)/g)?.length, 1);
-  assert.match(material.fragmentShader, /getFoamPattern\(\s+primaryFlowDomain,\s+detailFlowDomain\s+\)/);
+  assert.match(material.fragmentShader, /vec2 macroFlowDomain = vec2\(primaryFlowMeters, vFlowUv\.y\);/);
+  assert.match(material.fragmentShader, /vec3 normal = getFlowNormal\(\s+macroFlowDomain,\s+middleFlowDomain,\s+microFlowDomain,/);
+  assert.equal(material.fragmentShader.match(/getFlowTone\(macroFlowDomain, middleFlowDomain\)/g)?.length, 1);
+  assert.match(material.fragmentShader, /getFoamPattern\(\s+macroFlowDomain,\s+middleFlowDomain,\s+microFlowDomain\s+\)/);
   assert.doesNotMatch(material.fragmentShader, /normalize\(vFlowDirection\)/);
   assert.doesNotMatch(material.fragmentShader, /if \(vJunctionMask|junctionNormal|junctionFlowDomain|stripFlowDomain/);
-  assert.match(material.fragmentShader, /float foam = foamDriver \* foamPattern \* shoreAlpha \* vWaterFade;/);
+  assert.match(material.fragmentShader, /float foam = foamMask;/);
+  assert.match(material.fragmentShader, /foamShoreAlpha \* foamCoverage/);
+  assert.match(material.fragmentShader, /vJunctionMask \* 0\.08/);
+  assert.doesNotMatch(material.fragmentShader, /vJunctionMask \* 0\.10/);
   assert.doesNotMatch(material.fragmentShader, /color \*= mix\(1\.0, 0\.82, junctionBlend\);/);
   assert.doesNotMatch(material.fragmentShader, /alpha \*= mix\(1\.0, 1\.12, junctionBlend\);/);
   assert.doesNotMatch(material.fragmentShader, /alpha = max\(alpha, foam \* 0\.62\);/);

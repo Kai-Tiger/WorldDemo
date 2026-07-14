@@ -11,6 +11,7 @@ const STYLE_TESSELLATION = {
   'lake-outlet': { spacing: 1.75, lateralSegments: 4 },
   'lake-inlet': { spacing: 1.5, lateralSegments: 5 },
 };
+const DISTURBANCE_TESSELLATION = { spacing: 0.6, lateralSegments: 8 };
 const DEFAULT_TESSELLATION = { spacing: 2, lateralSegments: 4 };
 const STYLE_VIEW_DISTANCE = {
   trunk: 300,
@@ -25,6 +26,7 @@ const CONFLUENCE_TRIM_STEP = 1;
 const CONFLUENCE_ARC_STEP = Math.PI / 24;
 const CONFLUENCE_RADIAL_SPACING = 4;
 const MAX_CONFLUENCE_RADIAL_SEGMENTS = 6;
+const TERMINAL_BOUNDARY_VERTEX_CLEARANCE = 5e-5;
 
 export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain) {
   if (!network?.reaches?.length || !network.nodeById) {
@@ -52,14 +54,17 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
     indices: [],
   };
   const confluenceEndpoints = new Map();
-  const trims = createReachTrims(network);
+  const terminalLakeTransitions = createTerminalLakeTransitions(network);
+  const trims = createReachTrims(network, terminalLakeTransitions);
   const nodeFlowCoordinates = createNodeFlowCoordinates(network);
   const reachStats = [];
   let hiddenRowCount = 0;
   let transitionRowCount = 0;
 
   for (const reach of network.reaches) {
-    const tessellation = STYLE_TESSELLATION[reach.style] ?? DEFAULT_TESSELLATION;
+    const tessellation = reach.disturbances?.length
+      ? DISTURBANCE_TESSELLATION
+      : STYLE_TESSELLATION[reach.style] ?? DEFAULT_TESSELLATION;
     const viewDistance = STYLE_VIEW_DISTANCE[reach.style] ?? DEFAULT_VIEW_DISTANCE;
     const length = getReachLength(reach);
     const trim = trims.get(reach.id) ?? { start: 0, end: 0 };
@@ -71,11 +76,20 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
     const startVertex = getVertexCount(data);
     const startIndex = data.indices.length;
     const rows = [];
+    const terminalLakeTransition = terminalLakeTransitions.get(reach.id);
 
     for (let rowIndex = 0; rowIndex <= segmentCount; rowIndex += 1) {
       const rowT = rowIndex / segmentCount;
       const distance = THREE.MathUtils.lerp(startDistance, endDistance, rowT);
       const frame = sampleReachAtDistance(reach, distance);
+
+      if (terminalLakeTransition) {
+        frame.waterLevel = getTerminalLakeWaterLevel(
+          frame.waterLevel,
+          distance,
+          terminalLakeTransition,
+        );
+      }
       const tangent = getReachTangent(reach, distance);
       const sideX = -tangent.z;
       const sideZ = tangent.x;
@@ -86,6 +100,7 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
         startDistance,
         endDistance,
         network,
+        terminalLakeTransition,
       );
       const rowStartVertex = getVertexCount(data);
       const rowVertices = [];
@@ -104,11 +119,19 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
       for (let lateralIndex = 0; lateralIndex <= tessellation.lateralSegments; lateralIndex += 1) {
         const lateralT = lateralIndex / tessellation.lateralSegments;
         const lateral = (lateralT - 0.5) * frame.width;
-        const x = frame.x + sideX * lateral;
-        const z = frame.z + sideZ * lateral;
+        let x = frame.x + sideX * lateral;
+        let z = frame.z + sideZ * lateral;
+
+        ({ x, z } = projectTerminalLakeVertex(
+          x,
+          z,
+          distance,
+          endDistance,
+          terminalLakeTransition,
+        ));
         const waterEdge = 1 - Math.abs(lateralT * 2 - 1);
         let flowU = nodeFlowCoordinates.get(reach.from) + distance;
-        let flowV = (lateralT - 0.5) * 8;
+        let flowV = lateral;
 
         for (const adjustment of flowAdjustments) {
           const deltaX = x - adjustment.x;
@@ -203,6 +226,8 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
       flowStart: nodeFlowCoordinates.get(reach.from),
       startDistance,
       endDistance,
+      terminalLakeBoundaryDistance: terminalLakeTransition?.boundaryDistance,
+      terminalLakeFadeLength: terminalLakeTransition?.fadeLength,
     });
   }
 
@@ -265,7 +290,7 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
   };
 }
 
-function createReachTrims(network) {
+function createReachTrims(network, terminalLakeTransitions) {
   const trims = new Map(network.reaches.map((reach) => [reach.id, { start: 0, end: 0 }]));
 
   for (const node of network.definition.nodes.filter((entry) => entry.type === 'confluence')) {
@@ -301,6 +326,17 @@ function createReachTrims(network) {
     if (toNode.type === 'lake' && !toNode.existing && Number.isFinite(toNode.radius)) {
       trim.end = Math.max(trim.end, Math.max(0, toNode.radius - 3));
     }
+
+    const terminalLakeTransition = terminalLakeTransitions.get(reach.id);
+
+    if (terminalLakeTransition) {
+      const endDistance = Math.min(
+        getReachLength(reach),
+        terminalLakeTransition.boundaryDistance,
+      );
+
+      trim.end = Math.max(trim.end, getReachLength(reach) - endDistance);
+    }
   }
 
   separateConfluenceEndpointRows(network, trims);
@@ -318,6 +354,102 @@ function createReachTrims(network) {
   }
 
   return trims;
+}
+
+function createTerminalLakeTransitions(network) {
+  const transition = network.definition.terminalLakeTransition;
+  const transitions = new Map();
+
+  if (!transition) return transitions;
+
+  const node = network.nodeById.get(transition.nodeId);
+  const center = transition.center ?? node?.position;
+  const fadeLength = transition.fadeLength;
+  const levelBlendLength = transition.levelBlendLength;
+
+  if (
+    !node
+    || !Array.isArray(center)
+    || center.length !== 2
+    || !center.every(Number.isFinite)
+    || !(transition.radius > 0)
+    || !(fadeLength > 0)
+    || !(levelBlendLength > 0)
+  ) {
+    throw new Error('Terminal lake transition requires a valid node, center, radius, and lengths.');
+  }
+
+  for (const reach of network.reaches.filter((entry) => entry.to === node.id)) {
+    transitions.set(reach.id, {
+      center,
+      radius: transition.radius,
+      fadeLength,
+      levelBlendLength,
+      waterLevel: node.waterLevel,
+      boundaryDistance: getLakeBoundaryDistance(reach, center, transition.radius),
+    });
+  }
+
+  return transitions;
+}
+
+function getLakeBoundaryDistance(reach, center, radius) {
+  for (let index = 0; index < reach.samples.length - 1; index += 1) {
+    const start = reach.samples[index];
+    const end = reach.samples[index + 1];
+    const startRadius = Math.hypot(start.point.x - center[0], start.point.z - center[1]);
+    const endRadius = Math.hypot(end.point.x - center[0], end.point.z - center[1]);
+
+    if (startRadius < radius || endRadius > radius) continue;
+
+    const segmentX = end.point.x - start.point.x;
+    const segmentZ = end.point.z - start.point.z;
+    const offsetX = start.point.x - center[0];
+    const offsetZ = start.point.z - center[1];
+    const a = segmentX * segmentX + segmentZ * segmentZ;
+    const b = 2 * (offsetX * segmentX + offsetZ * segmentZ);
+    const c = offsetX * offsetX + offsetZ * offsetZ - radius * radius;
+    const discriminant = Math.max(b * b - 4 * a * c, 0);
+    const roots = [
+      (-b - Math.sqrt(discriminant)) / (2 * a),
+      (-b + Math.sqrt(discriminant)) / (2 * a),
+    ];
+    const segmentT = roots.find((root) => root >= 0 && root <= 1);
+
+    if (segmentT !== undefined) {
+      return THREE.MathUtils.lerp(start.distance, end.distance, segmentT);
+    }
+  }
+
+  throw new Error(`River reach ${reach.id} does not cross its terminal lake boundary.`);
+}
+
+function getTerminalLakeWaterLevel(waterLevel, distance, transition) {
+  const levelBlend = smoothstep(
+    transition.boundaryDistance - transition.levelBlendLength,
+    transition.boundaryDistance,
+    distance,
+  );
+
+  return THREE.MathUtils.lerp(waterLevel, transition.waterLevel, levelBlend);
+}
+
+function projectTerminalLakeVertex(x, z, distance, endDistance, transition) {
+  if (!transition) return { x, z };
+
+  const offsetX = x - transition.center[0];
+  const offsetZ = z - transition.center[1];
+  const radius = Math.hypot(offsetX, offsetZ);
+  const finalRow = endDistance - distance <= 1e-6;
+
+  if (!finalRow && radius >= transition.radius) return { x, z };
+  const scale = (transition.radius + TERMINAL_BOUNDARY_VERTEX_CLEARANCE)
+    / Math.max(radius, 1e-6);
+
+  return {
+    x: transition.center[0] + offsetX * scale,
+    z: transition.center[1] + offsetZ * scale,
+  };
 }
 
 function separateConfluenceEndpointRows(network, trims) {
@@ -919,7 +1051,15 @@ function addConfluenceEndpoint(target, node, reach, end, row) {
   target.set(node.id, endpoints);
 }
 
-function getRowFade(reach, frame, distance, startDistance, endDistance, network) {
+function getRowFade(
+  reach,
+  frame,
+  distance,
+  startDistance,
+  endDistance,
+  network,
+  terminalLakeTransition,
+) {
   const fromNode = network.nodeById.get(reach.from);
   const toNode = network.nodeById.get(reach.to);
   const slopeFade = getSlopeFade(reach, distance);
@@ -938,7 +1078,11 @@ function getRowFade(reach, frame, distance, startDistance, endDistance, network)
   }
 
   if (toNode.type === 'lake') {
-    endpointFade *= smoothstep(0, Math.max(7, frame.width * 2), endDistance - distance);
+    endpointFade *= smoothstep(
+      0,
+      terminalLakeTransition?.fadeLength ?? Math.max(7, frame.width * 2),
+      endDistance - distance,
+    );
   }
 
   return THREE.MathUtils.clamp(slopeFade * endpointFade, 0, 1);
@@ -1027,16 +1171,31 @@ function getDisturbanceMask(reach, distance, lateral, width) {
 
   for (const disturbance of reach.disturbances ?? []) {
     const along = distance - disturbance.distanceM;
-    const alongExtent = along < 0 ? disturbance.radius : disturbance.radius * 3;
-    const alongMask = 1 - smoothstep(0, alongExtent, Math.abs(along));
-    const disturbanceLateral = disturbance.lateral * width * 0.5;
-    const lateralMask = 1 - smoothstep(
+    const downstreamDistance = Math.max(along, 0);
+    const downstreamT = THREE.MathUtils.clamp(
+      downstreamDistance / (disturbance.radius * 2.6),
       0,
-      disturbance.radius,
+      1,
+    );
+    const spawnMask = smoothstep(
+      -disturbance.radius * 0.1,
+      disturbance.radius * 0.05,
+      along,
+    );
+    const tailMask = 1 - smoothstep(
+      disturbance.radius * 1.15,
+      disturbance.radius * 2.25,
+      along,
+    );
+    const disturbanceLateral = disturbance.lateral * width * 0.5;
+    const lateralExtent = disturbance.radius * THREE.MathUtils.lerp(0.42, 0.72, downstreamT);
+    const lateralMask = 1 - smoothstep(
+      lateralExtent * 0.18,
+      lateralExtent,
       Math.abs(lateral - disturbanceLateral),
     );
 
-    mask = Math.max(mask, disturbance.strength * alongMask * lateralMask);
+    mask = Math.max(mask, disturbance.strength * spawnMask * tailMask * lateralMask);
   }
 
   return THREE.MathUtils.clamp(mask, 0, 1);
@@ -1051,7 +1210,7 @@ function pushVertex(data, vertex) {
 
   data.positions.push(vertex.x, vertex.y, vertex.z);
   data.uvs.push(vertex.u, vertex.v);
-  data.flowUvs.push(vertex.flowU ?? vertex.u, vertex.flowV ?? (vertex.v - 0.5) * 8);
+  data.flowUvs.push(vertex.flowU ?? vertex.u, vertex.flowV ?? 0);
   data.waterFades.push(vertex.waterFade);
   data.waterEdges.push(vertex.waterEdge);
   data.junctionMasks.push(vertex.junctionMask);

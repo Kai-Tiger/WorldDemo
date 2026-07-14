@@ -14,6 +14,7 @@ import {
   HERO_RIVER_NETWORK_DEFINITION,
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
+  getTerminalLowlandLakeInletFade,
 } from './lowlandHeightPlan.js';
 
 const LOWLAND_FEATURE_SEGMENTS = 256;
@@ -141,16 +142,7 @@ export function getLowlandMinimumSegmentsForBounds(bounds) {
 }
 
 export function getLowlandTerminalInletFade(x, z) {
-  const distance = Math.hypot(
-    x - TERMINAL_LOWLAND_LAKE.cx,
-    z - TERMINAL_LOWLAND_LAKE.cz,
-  );
-
-  return smoothstep(
-    TERMINAL_LOWLAND_LAKE.radius - 4,
-    TERMINAL_LOWLAND_LAKE.radius,
-    distance,
-  );
+  return getTerminalLowlandLakeInletFade(x, z);
 }
 
 export function getLowlandLakeOutletFade(x, z) {

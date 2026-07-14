@@ -389,7 +389,7 @@ function createRiverNetworkWaterSurface(terrain, material) {
 
   water.name = 'AlpineRiverNetworkSurface';
   water.renderOrder = WATER_RENDER_ORDER.surface;
-  water.userData.waterReflectionModeCap = 1;
+  water.userData.waterReflectionModeCap = 0;
   water.userData.riverNetworkStats = stats;
 
   return water;
@@ -423,7 +423,7 @@ function createLowlandWaterFeatures(terrain, streamMaterial) {
 
   stream.name = 'LowlandStreamSurface';
   stream.renderOrder = WATER_RENDER_ORDER.surface;
-  stream.userData.waterReflectionModeCap = 1;
+  stream.userData.waterReflectionModeCap = 0;
   stream.userData.riverNetworkStats = mergeRiverNetworkStats(streamParts);
   streamParts.forEach((part) => part.geometry.dispose());
 
@@ -502,7 +502,7 @@ function blendLowlandStreamIntoLakes(geometry) {
     const z = positions.getZ(vertex);
     const lakeFade = getLowlandStreamLakeFade(x, z);
 
-    waterFades.setX(vertex, waterFades.getX(vertex) * lakeFade);
+    waterFades.setX(vertex, Math.min(waterFades.getX(vertex), lakeFade));
   }
 
   waterFades.needsUpdate = true;
@@ -796,7 +796,7 @@ function createOutletStream(terrain, material) {
 
   stream.name = 'LakeOutletStream';
   stream.renderOrder = WATER_RENDER_ORDER.surface;
-  stream.userData.waterReflectionModeCap = 1;
+  stream.userData.waterReflectionModeCap = 0;
 
   return stream;
 }
@@ -1000,7 +1000,7 @@ function createPathStripGeometry(
       flowDirections[attributeOffset * 2] = tangent.x;
       flowDirections[attributeOffset * 2 + 1] = tangent.z;
       flowUvs[attributeOffset * 2] = t * pathLength;
-      flowUvs[attributeOffset * 2 + 1] = (lateralT - 0.5) * 8;
+      flowUvs[attributeOffset * 2 + 1] = lateral;
       junctionFlowDirections[attributeOffset * 2] = tangent.x;
       junctionFlowDirections[attributeOffset * 2 + 1] = tangent.z;
       disturbanceMasks[attributeOffset] = THREE.MathUtils.clamp(

@@ -115,7 +115,7 @@ test('water system exposes one merged tributary surface and keeps the compatibil
   assert.equal(system.snowmelt, tributaries);
   assert.equal(tributaries.name, 'AlpineRiverNetworkSurface');
   assert.equal(tributaries.isMesh, true);
-  assert.equal(tributaries.userData.waterReflectionModeCap, 1);
+  assert.equal(tributaries.userData.waterReflectionModeCap, 0);
   assert.ok(tributaries.userData.riverNetworkStats.triangleCount < 12000);
   assert.equal(tributaries.material.transparent, true);
   assert.equal(tributaries.material.depthWrite, false);
@@ -137,7 +137,7 @@ test('water system exposes one merged tributary surface and keeps the compatibil
   disposeSystem(system);
 });
 
-test('all flowing water meshes share one probe-capped material and update it once per frame', () => {
+test('all flowing water meshes share one environment-lit material and update it once per frame', () => {
   const system = createWaterSystem(createTerrainStub());
   const flowingMeshes = [
     system.outletStream,
@@ -148,7 +148,7 @@ test('all flowing water meshes share one probe-capped material and update it onc
 
   assert.equal(flowingMeshes.length, 3);
   assert.ok(flowingMeshes.every((mesh) => mesh.material === sharedMaterial));
-  assert.ok(flowingMeshes.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
+  assert.ok(flowingMeshes.every((mesh) => mesh.userData.waterReflectionModeCap === 0));
   for (const mesh of flowingMeshes) {
     for (const [attribute, itemSize] of [
       ['waterDepth', 1],
@@ -186,6 +186,7 @@ test('all flowing water meshes share one probe-capped material and update it onc
   }
 
   const outletUvs = system.outletStream.geometry.getAttribute('uv');
+  const outletPositions = system.outletStream.geometry.getAttribute('position');
   const outletLastRow = 90 * 11;
 
   assert.equal(outletUvs.getX(0), 0);
@@ -206,6 +207,20 @@ test('all flowing water meshes share one probe-capped material and update it onc
         outletJunctionDirections.getY(vertex),
       ) - 1,
     ) < 1e-5);
+  }
+
+  for (let row = 0; row <= 90; row += 15) {
+    const left = row * 11;
+    const center = left + 5;
+    const right = left + 10;
+    const width = Math.hypot(
+      outletPositions.getX(right) - outletPositions.getX(left),
+      outletPositions.getZ(right) - outletPositions.getZ(left),
+    );
+
+    assert.ok(Math.abs(outletFlowUvs.getY(left) + width * 0.5) < 3e-5);
+    assert.equal(outletFlowUvs.getY(center), 0);
+    assert.ok(Math.abs(outletFlowUvs.getY(right) - width * 0.5) < 3e-5);
   }
 
   let timeWrites = 0;

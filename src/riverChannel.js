@@ -28,6 +28,8 @@ const HERO_RIVER_CONFLUENCES = HERO_RIVER_NETWORK_DEFINITION.nodes.filter(
 );
 const HERO_CONFLUENCE_SPARSE_ACCEPTANCE = 0.35;
 const HERO_CONFLUENCE_RECOVERY_WIDTH = 2.5;
+const HERO_TERMINAL_REACH_ID = 'hero-main-lower';
+const HERO_BANK_CONTACT_CLEARANCE = 0.02;
 const MAIN_RIVER_LENGTH = HERO_RIVER_NETWORK.reaches
   .filter((reach) => reach.role === 'main')
   .reduce((length, reach) => length + reach.length, 0);
@@ -59,19 +61,42 @@ export function getRiverMaterialFrame(baseHeight, x, z) {
   const frame = getHeroRiverCorridorFrame(baseHeight, x, z);
   const confluenceMask = getHeroRiverConfluenceMask(x, z);
   const confluenceFrame = getHeroRiverConfluenceMaterialFrame(x, z);
+  const confluenceBedMaterialMask = confluenceFrame?.bedMaterialMask ?? confluenceMask;
   const coordinateBlend = confluenceFrame?.mask ?? 0;
+  const reachBedMaterialMask = frame
+    ? (
+      1 - THREE.MathUtils.smoothstep(
+        frame.lateralDistance,
+        frame.halfWidth - 0.8,
+        frame.halfWidth + 0.8,
+      )
+    ) * frame.endpointCapFade
+    : 0;
 
-  if (!frame && confluenceMask <= 0) return createEmptyRiverMaterialFrame();
+  if (!frame && confluenceMask <= 0 && confluenceBedMaterialMask <= 0) {
+    return createEmptyRiverMaterialFrame();
+  }
 
   return {
-    riverMask: THREE.MathUtils.clamp(Math.max(frame?.wetBankMask ?? 0, confluenceMask), 0, 1),
-    riverBedMask: THREE.MathUtils.clamp(Math.max(frame?.bedMask ?? 0, confluenceMask), 0, 1),
+    riverMask: THREE.MathUtils.clamp(Math.max(
+      frame?.wetBankMask ?? 0,
+      confluenceMask,
+    ), 0, 1),
+    riverBedMask: THREE.MathUtils.clamp(
+      Math.max(reachBedMaterialMask, confluenceBedMaterialMask),
+      0,
+      1,
+    ),
     riverUnderwaterMask: THREE.MathUtils.clamp(
       Math.max(frame?.underwaterMask ?? 0, confluenceMask),
       0,
       1,
     ),
-    riverGravelMask: THREE.MathUtils.clamp(frame?.gravelBankMask ?? 0, 0, 1),
+    riverGravelMask: THREE.MathUtils.clamp(
+      frame?.gravelBankMask ?? 0,
+      0,
+      1,
+    ),
     riverDistance: THREE.MathUtils.lerp(
       frame?.networkDistance ?? confluenceFrame?.riverDistance ?? 0,
       confluenceFrame?.riverDistance ?? frame?.networkDistance ?? 0,
@@ -91,6 +116,7 @@ export function createRiverWaterMesh(terrain) {
   const waterDepths = geometry.getAttribute('waterDepth');
 
   geometry.translate(0, HERO_RIVER_SURFACE_OFFSET, 0);
+  groundTerminalReachEdges(geometry, stats, terrain);
   for (let vertex = 0; vertex < positions.count; vertex += 1) {
     waterDepths.setX(vertex, Math.max(
       positions.getY(vertex) - terrain.getHeightAt(positions.getX(vertex), positions.getZ(vertex)),
@@ -103,10 +129,42 @@ export function createRiverWaterMesh(terrain) {
 
   mesh.name = 'RiverWater';
   mesh.renderOrder = WATER_RENDER_ORDER.surface;
-  mesh.userData.waterReflectionModeCap = 1;
+  mesh.userData.waterReflectionModeCap = 0;
   mesh.userData.riverNetworkStats = stats;
 
   return mesh;
+}
+
+function groundTerminalReachEdges(geometry, stats, terrain) {
+  const positions = geometry.getAttribute('position');
+  const reach = stats.reaches.find((entry) => entry.id === HERO_TERMINAL_REACH_ID);
+
+  if (!reach) return;
+
+  for (let row = 0; row < reach.rowCount; row += 1) {
+    const rowStart = reach.startVertex + row * reach.rowSize;
+
+    for (const vertex of [rowStart, rowStart + reach.rowSize - 1]) {
+      const x = positions.getX(vertex);
+      const z = positions.getZ(vertex);
+      const lakeDistance = Math.hypot(
+        x - RIVER_TERMINAL_LAKE.cx,
+        z - RIVER_TERMINAL_LAKE.cz,
+      );
+
+      if (lakeDistance < RIVER_TERMINAL_LAKE.radius) continue;
+
+      positions.setY(vertex, Math.min(
+        positions.getY(vertex),
+        terrain.getHeightAt(x, z) + HERO_BANK_CONTACT_CLEARANCE,
+      ));
+    }
+  }
+
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
 }
 
 export function getRiverWaterGeometryMaxDistance() {

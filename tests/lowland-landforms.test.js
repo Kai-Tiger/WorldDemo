@@ -252,7 +252,8 @@ test('water system batches three bounded watersheds through the shared river mat
   assert.equal(lakes.length, 3);
   assert.equal(lakes[0].name, 'LowlandLake_east-meadow-pond');
   assert.equal(group.children.length, 4);
-  assert.ok(streams.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
+  assert.ok(streams.every((mesh) => mesh.userData.waterReflectionModeCap === 0));
+  assert.ok(lakes.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
   assert.equal(
     streams.reduce((total, mesh) => total + mesh.userData.riverNetworkStats.reachCount, 0),
     5,
@@ -270,10 +271,13 @@ test('water system batches three bounded watersheds through the shared river mat
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');
   const waterEdges = stream.geometry.getAttribute('waterEdge');
+  const terminalReach = stream.userData.riverNetworkStats.reaches.find(
+    (reach) => reach.id === 'east-meadow-outlet',
+  );
   const pond = LOWLAND_LAKES[0];
   let maximumInnerFade = 0;
   let maximumPondInnerFade = 0;
-  let inletOverlapVisible = false;
+  let outerTerminalFadeVisible = false;
   let pondShore = null;
   let terminalShore = null;
 
@@ -283,9 +287,11 @@ test('water system batches three bounded watersheds through the shared river mat
       positions.getZ(vertex) + 340,
     );
 
-    if (distance < 12) maximumInnerFade = Math.max(maximumInnerFade, waterFades.getX(vertex));
-    if (distance >= 20 && distance <= 23 && waterFades.getX(vertex) > 0.8) {
-      inletOverlapVisible = true;
+    if (distance < RIVER_TERMINAL_LAKE.radius) {
+      maximumInnerFade = Math.max(maximumInnerFade, waterFades.getX(vertex));
+    }
+    if (distance >= 23 && distance <= 25 && waterFades.getX(vertex) > 0.8) {
+      outerTerminalFadeVisible = true;
     }
 
     const pondDistance = Math.hypot(
@@ -311,9 +317,36 @@ test('water system batches three bounded watersheds through the shared river mat
 
   assert.ok(maximumInnerFade < 1e-6);
   assert.ok(maximumPondInnerFade < 1e-6);
-  assert.equal(inletOverlapVisible, true);
+  assert.equal(outerTerminalFadeVisible, true);
+  for (
+    let vertex = terminalReach.startVertex;
+    vertex < terminalReach.startVertex + terminalReach.vertexCount;
+    vertex += 1
+  ) {
+    const distance = Math.hypot(
+      positions.getX(vertex) - RIVER_TERMINAL_LAKE.cx,
+      positions.getZ(vertex) - RIVER_TERMINAL_LAKE.cz,
+    );
+
+    assert.ok(distance >= RIVER_TERMINAL_LAKE.radius - 1e-5);
+  }
+  const terminalFinalRow = terminalReach.startVertex
+    + (terminalReach.rowCount - 1) * terminalReach.rowSize;
+
+  for (let lateral = 0; lateral < terminalReach.rowSize; lateral += 1) {
+    const vertex = terminalFinalRow + lateral;
+    const distance = Math.hypot(
+      positions.getX(vertex) - RIVER_TERMINAL_LAKE.cx,
+      positions.getZ(vertex) - RIVER_TERMINAL_LAKE.cz,
+    );
+
+    assert.ok(Math.abs(distance - RIVER_TERMINAL_LAKE.radius) < 1e-4);
+    assert.equal(waterFades.getX(vertex), 0);
+  }
   assert.ok(pondShore.fade > 0.25 && pondShore.fade < 0.95);
   assert.ok(Math.abs(pondShore.y - (pond.waterLevel + pond.surfaceOffset)) < 0.01);
+  assert.ok(terminalShore.distance < 0.1);
+  assert.equal(terminalShore.fade, 0);
   assert.ok(Math.abs(
     terminalShore.y
       - (RIVER_TERMINAL_LAKE.waterLevel + RIVER_TERMINAL_LAKE.surfaceOffset),
@@ -614,6 +647,7 @@ test('north, east, and south lowlands have deterministic overview cameras', () =
   assert.deepEqual(south.target, { x: 750, z: -680, y: 3 });
   assert.deepEqual(riverOverhead.camera, { x: 570, z: -515, y: 105 });
   assert.deepEqual(riverJunctions.target, { x: 604, z: -343, y: 2.2 });
+  assert.deepEqual(riverBank.camera, { x: 600, z: -375, y: 12 });
   assert.deepEqual(riverBank.target, { x: 620, z: -345, y: 2.5 });
   assert.deepEqual(riverFlow.camera, { x: 505, z: -385, y: 6 });
 });

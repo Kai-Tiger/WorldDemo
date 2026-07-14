@@ -106,7 +106,7 @@ const GOLDEN_SHOTS = Object.freeze({
   },
   'river-reference-bank': {
     player: { x: 610, z: -360 },
-    camera: { x: 600, z: -375, y: 7 },
+    camera: { x: 600, z: -375, y: 12 },
     target: { x: 620, z: -345, y: 2.5 },
   },
   'river-reference-flow': {

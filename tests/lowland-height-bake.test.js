@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CatmullRomCurve3, Vector3 } from 'three';
+import { compileRiverNetwork } from '../src/hydrology/riverNetwork.js';
+import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
 import {
   HERO_RIVER_NETWORK_DEFINITION,
   LOWLAND_BAKE_COUNTS,
@@ -239,12 +241,18 @@ test('hero river is a frozen five-reach DAG with the locked confluences and prof
   }));
 
   assert.deepEqual(profiles, [
-    { id: 'hero-main-upper', width: [5.2, 7], depth: [1.6, 1.6], wet: [0.75, 1.25], gravel: [1, 4.5], blend: [2.5, 3.5], flow: [0.55, 0.75] },
-    { id: 'hero-main-middle', width: [7, 8.2], depth: [1.6, 1.6], wet: [1.8, 2], gravel: [8, 10], blend: [5, 5], flow: [0.65, 0.8] },
-    { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.6, 1.5], wet: [2, 1.5], gravel: [10, 6], blend: [5, 5], flow: [0.7, 0.55] },
+    { id: 'hero-main-upper', width: [5.2, 7], depth: [1.6, 1.6], wet: [0.65, 0.9], gravel: [1, 4.5], blend: [2.5, 3], flow: [0.55, 0.75] },
+    { id: 'hero-main-middle', width: [7, 8.2], depth: [1.6, 1.6], wet: [0.9, 1.1], gravel: [4.5, 5.5], blend: [3, 3], flow: [0.65, 0.8] },
+    { id: 'hero-main-lower', width: [8.2, 6.4], depth: [1.6, 1.5], wet: [1, 0.8], gravel: [5.5, 4.5], blend: [3, 2.5], flow: [0.7, 0.55] },
     { id: 'hero-west-tributary', width: [2, 3.3], depth: [0.35, 0.65], wet: [0.7, 1.2], gravel: [3, 5], blend: [3, 3], flow: [0.75, 1] },
     { id: 'hero-east-tributary', width: [2.2, 3.6], depth: [0.4, 0.75], wet: [0.8, 1.3], gravel: [3.5, 5.5], blend: [3, 3], flow: [0.7, 1] },
   ]);
+  assert.deepEqual(
+    network.reaches.filter((reach) => reach.role === 'main').map(
+      (reach) => reach.gravelBankMax,
+    ),
+    [4.5, 5.5, 5.5],
+  );
 });
 
 test('hero confluences keep three wet arms while leaving dry wedges between them', () => {
@@ -293,6 +301,66 @@ test('hero confluences keep three wet arms while leaving dry wedges between them
   }
 });
 
+test('hero confluence core keeps dry wedges outside the actual Y water mesh', () => {
+  const network = compileRiverNetwork(HERO_RIVER_NETWORK_DEFINITION);
+  const { geometry } = createRiverNetworkWaterGeometry(network);
+
+  try {
+    for (const confluence of HERO_RIVER_NETWORK_DEFINITION.confluences) {
+      const reaches = [...confluence.incoming, confluence.outgoing].map((id) => (
+        HERO_RIVER_NETWORK_DEFINITION.reaches.find((reach) => reach.id === id)
+      ));
+      const directions = reaches.map((reach) => {
+        const point = reach.to === confluence.id
+          ? reach.points.at(-2)
+          : reach.points[1];
+        const dx = point[0] - confluence.position[0];
+        const dz = point[1] - confluence.position[1];
+
+        return Math.atan2(dz, dx);
+      }).sort((a, b) => a - b);
+      let largestGap = null;
+
+      for (let index = 0; index < directions.length; index += 1) {
+        const start = directions[index];
+        const end = index === directions.length - 1
+          ? directions[0] + Math.PI * 2
+          : directions[index + 1];
+
+        if (!largestGap || end - start > largestGap.size) {
+          largestGap = { start, size: end - start };
+        }
+      }
+
+      const wedgeAngle = largestGap.start + largestGap.size * 0.5;
+      let drySamples = 0;
+
+      for (let radius = 2; radius <= 5; radius += 1) {
+        const x = confluence.position[0] + Math.cos(wedgeAngle) * radius;
+        const z = confluence.position[1] + Math.sin(wedgeAngle) * radius;
+
+        if (isPointInsideWaterGeometry(geometry, x, z)) continue;
+
+        const target = getHeroRiverTerrainTarget(getLowlandTerrainHeight(x, z), x, z);
+
+        drySamples += 1;
+        assert.ok(
+          getHeroRiverConfluenceMask(x, z) < 0.1,
+          `${confluence.id} dry wedge at ${radius}m must not receive a bed mask`,
+        );
+        assert.ok(
+          !target || target.height >= confluence.waterLevel - 0.05,
+          `${confluence.id} dry wedge at ${radius}m is carved below its waterline`,
+        );
+      }
+
+      assert.ok(drySamples >= 2, `${confluence.id} must retain a dry core wedge`);
+    }
+  } finally {
+    geometry.dispose();
+  }
+});
+
 test('hero river disturbances are fixed, sparse, and avoid both junction cores', () => {
   const nodeById = new Map(
     HERO_RIVER_NETWORK_DEFINITION.nodes.map((node) => [node.id, node]),
@@ -328,8 +396,35 @@ test('hero river disturbances are fixed, sparse, and avoid both junction cores',
         centerFrame.center.z
           + centerFrame.side.z * disturbance.lateral * centerFrame.waterWidth * 0.5,
       );
+      const wakeFrame = getHeroRiverCorridorFrame(
+        disturbanceFrame.center.x
+          + disturbanceFrame.side.x * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          + disturbanceFrame.flowDirection.x * disturbance.radius * 0.75,
+        disturbanceFrame.center.z
+          + disturbanceFrame.side.z * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          + disturbanceFrame.flowDirection.z * disturbance.radius * 0.75,
+      );
+      const upstreamFrame = getHeroRiverCorridorFrame(
+        disturbanceFrame.center.x
+          + disturbanceFrame.side.x * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          - disturbanceFrame.flowDirection.x * disturbance.radius * 0.25,
+        disturbanceFrame.center.z
+          + disturbanceFrame.side.z * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          - disturbanceFrame.flowDirection.z * disturbance.radius * 0.25,
+      );
+      const tailFrame = getHeroRiverCorridorFrame(
+        disturbanceFrame.center.x
+          + disturbanceFrame.side.x * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          + disturbanceFrame.flowDirection.x * disturbance.radius * 2.6,
+        disturbanceFrame.center.z
+          + disturbanceFrame.side.z * disturbance.lateral * disturbanceFrame.waterWidth * 0.5
+          + disturbanceFrame.flowDirection.z * disturbance.radius * 2.6,
+      );
 
-      assert.ok(disturbanceFrame.disturbanceMask >= disturbance.strength * 0.8);
+      assert.ok(disturbanceFrame.disturbanceMask > disturbance.strength * 0.55);
+      assert.equal(upstreamFrame.disturbanceMask, 0);
+      assert.ok(wakeFrame.disturbanceMask >= disturbance.strength * 0.9);
+      assert.equal(tailFrame.disturbanceMask, 0);
       if (index > 0) {
         assert.ok(
           disturbance.distanceM - reach.disturbances[index - 1].distanceM >= 18,
@@ -387,10 +482,54 @@ test('hero river corridor shares layered bed, wet bank, gravel bank, and blend t
   assert.ok(gravel.frame.vegetationMask > 0.9);
 });
 
+test('hero middle reach uses the capped incised bank profile at the reference sample', () => {
+  const x = 604;
+  const z = -345;
+  const baseHeight = getLowlandTerrainHeight(x, z);
+  const frame = getHeroRiverCorridorFrame(x, z);
+  const target = getHeroRiverTerrainTarget(baseHeight, x, z);
+  const bankRun = frame.wetBankWidth + frame.gravelBankWidth;
+  const bankT = (frame.lateralDistance - frame.halfWidth) / bankRun;
+  const profileT = bankT * (1.35 - 0.35 * bankT);
+  const expectedHeight = (
+    (frame.waterLevel - frame.edgeDepth) * (1 - profileT)
+    + Math.min(baseHeight, frame.waterLevel + 2.6) * profileT
+  );
+
+  assert.equal(frame.reachId, 'hero-main-middle');
+  assert.equal(target.region, 'gravel-bank');
+  assert.ok(frame.corridorOuter <= 13.5);
+  assert.ok(frame.wetBankWidth <= 1.1);
+  assert.ok(frame.gravelBankWidth <= 5.5);
+  assert.ok(frame.terrainBlendWidth >= 2.5 && frame.terrainBlendWidth <= 3);
+  assert.ok(Math.abs(target.height - expectedHeight) < 1e-8);
+
+  const crestLateral = frame.halfWidth + frame.wetBankWidth + frame.gravelBankWidth * 0.999;
+  const crestX = frame.center.x + frame.side.x * crestLateral;
+  const crestZ = frame.center.z + frame.side.z * crestLateral;
+  const crestFrame = getHeroRiverCorridorFrame(crestX, crestZ);
+  const crestTarget = getHeroRiverTerrainTarget(
+    getLowlandTerrainHeight(crestX, crestZ),
+    crestX,
+    crestZ,
+  );
+
+  assert.ok(crestTarget.height - crestFrame.waterLevel >= 2.3);
+  assert.ok(crestTarget.height - crestFrame.waterLevel <= 2.6 + 1e-8);
+});
+
 test('waterfall outlet keeps a deeper channel with steeper upper-reach banks', () => {
   const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
   const outletPoint = getReachPointAtDistance(reach, 24);
   const outlet = getHeroRiverCorridorFrame(outletPoint.x, outletPoint.z);
+  const sampleOutletTarget = (lateral) => {
+    const x = outlet.center.x + outlet.side.x * lateral;
+    const z = outlet.center.z + outlet.side.z * lateral;
+
+    return getHeroRiverTerrainTarget(getLowlandTerrainHeight(x, z), x, z);
+  };
+  const outletEdge = sampleOutletTarget(outlet.halfWidth);
+  const outletNearBank = sampleOutletTarget(outlet.halfWidth + 0.5);
   const bankPoint = getReachPointAtDistance(reach, 80);
   const bank = getHeroRiverCorridorFrame(bankPoint.x, bankPoint.z);
   const sampleTarget = (lateral) => {
@@ -407,12 +546,13 @@ test('waterfall outlet keeps a deeper channel with steeper upper-reach banks', (
   const bankSlope = (bankCrest.height - waterEdge.height) / bankRun;
 
   assert.ok(outlet.waterDepth >= 1.35);
+  assert.ok(outletNearBank.height - outletEdge.height <= 0.5);
   assert.ok(bankRun <= 4.5);
   assert.ok(bank.terrainBlendWidth <= 3.1);
   assert.ok(bankSlope >= 0.32);
 });
 
-test('hero river material masks widen wet gravel and keep dry gravel softly partial', () => {
+test('hero river material masks keep a narrow wet-gravel overlap and dry gravel partial', () => {
   const reach = HERO_RIVER_NETWORK_DEFINITION.reaches[0];
   const point = getReachPointAtDistance(reach, 80);
   const center = getHeroRiverCorridorFrame(point.x, point.z);
@@ -422,13 +562,15 @@ test('hero river material masks widen wet gravel and keep dry gravel softly part
   );
   const wetOuter = center.halfWidth + center.wetBankWidth;
   const gravelOuter = wetOuter + center.gravelBankWidth;
+  const wetGravelOverlap = Math.min(0.55, Math.max(0.2, center.gravelBankWidth * 0.08));
   const innerWet = sample(center.halfWidth + center.wetBankWidth * 0.35);
-  const wetShoulder = sample(wetOuter + Math.min(0.8, center.gravelBankWidth * 0.16));
+  const wetShoulder = sample(wetOuter + wetGravelOverlap);
   const gravelCenter = sample(wetOuter + center.gravelBankWidth * 0.58);
   const grassShoulder = sample(gravelOuter - 0.25);
 
   assert.ok(innerWet.wetBankMask > 0.9);
-  assert.ok(wetShoulder.wetBankMask > 0.45);
+  assert.ok(wetShoulder.wetBankMask >= 0.45);
+  assert.ok(wetShoulder.gravelBankMask > 0);
   assert.ok(gravelCenter.gravelBankMask > 0.25);
   assert.ok(gravelCenter.gravelBankMask <= 0.8);
   assert.ok(grassShoulder.gravelBankMask > 0);
@@ -441,13 +583,15 @@ test('hero river material masks widen wet gravel and keep dry gravel softly part
       const curvePoint = curve.getPointAt(t);
       const frame = getHeroRiverCorridorFrame(curvePoint.x, curvePoint.z);
 
+      if (!frame) continue;
+
       for (let lateral = -frame.corridorHalfWidth; lateral <= frame.corridorHalfWidth; lateral += 0.5) {
         const material = getHeroRiverCorridorFrame(
           frame.center.x + frame.side.x * lateral,
           frame.center.z + frame.side.z * lateral,
         );
 
-        assert.ok(material.gravelBankMask <= 0.8 + 1e-8);
+        if (material) assert.ok(material.gravelBankMask <= 0.8 + 1e-8);
       }
     }
   }
@@ -479,14 +623,14 @@ test('hero riffles are shallower and faster without changing downstream levels',
   assert.ok(tributaryRapid.depth <= tributaryRapid.authoredDepth * 0.75);
 });
 
-test('the full waterfall-downstream main channel stays at least 1.4 meters deep', () => {
+test('the waterfall-downstream main channel stays deep before the terminal fade', () => {
   const mainReaches = HERO_RIVER_NETWORK_DEFINITION.reaches.filter(
     (reach) => reach.role === 'main',
   );
   const distancesByReach = new Map([
     ['hero-main-upper', [24, 40, 80, 124, 160]],
     ['hero-main-middle', [15, 20, 30, 45]],
-    ['hero-main-lower', [15, 30, 45]],
+    ['hero-main-lower', [15, 30, 34]],
   ]);
 
   assert.equal(mainReaches[0].depth[1], mainReaches[1].depth[0]);
@@ -511,6 +655,49 @@ test('the full waterfall-downstream main channel stays at least 1.4 meters deep'
       assert.ok(actualDepth <= 1.6 + 1e-8, `${reach.id} at ${distance}m is too deep`);
       assert.ok(target.height >= 0, `${reach.id} at ${distance}m has a negative bed`);
     }
+  }
+});
+
+test('both terminal inlets hand terrain ownership to the circular lake at the shore', () => {
+  const directions = [
+    HERO_RIVER_NETWORK_DEFINITION.reaches.find(
+      (reach) => reach.id === 'hero-main-lower',
+    ).points.at(-2),
+    LOWLAND_STREAM_DEFINITION.reaches[0].points.at(-2),
+  ].map(([x, z]) => {
+    const dx = x - TERMINAL_LOWLAND_LAKE.cx;
+    const dz = z - TERMINAL_LOWLAND_LAKE.cz;
+    const length = Math.hypot(dx, dz);
+
+    return { x: dx / length, z: dz / length };
+  });
+
+  for (const direction of directions) {
+    for (const radius of [TERMINAL_LOWLAND_LAKE.radius, 19, 16, 0]) {
+      const x = TERMINAL_LOWLAND_LAKE.cx + direction.x * radius;
+      const z = TERMINAL_LOWLAND_LAKE.cz + direction.z * radius;
+      const controlX = TERMINAL_LOWLAND_LAKE.cx;
+      const controlZ = TERMINAL_LOWLAND_LAKE.cz + radius;
+      const target = getLowlandWaterTerrainTarget(getLowlandTerrainHeight(x, z), x, z);
+      const control = getLowlandWaterTerrainTarget(
+        getLowlandTerrainHeight(controlX, controlZ),
+        controlX,
+        controlZ,
+      );
+
+      assert.equal(target.featureId, 'terminal-lake');
+      assert.equal(control.featureId, 'terminal-lake');
+      assert.ok(Math.abs(target.height - control.height) < 1e-8);
+    }
+  }
+
+  const heroDirection = directions[0];
+
+  for (const radius of [TERMINAL_LOWLAND_LAKE.radius, 19, 16, 0]) {
+    const x = TERMINAL_LOWLAND_LAKE.cx + heroDirection.x * radius;
+    const z = TERMINAL_LOWLAND_LAKE.cz + heroDirection.z * radius;
+
+    assert.equal(getHeroRiverTerrainTarget(10, x, z), null);
   }
 });
 
@@ -638,4 +825,29 @@ function getReachPointAtDistance(reach, distance) {
   const point = curve.getPointAt(Math.min(distance / curve.getLength(), 1));
 
   return { x: point.x, z: point.z };
+}
+
+function isPointInsideWaterGeometry(geometry, x, z) {
+  const positions = geometry.getAttribute('position');
+  const indices = geometry.index.array;
+
+  for (let offset = 0; offset < indices.length; offset += 3) {
+    const a = indices[offset];
+    const b = indices[offset + 1];
+    const c = indices[offset + 2];
+    const ax = positions.getX(a);
+    const az = positions.getZ(a);
+    const bx = positions.getX(b);
+    const bz = positions.getZ(b);
+    const cx = positions.getX(c);
+    const cz = positions.getZ(c);
+    const denominator = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    const aWeight = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / denominator;
+    const bWeight = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / denominator;
+    const cWeight = 1 - aWeight - bWeight;
+
+    if (aWeight >= -1e-6 && bWeight >= -1e-6 && cWeight >= -1e-6) return true;
+  }
+
+  return false;
 }

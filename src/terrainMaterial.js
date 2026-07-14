@@ -513,9 +513,9 @@ float terrainSnowCoverage = smoothstep(
   terrainSnowElevation * terrainSnowSlope
     + (vTerrainMacro.z - 0.5) * 0.22
 );
-float terrainRiverMaterialMask = smoothstep(0.02, 0.82, vTerrainRiverMask);
+float terrainRiverMaterialMask = clamp(vTerrainRiverMask, 0.0, 1.0);
 float terrainRiverMask = terrainRiverMaterialMask;
-float terrainRiverBedMask = smoothstep(0.05, 0.95, vTerrainRiverBedMask);
+float terrainRiverBedMask = clamp(vTerrainRiverBedMask, 0.0, 1.0);
 float terrainRiverGravelMacro = mix(
   0.72,
   1.0,
@@ -530,6 +530,16 @@ float terrainPlungeMask = smoothstep(0.05, 0.9, vTerrainWaterSystemMask.w);
 float terrainWaterBankMask = max(
   terrainRiverMask,
   max(terrainWetShoreMask, terrainSnowmeltWetMask)
+);
+float terrainHeroWetRoughness = mix(
+  0.55,
+  0.26,
+  smoothstep(0.05, 0.95, terrainRiverMaterialMask)
+);
+float terrainWaterBankRoughness = mix(
+  0.32,
+  terrainHeroWetRoughness,
+  terrainRiverMaterialMask
 );
 float terrainWaterBedMask = max(
   terrainRiverBedMask,
@@ -650,6 +660,12 @@ if (max(terrainRiverGravelMask, max(terrainWaterBankMask, terrainWaterBedMask)) 
       terrainMutedBankColor,
       0.86
     );
+    vec3 terrainHeroWetBankColor = terrainBankColor * vec3(0.82, 0.84, 0.74);
+    terrainBankColor = mix(
+      terrainBankColor,
+      terrainHeroWetBankColor,
+      terrainRiverMaterialMask
+    );
   }
   if (terrainWaterBedMask > 0.01) {
     float terrainSmallLakeBlend = smoothstep(0.05, 0.95, vTerrainSmallLakesMask);
@@ -669,7 +685,11 @@ if (max(terrainRiverGravelMask, max(terrainWaterBankMask, terrainWaterBedMask)) 
     terrainSnowmeltWetMask * 0.34
   );
   terrainRoughness = mix(terrainRoughness, 0.72, terrainRiverGravelMask);
-  terrainRoughness = mix(terrainRoughness, 0.32, terrainWaterBankMask);
+  terrainRoughness = mix(
+    terrainRoughness,
+    terrainWaterBankRoughness,
+    terrainWaterBankMask
+  );
   terrainRoughness = mix(terrainRoughness, 0.42, terrainWaterBedMask);
   ${gravelNormal}
 }
