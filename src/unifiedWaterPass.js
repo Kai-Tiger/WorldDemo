@@ -68,18 +68,16 @@ const ATTRIBUTE_VERTEX_SHADER = `
     vFlowSpeed = max(flowSpeed, 0.0);
     vRapidMask = clamp(rapidMask, 0.0, 1.0);
     vJunctionMask = clamp(junctionMask, 0.0, 1.0);
-    vDisturbanceMask = clamp(
-      max(disturbanceMask, junctionMask * 0.35),
-      0.0,
-      1.0
-    );
+    vDisturbanceMask = clamp(disturbanceMask, 0.0, 1.0);
 
     vec3 displacedPosition = position;
     float lakeWaveWeight = 1.0 - smoothstep(0.15, 0.55, vRiverInfluence);
     float mouthWaveSuppression = smoothstep(0.35, 1.5, vShoreDistanceMeters);
-    displacedPosition.y += sin(
-      dot(position.xz, vec2(0.083, -0.067)) + uTime * 0.42
-    ) * 0.016 * lakeWaveWeight * mouthWaveSuppression;
+    float waveA = sin(position.x * 0.08 + uTime * 0.95) * 0.055;
+    float waveB = sin(position.z * 0.11 - uTime * 0.76) * 0.04;
+    displacedPosition.y += (waveA + waveB)
+      * lakeWaveWeight
+      * mouthWaveSuppression;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 1.0);
   }
@@ -137,6 +135,82 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     ) / epsilon;
   }
 
+  vec2 rotateFlowDomain(vec2 domain, float cosineValue, float sineValue) {
+    return vec2(
+      domain.x * cosineValue - domain.y * sineValue,
+      domain.x * sineValue + domain.y * cosineValue
+    );
+  }
+
+  vec3 getLakeDualWaveNormal(vec2 lakeMeters, float strength) {
+    vec2 worldUv = lakeMeters * 0.1;
+    vec2 windUv = worldUv + vec2(-uTime * 0.025, uTime * 0.012);
+    float broadX = sin(
+      windUv.x * 6.4 - uTime * 1.15 + sin(worldUv.y * 1.7) * 0.7
+    );
+    float broadZ = sin(
+      windUv.x * 4.1 - windUv.y * 8.0 - uTime * 0.82
+    );
+    float detailX = sin(
+      windUv.x * 15.5 + windUv.y * 18.0 - uTime * 2.10
+    );
+    float detailZ = sin(
+      windUv.x * 11.0 - windUv.y * 23.0 - uTime * 1.62
+    );
+    vec2 slope = vec2(
+      broadX * 0.055 + detailX * 0.028,
+      broadZ * 0.05 + detailZ * 0.03
+    ) * strength;
+
+    return normalize(vec3(slope.x, 1.0, slope.y));
+  }
+
+  float getFoamPattern(
+    vec2 macroFlowDomain,
+    vec2 middleFlowDomain,
+    vec2 microFlowDomain
+  ) {
+    float foamMass = smoothstep(
+      0.46,
+      0.82,
+      waterNoise2(
+        macroFlowDomain * vec2(0.28, 0.82) + vec2(-9.4, 17.2)
+      )
+    );
+    float foamBreakup = smoothstep(
+      0.36,
+      0.78,
+      waterNoise(
+        middleFlowDomain * vec2(0.75, 1.80) + vec2(21.6, -3.8)
+      )
+    );
+    float foamFleck = smoothstep(
+      0.56,
+      0.80,
+      waterNoise2(
+        microFlowDomain * vec2(1.55, 3.20) + vec2(8.7, 31.4)
+      )
+    );
+    float foamPattern = foamMass * foamBreakup;
+
+    foamPattern *= mix(0.18, 1.0, foamFleck);
+    foamPattern += foamMass * foamFleck * 0.10;
+    return clamp(foamPattern, 0.0, 1.0);
+  }
+
+  float getWakePattern(vec2 anchoredFlowDomain, float movingFoamPattern) {
+    float anchoredStrand = smoothstep(
+      0.56,
+      0.78,
+      waterNoise2(
+        anchoredFlowDomain * vec2(0.72, 3.60) + vec2(-16.4, 9.7)
+      )
+    );
+    float movingBreakup = smoothstep(0.08, 0.62, movingFoamPattern);
+
+    return anchoredStrand * mix(0.12, 1.0, movingBreakup);
+  }
+
   vec2 encodeOctahedron(vec3 normalValue) {
     normalValue /= abs(normalValue.x) + abs(normalValue.y) + abs(normalValue.z);
     vec2 encoded = normalValue.xz;
@@ -168,15 +242,16 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     );
     float surfaceHeight = getNaturalWaterHeight(surfaceFlowDomain);
     vec2 localSlope = getNaturalWaterSlope(surfaceFlowDomain);
+    float junctionNormal = clamp(vJunctionMask * 0.35, 0.0, 1.0);
     float riverMotion = mix(0.45, 1.0, vRiverInfluence);
     float detailStrength = mix(0.10, 0.18, riverMotion)
-      * (1.0 + vRapidMask * 0.9 + vDisturbanceMask * 0.55)
+      * (1.0 + vRapidMask * 0.9 + junctionNormal * 0.55)
       * uNormalDetail;
     localSlope *= detailStrength;
     float maximumSlope = mix(
       0.09,
       0.18,
-      clamp(max(vRapidMask, vDisturbanceMask), 0.0, 1.0)
+      clamp(max(vRapidMask, junctionNormal), 0.0, 1.0)
     );
     localSlope *= min(
       1.0,
@@ -186,17 +261,18 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     vec2 riverAxis = length(vFlowDirection) > 0.0001
       ? vFlowDirection
       : lakeAxis;
-    vec2 lakeAcross = vec2(-lakeAxis.y, lakeAxis.x);
     vec2 riverAcross = vec2(-riverAxis.y, riverAxis.x);
-    vec2 lakeWorldSlope = lakeAxis * localSlope.x
-      + lakeAcross * localSlope.y;
     vec2 riverWorldSlope = riverAxis * localSlope.x
       + riverAcross * localSlope.y;
-    vec3 lakeDetailNormal = normalize(vec3(
-      lakeWorldSlope.x,
-      1.0,
-      lakeWorldSlope.y
-    ));
+    float lakeWaveStrength = mix(
+      0.82,
+      1.12,
+      smoothstep(2.0, 8.0, vWaterDepth)
+    ) * uNormalDetail;
+    vec3 lakeDetailNormal = getLakeDualWaveNormal(
+      vFlowUv,
+      lakeWaveStrength
+    );
     vec3 riverDetailNormal = normalize(vec3(
       riverWorldSlope.x,
       1.0,
@@ -205,9 +281,14 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     vec3 detailNormal = normalize(mix(
       lakeDetailNormal,
       riverDetailNormal,
-      vRiverInfluence
+      riverBlend
     ));
-    vec3 worldNormal = normalize(mix(vWorldNormal, detailNormal, 0.72));
+    float detailNormalWeight = mix(0.86, 0.72, riverBlend);
+    vec3 worldNormal = normalize(mix(
+      vWorldNormal,
+      detailNormal,
+      detailNormalWeight
+    ));
     float calmWave = surfaceHeight * 2.0 - 1.0;
 
     float shoreFoam = 1.0 - smoothstep(0.15, 1.7, vShoreDistanceMeters);
@@ -217,25 +298,82 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
       1.0,
       smoothstep(0.25, 0.78, calmWave * 0.5 + 0.5)
     );
+    shoreFoam *= (1.0 - riverBlend);
     shoreFoam *= (1.0 - mouthBlend) * brokenShore;
-    float movingFoam = smoothstep(0.58, 0.94, calmWave * 0.5 + 0.5);
     float riverFoamWeight = vRiverInfluence * vRiverInfluence;
-    float foam = clamp(
-      shoreFoam * 0.18
-        + vRapidMask * (0.42 + movingFoam * 0.42) * riverFoamWeight
-        + vDisturbanceMask * 0.34 * riverFoamWeight
-        + vJunctionMask * 0.22 * riverFoamWeight,
-      0.0,
-      1.0
-    );
+    float riverFoam = 0.0;
+
+    if (riverFoamWeight > 0.0001) {
+      float primaryFlowMeters = vFlowUv.x - uTime * 0.85;
+      float detailFlowMeters = vFlowUv.x - uTime * 1.15;
+      vec2 macroFlowDomain = vec2(primaryFlowMeters, vFlowUv.y);
+      vec2 middleFlowDomain = rotateFlowDomain(
+        vec2(detailFlowMeters, vFlowUv.y),
+        0.89100652,
+        0.45399050
+      ) + vec2(19.4, -7.6);
+      vec2 microFlowDomain = rotateFlowDomain(
+        vec2(detailFlowMeters, vFlowUv.y),
+        0.85716730,
+        -0.51503807
+      ) + vec2(-12.8, 24.3);
+      float foamPattern = getFoamPattern(
+        macroFlowDomain,
+        middleFlowDomain,
+        microFlowDomain
+      );
+      float shallowFoamSupport = 1.0 - smoothstep(
+        0.45,
+        1.15,
+        vWaterDepth
+      );
+      float movingFoamSupport = smoothstep(0.65, 1.35, vFlowSpeed);
+      float hydraulicSupport = shallowFoamSupport
+        * movingFoamSupport
+        * 0.22;
+      float baseFoamDriver = clamp(max(
+        max(
+          smoothstep(0.08, 0.82, vRapidMask),
+          hydraulicSupport
+        ),
+        vJunctionMask * 0.08
+      ), 0.0, 1.0);
+      float wakeHydraulic = max(
+        smoothstep(0.28, 0.72, vRapidMask),
+        shallowFoamSupport * smoothstep(0.90, 1.35, vFlowSpeed)
+      );
+      float wakeEnvelope = smoothstep(0.04, 0.14, vDisturbanceMask);
+      float wakeShelter = smoothstep(0.18, 0.34, vDisturbanceMask);
+      float wakeShear = wakeEnvelope
+        * (1.0 - wakeShelter)
+        * wakeHydraulic;
+      float baseFoamMask = baseFoamDriver
+        * foamPattern
+        * (1.0 - wakeEnvelope * wakeHydraulic);
+      float wakeFoamMask = wakeShear
+        * getWakePattern(vFlowUv, foamPattern)
+        * 0.38;
+      float foamCoreMask = baseFoamMask
+        * smoothstep(0.70, 0.90, foamPattern);
+
+      riverFoam = clamp(
+        baseFoamMask * 0.50
+          + foamCoreMask * 0.36
+          + wakeFoamMask * 0.28,
+        0.0,
+        0.86
+      ) * riverFoamWeight;
+    }
+
+    float foam = clamp(shoreFoam * 0.18 + riverFoam, 0.0, 1.0);
 
     float roughness = clamp(
       mix(0.16, 0.28, vRiverInfluence)
-        + vRapidMask * 0.22
-        + vDisturbanceMask * 0.12,
+        + vRapidMask * 0.22,
       0.08,
       0.72
     );
+    roughness = mix(roughness, 0.78, foam);
     float encodedDepth = clamp(vWaterDepth, 0.0, uMaxDepth);
 
     #ifdef WATER_INFO_PACKED
@@ -293,6 +431,7 @@ const RESOLVE_FRAGMENT_SHADER = `
   uniform vec3 uFallbackReflectionColor;
 
   uniform float uMaxDepth;
+  uniform float uTime;
   uniform float uRefractionPixels;
   uniform float uReflectionMode;
   uniform float uReflectionStrength;
@@ -343,9 +482,81 @@ const RESOLVE_FRAGMENT_SHADER = `
     );
   }
 
+  float resolveWaterHash(vec2 point) {
+    return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+
+  float resolveWaterNoise(vec2 point) {
+    vec2 cell = floor(point);
+    vec2 local = fract(point);
+    vec2 blend = local * local * (3.0 - 2.0 * local);
+    float a = resolveWaterHash(cell);
+    float b = resolveWaterHash(cell + vec2(1.0, 0.0));
+    float c = resolveWaterHash(cell + vec2(0.0, 1.0));
+    float d = resolveWaterHash(cell + vec2(1.0, 1.0));
+
+    return mix(a, b, blend.x)
+      + (c - a) * blend.y * (1.0 - blend.x)
+      + (d - b) * blend.x * blend.y;
+  }
+
+  float getLakeSunSparkle(
+    vec2 worldPosition,
+    vec3 surfaceNormal,
+    vec3 lightDirection,
+    vec3 viewDirection
+  ) {
+    vec2 microUv = worldPosition * 1.35
+      + vec2(uTime * 0.18, -uTime * 0.12);
+    vec2 microSlope = vec2(
+      resolveWaterNoise(microUv),
+      resolveWaterNoise(microUv + vec2(19.17, 7.31))
+    ) - 0.5;
+    vec3 microNormal = normalize(vec3(
+      surfaceNormal.x + microSlope.x,
+      surfaceNormal.y,
+      surfaceNormal.z + microSlope.y
+    ));
+    vec3 halfDirection = normalize(lightDirection + viewDirection);
+    float normalLight = max(dot(microNormal, lightDirection), 0.0);
+    float normalView = max(dot(microNormal, viewDirection), 0.001);
+    float normalHalf = max(dot(microNormal, halfDirection), 0.0);
+    float viewHalf = max(dot(viewDirection, halfDirection), 0.0);
+    const float roughness = 0.075;
+    const float alphaSquared = roughness * roughness;
+    float denominator = normalHalf * normalHalf * (alphaSquared - 1.0) + 1.0;
+    float distribution = alphaSquared
+      / (3.14159265 * denominator * denominator + 0.0001);
+    float geometryK = (roughness + 1.0) * (roughness + 1.0) * 0.125;
+    float geometry = (
+      normalView / (normalView * (1.0 - geometryK) + geometryK)
+    ) * (
+      normalLight / (normalLight * (1.0 - geometryK) + geometryK)
+    );
+    float fresnel = 0.0204 + 0.9796 * pow(1.0 - viewHalf, 5.0);
+    float sunBrdf = distribution * geometry * fresnel
+      / max(4.0 * normalView * normalLight, 0.02);
+    float detailNoise = resolveWaterNoise(
+      worldPosition * 0.72 + vec2(uTime * 0.19, -uTime * 0.14)
+    );
+    float cells = resolveWaterNoise(
+      worldPosition * 2.4 + vec2(-uTime * 0.28, uTime * 0.09)
+    );
+    float coverageField = detailNoise * 0.62 + cells * 0.38;
+    float coverageWidth = max(fwidth(coverageField), 0.015);
+    float coverage = smoothstep(
+      0.72 - coverageWidth,
+      0.72 + coverageWidth,
+      coverageField
+    );
+
+    return min(sunBrdf * normalLight, 0.85) * coverage;
+  }
+
   vec3 sampleReflection(
     vec3 reflectionDirection,
     vec3 worldPosition,
+    vec3 viewNormal,
     float reflectionTier
   ) {
     vec3 environmentReflection = uFallbackReflectionColor;
@@ -365,6 +576,9 @@ const RESOLVE_FRAGMENT_SHADER = `
     vec3 planarReflection = probeReflection;
     vec4 projected = uPlanarTextureMatrix * vec4(worldPosition, 1.0);
     vec2 planarUv = projected.xy / max(projected.w, 0.0001);
+    planarUv += viewNormal.xy
+      * 10.0
+      / max(uResolution, vec2(1.0));
 
     if (uHasPlanarReflection > 0.5
       && all(greaterThanEqual(planarUv, vec2(0.0)))
@@ -456,6 +670,7 @@ const RESOLVE_FRAGMENT_SHADER = `
     vec3 reflectionColor = sampleReflection(
       reflectionDirection,
       worldPosition,
+      viewNormal,
       reflectionTier
     );
     float fresnel = 0.02 + 0.98 * pow(
@@ -469,11 +684,22 @@ const RESOLVE_FRAGMENT_SHADER = `
     );
     waterColor = mix(waterColor, reflectionColor, reflectionWeight);
 
-    vec3 halfDirection = normalize(viewDirection + normalize(uSunDirection));
-    float sunSpecular = pow(
+    vec3 lightDirection = normalize(uSunDirection);
+    vec3 halfDirection = normalize(viewDirection + lightDirection);
+    float baseSunSpecular = pow(
       max(dot(worldNormal, halfDirection), 0.0),
       mix(150.0, 34.0, roughness)
     );
+    float sunSpecular = baseSunSpecular;
+    if (riverInfluence < 0.999) {
+      float lakeSunSparkle = getLakeSunSparkle(
+        worldPosition.xz,
+        worldNormal,
+        lightDirection,
+        viewDirection
+      ) * 1.35;
+      sunSpecular = mix(lakeSunSparkle, baseSunSpecular, riverInfluence);
+    }
     waterColor += uSunColor * sunSpecular * (1.0 - roughness) * 0.72;
 
     vec3 foamColor = mix(uLakeFoamColor, uRiverFoamColor, riverInfluence);
@@ -647,6 +873,7 @@ export function createUnifiedWaterResolveMaterial({
       uRiverFoamColor: { value: new THREE.Color(FLOWING_RIVER_FOAM_COLOR) },
       uFallbackReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
       uMaxDepth: { value: maxDepth },
+      uTime: { value: 0 },
       uRefractionPixels: { value: 4 },
       uReflectionMode: { value: 0 },
       uReflectionStrength: { value: 0.72 },
@@ -748,8 +975,13 @@ export class UnifiedWaterPass extends Pass {
   }
 
   setTime(time) {
+    const resolvedTime = Number.isFinite(time) ? time : 0;
+
     if (this.attributeMaterial.uniforms.uTime) {
-      this.attributeMaterial.uniforms.uTime.value = Number.isFinite(time) ? time : 0;
+      this.attributeMaterial.uniforms.uTime.value = resolvedTime;
+    }
+    if (this.resolveMaterial.uniforms.uTime) {
+      this.resolveMaterial.uniforms.uTime.value = resolvedTime;
     }
   }
 

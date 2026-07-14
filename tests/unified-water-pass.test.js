@@ -141,12 +141,85 @@ test('water attribute material writes the documented MRT contract', () => {
   assert.match(material.fragmentShader, /vec2 getNaturalWaterSlope/);
   assert.match(material.fragmentShader, /float riverTravel = uTime/);
   assert.doesNotMatch(material.fragmentShader, /float riverPhase/);
-  assert.match(material.fragmentShader, /vec3 lakeDetailNormal = normalize/);
+  assert.match(
+    material.fragmentShader,
+    /vec3 lakeDetailNormal = getLakeDualWaveNormal/,
+  );
   assert.match(material.fragmentShader, /vec3 riverDetailNormal = normalize/);
   assert.doesNotMatch(
     material.fragmentShader,
     /normalize\(mix\(\s*vec2\(0\.72, 0\.69\)/,
   );
+
+  material.dispose();
+});
+
+test('unified lake water keeps the pre-unification multi-phase motion cues', () => {
+  const attributeMaterial = createUnifiedWaterAttributeMaterial();
+  const resolveMaterial = createUnifiedWaterResolveMaterial();
+
+  assert.match(
+    attributeMaterial.vertexShader,
+    /waveA[\s\S]*uTime \* 0\.95[\s\S]*\* 0\.055/,
+  );
+  assert.match(
+    attributeMaterial.vertexShader,
+    /waveB[\s\S]*uTime \* 0\.76[\s\S]*\* 0\.04/,
+  );
+  assert.match(
+    attributeMaterial.vertexShader,
+    /\(waveA \+ waveB\)[\s\S]*lakeWaveWeight[\s\S]*mouthWaveSuppression/,
+  );
+  assert.match(attributeMaterial.fragmentShader, /vec3 getLakeDualWaveNormal/);
+  for (const frequency of ['1.15', '0.82', '2.10', '1.62']) {
+    assert.match(attributeMaterial.fragmentShader, new RegExp(`uTime \\* ${frequency}`));
+  }
+  assert.match(
+    attributeMaterial.fragmentShader,
+    /mix\(\s*lakeDetailNormal,\s*riverDetailNormal,\s*riverBlend\s*\)/,
+  );
+  assert.match(
+    resolveMaterial.fragmentShader,
+    /planarUv \+= viewNormal\.xy[\s\S]*10\.0[\s\S]*uResolution/,
+  );
+  assert.match(resolveMaterial.fragmentShader, /float getLakeSunSparkle/);
+  assert.match(resolveMaterial.fragmentShader, /float coverageWidth = max\(fwidth/);
+  assert.match(
+    resolveMaterial.fragmentShader,
+    /mix\(lakeSunSparkle, baseSunSpecular, riverInfluence\)/,
+  );
+
+  attributeMaterial.dispose();
+  resolveMaterial.dispose();
+});
+
+test('unified river foam restores patterned hydraulic and sheltered wake gating', () => {
+  const material = createUnifiedWaterAttributeMaterial();
+  const shader = material.fragmentShader;
+
+  assert.match(material.vertexShader, /vDisturbanceMask = clamp\(disturbanceMask/);
+  assert.match(shader, /float getFoamPattern/);
+  assert.match(shader, /float getWakePattern/);
+  assert.match(shader, /smoothstep\(\s*0\.45,\s*1\.15,\s*vWaterDepth\s*\)/);
+  assert.match(shader, /smoothstep\(0\.65, 1\.35, vFlowSpeed\)/);
+  assert.match(shader, /smoothstep\(\s*0\.08,\s*0\.82,\s*vRapidMask\s*\)/);
+  assert.match(shader, /vJunctionMask \* 0\.08/);
+  assert.match(shader, /smoothstep\(0\.04, 0\.14, vDisturbanceMask\)/);
+  assert.match(shader, /smoothstep\(0\.18, 0\.34, vDisturbanceMask\)/);
+  assert.match(shader, /wakeEnvelope[\s\S]*\(1\.0 - wakeShelter\)/);
+  assert.match(shader, /getWakePattern\(vFlowUv, foamPattern\)/);
+  assert.match(shader, /shoreFoam \*= \(1\.0 - riverBlend\)/);
+  assert.match(
+    shader,
+    /float riverFoamWeight = vRiverInfluence \* vRiverInfluence/,
+  );
+  assert.match(shader, /riverFoam = clamp\([\s\S]*?\) \* riverFoamWeight/);
+  assert.match(shader, /mix\(roughness, 0\.78, foam\)/);
+  assert.doesNotMatch(shader, /max\(vDisturbanceMask, vJunctionMask/);
+  assert.doesNotMatch(shader, /\+ vDisturbanceMask \* 0\.12/);
+  assert.doesNotMatch(shader, /vRapidMask \* \(0\.42/);
+  assert.doesNotMatch(shader, /vDisturbanceMask \* 0\.34/);
+  assert.doesNotMatch(shader, /vJunctionMask \* 0\.22/);
 
   material.dispose();
 });
@@ -364,6 +437,7 @@ test('unified water pass runs attributes, resolve and effects then restores stat
     ['attributes', 'resolve', 'effects'],
   );
   assert.equal(pass.attributeMaterial.uniforms.uTime.value, 1.25);
+  assert.equal(pass.resolveMaterial.uniforms.uTime.value, 1.25);
   assert.equal(pass.resolveMaterial.uniforms.uRefractionPixels.value, 3);
   assert.equal(pass.resolveMaterial.uniforms.uReflectionMode.value, 2);
   assert.equal(pass.resolveMaterial.uniforms.tSceneColor.value, readBuffer.texture);
