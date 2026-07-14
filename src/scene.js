@@ -5,11 +5,9 @@ import { TreeManager } from './treeManager.js';
 import { loadTreeModels } from './treePlacements.js';
 import { loadLeafDecalTextures } from './leafDecals.js';
 import { createHeroRocks } from './heroRocks.js';
-import { createRiverWaterMesh } from './riverChannel.js';
 import { Terrain } from './terrain.js';
-import { createWaterSystem } from './waterSystem.js';
 import { Clouds } from './clouds.js';
-import { createSmallLakes } from './smallLakes.js';
+import { createUnifiedWaterSystem } from './unifiedWaterSurface.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 import { createCompressedTextureLoader } from './compressedTextureLoader.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
@@ -40,8 +38,7 @@ export async function createScene(renderer, quality) {
     throw error;
   }
   scene.add(terrain.group);
-  const water = createRiverWaterMesh(terrain);
-  const waterSystem = createWaterSystem(terrain);
+  const unifiedWaterSystem = createUnifiedWaterSystem(terrain);
   const grassManager = createDeferredManager('GrassManager');
   const treeManager = createDeferredManager('TreeManager');
 
@@ -49,15 +46,8 @@ export async function createScene(renderer, quality) {
   treeManager.group.userData.excludeFromGtao = true;
   scene.add(grassManager.group);
   scene.add(treeManager.group);
-  scene.add(water);
-  scene.add(waterSystem.group);
-
-  const smallLakes = createSmallLakes(terrain);
-
-  water.userData.excludeFromGtao = true;
-  waterSystem.group.userData.excludeFromGtao = true;
-  smallLakes.userData.excludeFromGtao = true;
-  scene.add(smallLakes);
+  scene.add(unifiedWaterSystem.surfaceRoot);
+  scene.add(unifiedWaterSystem.effectsRoot);
 
   const clouds = Clouds.create();
   scene.add(clouds.dome);
@@ -103,14 +93,11 @@ export async function createScene(renderer, quality) {
   return {
     scene,
     terrain,
-    water,
-    wetBanks: null,
-    waterSystem,
+    unifiedWaterSystem,
     grassManager,
     treeManager,
     sunLight,
     clouds,
-    smallLakes,
     backgroundReady: Promise.all([vegetationReady, heroRocksReady]),
   };
 }

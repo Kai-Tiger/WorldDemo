@@ -4,8 +4,6 @@ import {
   TERMINAL_LOWLAND_LAKE,
 } from './lowlandHeightPlan.js';
 import { MAP_SIZE } from './vegetationConfig.js';
-import { createLakeSurfaceMaterial } from './waterSystem.js';
-import { WATER_RENDER_ORDER } from './waterContext.js';
 import {
   getLakeBoundaryFrame,
   getLakeBoundaryRadius,
@@ -65,6 +63,11 @@ export function getSmallLakesMaterialMask(x, z) {
 
 export function createSmallLakes(terrain) {
   const group = new THREE.Group();
+  const sourceMaterial = new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: false,
+    visible: false,
+  });
   group.name = 'SmallLakes';
 
   for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
@@ -72,11 +75,10 @@ export function createSmallLakes(terrain) {
 
     if (lake.isTerminal) {
       const geometry = createTerminalLakeGeometry(lake, terrain);
-      const mesh = new THREE.Mesh(geometry, createLakeSurfaceMaterial());
+      const mesh = new THREE.Mesh(geometry, sourceMaterial);
 
       mesh.name = 'RiverTerminalLake';
-      mesh.renderOrder = WATER_RENDER_ORDER.surface + 1;
-      mesh.userData.waterReflectionModeCap = 1;
+      mesh.visible = false;
       group.add(mesh);
       continue;
     }
@@ -86,12 +88,10 @@ export function createSmallLakes(terrain) {
       lake.waterLevel + lake.surfaceOffset,
       getLakeBoundaryRadius,
     );
-    const material = createLakeSurfaceMaterial();
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, sourceMaterial);
 
     mesh.name = `SmallLake_${lake.id}`;
-    mesh.renderOrder = WATER_RENDER_ORDER.surface;
-    mesh.userData.waterReflectionModeCap = 1;
+    mesh.visible = false;
 
     group.add(mesh);
   }

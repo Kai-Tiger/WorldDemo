@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { createFlowingRiverMaterial } from './flowingRiverMaterial.js';
 import {
   compileRiverNetwork,
   getRiverBankGrassAcceptance,
@@ -13,7 +12,6 @@ import {
   getHeroRiverConfluenceMaterialFrame,
   getHeroRiverCorridorFrame,
 } from './lowlandHeightPlan.js';
-import { WATER_RENDER_ORDER } from './waterContext.js';
 
 export const RIVER_TERMINAL_LAKE = TERMINAL_LOWLAND_LAKE;
 export const RIVER_BED_TEXTURE_PATH = '/assets/terrain/river-bed.webp';
@@ -125,11 +123,14 @@ export function createRiverWaterMesh(terrain) {
   }
   waterDepths.needsUpdate = true;
 
-  const mesh = new THREE.Mesh(geometry, createFlowingRiverMaterial());
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+    colorWrite: false,
+    depthWrite: false,
+    visible: false,
+  }));
 
   mesh.name = 'RiverWater';
-  mesh.renderOrder = WATER_RENDER_ORDER.surface;
-  mesh.userData.waterReflectionModeCap = 0;
+  mesh.visible = false;
   mesh.userData.riverNetworkStats = stats;
 
   return mesh;

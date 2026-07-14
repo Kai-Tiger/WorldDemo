@@ -7,6 +7,11 @@ import { FullScreenQuad, Pass } from 'three/examples/jsm/postprocessing/Pass.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import {
+  UnifiedWaterPass,
+  WATER_INFO_ENCODING_AUTO,
+  WATER_INFO_ENCODING_PACKED,
+} from './unifiedWaterPass.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 
 const COLOR_GRADE_SHADER = {
@@ -186,28 +191,6 @@ const AERIAL_PERSPECTIVE_SHADER = {
   `,
 };
 
-const COPY_COLOR_DEPTH_SHADER = {
-  uniforms: {
-    tColor: { value: null },
-    tDepth: { value: null },
-  },
-  vertexShader: `
-    void main() {
-      gl_Position = vec4(position.xy, 0.0, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform sampler2D tColor;
-    uniform sampler2D tDepth;
-
-    void main() {
-      ivec2 pixel = ivec2(gl_FragCoord.xy);
-      gl_FragColor = texelFetch(tColor, pixel, 0);
-      gl_FragDepth = texelFetch(tDepth, pixel, 0).r;
-    }
-  `,
-};
-
 export function configureRenderer(renderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -219,14 +202,12 @@ export function createPostProcessing(
   scene,
   camera,
   quality,
-  { waterRoots = [], bindWaterSceneBuffers = null } = {},
+  { surfaceRoot = null, effectsRoot = null } = {},
 ) {
-  let singleLayerWaterEnabled = quality.water?.singleLayerWater === true;
-  const composer = singleLayerWaterEnabled
-    ? new EffectComposer(renderer, createComposerRenderTarget(renderer, true))
-    : new EffectComposer(renderer);
+  const composer = new EffectComposer(renderer, createComposerRenderTarget(renderer));
   const rendererSize = renderer.getSize(new THREE.Vector2());
-  const resolvedWaterRoots = waterRoots.filter(Boolean);
+  const surfaceRoots = [surfaceRoot].filter(Boolean);
+  const effectRoots = [effectsRoot].filter(Boolean);
   let logicalWidth = rendererSize.x;
   let logicalHeight = rendererSize.y;
   let basePixelRatio = renderer.getPixelRatio();
@@ -235,6 +216,7 @@ export function createPostProcessing(
   let colorGradePass = null;
   let antiAliasingPass = null;
   let aerialPerspectivePass = null;
+  let unifiedWaterPass = null;
 
   composer.setPixelRatio(basePixelRatio * resolutionScale);
   applyQualityPreset(quality);
@@ -282,6 +264,15 @@ export function createPostProcessing(
 
       return target.set(width, height);
     },
+    getWaterResolveMaterial() {
+      return unifiedWaterPass?.resolveMaterial ?? null;
+    },
+    getWaterInfoTarget() {
+      return unifiedWaterPass?.infoTarget ?? null;
+    },
+    setWaterTime(elapsedTime) {
+      unifiedWaterPass?.setTime(elapsedTime);
+    },
     render(deltaTime) {
       composer.render(deltaTime);
     },
@@ -296,14 +287,9 @@ export function createPostProcessing(
     colorGradePass = null;
     antiAliasingPass = null;
     aerialPerspectivePass = null;
+    unifiedWaterPass = null;
     activeQuality = nextQuality;
     resolutionScale = clampResolutionScale(resolutionScale, activeQuality);
-    const nextSingleLayerWaterEnabled = nextQuality.water?.singleLayerWater === true;
-
-    if (nextSingleLayerWaterEnabled !== singleLayerWaterEnabled) {
-      singleLayerWaterEnabled = nextSingleLayerWaterEnabled;
-      composer.reset(createComposerRenderTarget(renderer, singleLayerWaterEnabled));
-    }
 
     composer.setPixelRatio(basePixelRatio * resolutionScale);
 
@@ -311,24 +297,36 @@ export function createPostProcessing(
 
     applyAerialPerspectiveFog(scene, settings.aerialPerspective === true);
 
-    for (const passName of getPostProcessingPassOrder(
-      settings,
-      singleLayerWaterEnabled,
-    )) {
-      if (passName === 'RenderPass') composer.addPass(new RenderPass(scene, camera));
+    for (const passName of getPostProcessingPassOrder(settings)) {
       if (passName === 'BaseRenderPass') {
-        composer.addPass(createBaseRenderPass(scene, camera, resolvedWaterRoots));
-      }
-      if (passName === 'WaterCompositePass') {
-        composer.addPass(new WaterCompositePass(
+        composer.addPass(createBaseRenderPass(
           scene,
           camera,
-          resolvedWaterRoots,
-          (frame) => {
-            bindWaterSceneBuffers?.(frame);
-            aerialPerspectivePass?.bindSceneDepth(frame.depthTexture);
-          },
+          [...surfaceRoots, ...effectRoots],
         ));
+      }
+      if (passName === 'UnifiedWaterPass') {
+        const encoding = nextQuality.water?.waterInfoPrecision === 'packed'
+          ? WATER_INFO_ENCODING_PACKED
+          : WATER_INFO_ENCODING_AUTO;
+
+        unifiedWaterPass = new UnifiedWaterPass({
+          renderer,
+          scene,
+          camera,
+          surfaceRoots,
+          effectRoots,
+          encoding,
+          width: composer.renderTarget1.width,
+          height: composer.renderTarget1.height,
+        });
+        unifiedWaterPass.setQuality({
+          refractionPixels: nextQuality.water?.refractionPixels ?? 0,
+          reflectionMode: getWaterReflectionMode(nextQuality.water?.reflectionMode),
+          fogDensity: settings.aerialPerspective ? 0 : VISUAL_ENVIRONMENT.fog.density,
+          normalDetail: nextQuality.water?.normalDetail,
+        });
+        composer.addPass(unifiedWaterPass);
       }
       if (passName === 'GTAOPass') composer.addPass(createGtaoPass(scene, camera, settings));
       if (passName === 'AerialPerspectivePass') {
@@ -396,11 +394,10 @@ export function createPostProcessing(
   }
 }
 
-export function getPostProcessingPassOrder(settings, singleLayerWater = false) {
+export function getPostProcessingPassOrder(settings) {
   return [
-    ...(singleLayerWater
-      ? ['BaseRenderPass', 'WaterCompositePass']
-      : ['RenderPass']),
+    'BaseRenderPass',
+    'UnifiedWaterPass',
     ...(settings.gtao ? ['GTAOPass'] : []),
     ...(settings.aerialPerspective ? ['AerialPerspectivePass'] : []),
     'ColorGradePass',
@@ -410,19 +407,19 @@ export function getPostProcessingPassOrder(settings, singleLayerWater = false) {
   ];
 }
 
-export function createComposerRenderTarget(renderer, withDepthTexture) {
+export function createComposerRenderTarget(renderer) {
   const size = renderer.getSize(new THREE.Vector2());
-  const depthTexture = withDepthTexture
-    ? new THREE.DepthTexture(size.x, size.y, THREE.UnsignedIntType)
-    : null;
+  const depthTexture = new THREE.DepthTexture(
+    size.x,
+    size.y,
+    THREE.UnsignedIntType,
+  );
 
-  if (depthTexture) {
-    depthTexture.format = THREE.DepthFormat;
-    depthTexture.minFilter = THREE.NearestFilter;
-    depthTexture.magFilter = THREE.NearestFilter;
-    depthTexture.generateMipmaps = false;
-    depthTexture.name = 'EffectComposer.depth1';
-  }
+  depthTexture.format = THREE.DepthFormat;
+  depthTexture.minFilter = THREE.NearestFilter;
+  depthTexture.magFilter = THREE.NearestFilter;
+  depthTexture.generateMipmaps = false;
+  depthTexture.name = 'EffectComposer.depth1';
 
   const target = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.HalfFloatType,
@@ -449,81 +446,6 @@ export function createBaseRenderPass(scene, camera, waterRoots) {
   return pass;
 }
 
-export class WaterCompositePass extends Pass {
-  constructor(scene, camera, waterRoots, bindSceneBuffers) {
-    super();
-    this.scene = scene;
-    this.camera = camera;
-    this.waterRootSet = new Set(waterRoots);
-    this.bindSceneBuffers = bindSceneBuffers;
-    this.copyMaterial = new THREE.ShaderMaterial({
-      ...COPY_COLOR_DEPTH_SHADER,
-      uniforms: THREE.UniformsUtils.clone(COPY_COLOR_DEPTH_SHADER.uniforms),
-      depthTest: true,
-      depthFunc: THREE.AlwaysDepth,
-      depthWrite: true,
-      blending: THREE.NoBlending,
-      toneMapped: false,
-    });
-    this.fullScreenQuad = new FullScreenQuad(this.copyMaterial);
-    this.needsSwap = true;
-  }
-
-  render(renderer, writeBuffer, readBuffer) {
-    if (!readBuffer.depthTexture || !writeBuffer.depthTexture) {
-      throw new Error('WaterCompositePass requires composer depth textures.');
-    }
-
-    const previousTarget = renderer.getRenderTarget();
-    const previousAutoClear = renderer.autoClear;
-    const previousBackground = this.scene.background;
-    const previousMatrixWorldAutoUpdate = this.scene.matrixWorldAutoUpdate;
-    const previousShadowAutoUpdate = renderer.shadowMap?.autoUpdate;
-    const nonWaterRoots = this.scene.children.filter(
-      (child) => !this.waterRootSet.has(child),
-    );
-    const visibility = nonWaterRoots.map((root) => root.visible);
-
-    try {
-      this.copyMaterial.uniforms.tColor.value = readBuffer.texture;
-      this.copyMaterial.uniforms.tDepth.value = readBuffer.depthTexture;
-      renderer.setRenderTarget(writeBuffer);
-      renderer.autoClear = false;
-      this.fullScreenQuad.render(renderer);
-
-      this.bindSceneBuffers?.({
-        colorTexture: readBuffer.texture,
-        depthTexture: readBuffer.depthTexture,
-        width: readBuffer.width,
-        height: readBuffer.height,
-        camera: this.camera,
-      });
-
-      nonWaterRoots.forEach((root) => { root.visible = false; });
-      this.scene.background = null;
-      this.scene.matrixWorldAutoUpdate = false;
-      if (renderer.shadowMap) renderer.shadowMap.autoUpdate = false;
-      renderer.render(this.scene, this.camera);
-    } finally {
-      if (renderer.shadowMap) {
-        renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
-      }
-      this.scene.matrixWorldAutoUpdate = previousMatrixWorldAutoUpdate;
-      this.scene.background = previousBackground;
-      nonWaterRoots.forEach((root, index) => {
-        root.visible = visibility[index];
-      });
-      renderer.autoClear = previousAutoClear;
-      renderer.setRenderTarget(previousTarget);
-    }
-  }
-
-  dispose() {
-    this.copyMaterial.dispose();
-    this.fullScreenQuad.dispose();
-  }
-}
-
 export class AerialPerspectivePass extends Pass {
   constructor(camera) {
     super();
@@ -548,6 +470,7 @@ export class AerialPerspectivePass extends Pass {
     const uniforms = this.material.uniforms;
 
     uniforms.tDiffuse.value = readBuffer.texture;
+    if (readBuffer.depthTexture) uniforms.tDepth.value = readBuffer.depthTexture;
     uniforms.uProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
     uniforms.uCameraWorldMatrix.value.copy(this.camera.matrixWorld);
     uniforms.uCameraPosition.value.setFromMatrixPosition(this.camera.matrixWorld);
@@ -643,6 +566,12 @@ function clampResolutionScale(scale, quality) {
   const resolvedScale = Number.isFinite(scale) ? scale : maxScale;
 
   return THREE.MathUtils.clamp(resolvedScale, minScale, maxScale);
+}
+
+function getWaterReflectionMode(mode) {
+  if (mode === 'planar') return 2;
+  if (mode === 'probe') return 1;
+  return 0;
 }
 
 function clearPasses(composer) {

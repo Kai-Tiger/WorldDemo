@@ -2,11 +2,9 @@ import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 import {
-  WATER_BANK_REFLECTION_COLOR,
   WATER_DEEP_COLOR,
   WATER_FOAM_COLOR,
   WATER_HORIZON_REFLECTION_COLOR,
-  WATER_REFLECTION_COLOR,
   WATER_SHALLOW_COLOR,
   WATER_SUN_REFLECTION_COLOR,
 } from './waterPalette.js';
@@ -31,54 +29,6 @@ export const WATER_RENDER_CONTEXT = Object.freeze({
   renderOrder: WATER_RENDER_ORDER,
 });
 
-export const WATER_REFLECTION_GLSL = `
-  uniform sampler2D uWaterEnvironmentMap;
-  uniform samplerCube uWaterReflectionProbe;
-  uniform sampler2D uWaterPlanarReflection;
-  uniform mat4 uWaterPlanarTextureMatrix;
-  uniform float uWaterReflectionMode;
-  uniform float uWaterReflectionStrength;
-  uniform float uDepthShorelineEnabled;
-
-  vec2 waterEquirectUv(vec3 direction) {
-    vec3 ray = normalize(direction);
-    return vec2(
-      atan(ray.z, ray.x) * 0.15915494309189535 + 0.5,
-      asin(clamp(ray.y, -1.0, 1.0)) * 0.3183098861837907 + 0.5
-    );
-  }
-
-  vec3 getTieredWaterReflection(
-    vec3 fallbackColor,
-    vec3 worldPosition,
-    vec3 surfaceNormal,
-    vec3 viewDirection
-  ) {
-    vec3 reflectionDirection = reflect(-viewDirection, surfaceNormal);
-    vec3 tierReflection;
-
-    if (uWaterReflectionMode > 1.5) {
-      vec4 planarCoord = uWaterPlanarTextureMatrix * vec4(worldPosition, 1.0);
-      tierReflection = texture2DProj(
-        uWaterPlanarReflection,
-        planarCoord
-      ).rgb;
-    } else if (uWaterReflectionMode > 0.5) {
-      tierReflection = textureCube(
-        uWaterReflectionProbe,
-        reflectionDirection
-      ).rgb;
-    } else {
-      tierReflection = texture2D(
-        uWaterEnvironmentMap,
-        waterEquirectUv(reflectionDirection)
-      ).rgb;
-    }
-
-    return mix(fallbackColor, tierReflection, uWaterReflectionStrength);
-  }
-`;
-
 export function createWaterUniforms(overrides = {}) {
   return {
     uTime: { value: 0 },
@@ -86,21 +36,10 @@ export function createWaterUniforms(overrides = {}) {
     uShallowColor: { value: new THREE.Color(WATER_SHALLOW_COLOR) },
     uDeepColor: { value: new THREE.Color(WATER_DEEP_COLOR) },
     uFoamColor: { value: new THREE.Color(WATER_FOAM_COLOR) },
-    uReflectionColor: { value: new THREE.Color(WATER_REFLECTION_COLOR) },
     uHorizonReflectionColor: { value: toColor(VISUAL_ENVIRONMENT.sky.horizonColor, WATER_HORIZON_REFLECTION_COLOR) },
-    uBankReflectionColor: { value: new THREE.Color(WATER_BANK_REFLECTION_COLOR) },
     uSunReflectionColor: { value: toColor(VISUAL_ENVIRONMENT.sun.glowColor, WATER_SUN_REFLECTION_COLOR) },
-    uSunDirection: { value: VISUAL_ENVIRONMENT.sun.direction.clone().normalize() },
-    uSunIntensity: { value: VISUAL_ENVIRONMENT.sun.intensity },
     uWaterFogColor: { value: toColor(VISUAL_ENVIRONMENT.fog.color, VISUAL_ENVIRONMENT.sky.horizonColor) },
     uWaterFogDensity: { value: VISUAL_ENVIRONMENT.fog.density },
-    uWaterEnvironmentMap: { value: null },
-    uWaterReflectionProbe: { value: null },
-    uWaterPlanarReflection: { value: null },
-    uWaterPlanarTextureMatrix: { value: new THREE.Matrix4() },
-    uWaterReflectionMode: { value: 0 },
-    uWaterReflectionStrength: { value: 0.46 },
-    uDepthShorelineEnabled: { value: 0 },
     ...overrides,
   };
 }
@@ -108,18 +47,17 @@ export function createWaterUniforms(overrides = {}) {
 export function createWaterRenderController({
   renderer,
   scene,
-  roots,
+  roots = [],
+  surfaceRoot = null,
+  effectsRoot = null,
   environmentTexture,
+  resolveMaterial: initialResolveMaterial = null,
 }) {
-  const waterRoots = roots.filter(Boolean);
-  const opticalMaterials = new Set();
-
-  for (const root of waterRoots) {
-    root.traverse((object) => {
-      const material = object.material;
-      if (material?.uniforms?.uSceneColor) opticalMaterials.add(material);
-    });
-  }
+  const captureRoots = [
+    ...(Array.isArray(roots) ? roots : [roots]),
+    surfaceRoot,
+    effectsRoot,
+  ].filter(Boolean);
 
   const probeTarget = new THREE.WebGLCubeRenderTarget(128, {
     type: THREE.HalfFloatType,
@@ -137,9 +75,14 @@ export function createWaterRenderController({
   let quality = null;
   let aerialPerspectiveEnabled = false;
   let probeReady = false;
+  let planarReady = false;
   let hasLocalProbePosition = false;
   let disposed = false;
+  let resolveMaterial = initialResolveMaterial;
+  let currentTime = 0;
+  let hasCameraPosition = false;
   const lastProbePosition = new THREE.Vector3();
+  const lastCameraPosition = new THREE.Vector3();
 
   probeCamera.position.set(300, 36, -400);
   reflector.name = 'AlpineLakePlanarReflectionCapture';
@@ -154,10 +97,16 @@ export function createWaterRenderController({
 
   const renderReflection = reflector.onBeforeRender;
   reflector.onBeforeRender = (...args) => {
-    const visibility = waterRoots.map((root) => root.visible);
-    waterRoots.forEach((root) => { root.visible = false; });
-    renderReflection.apply(reflector, args);
-    waterRoots.forEach((root, index) => { root.visible = visibility[index]; });
+    const visibility = hideCaptureRoots();
+    try {
+      const result = renderReflection.apply(reflector, args);
+
+      planarReady = true;
+      applyUniforms();
+      return result;
+    } finally {
+      restoreCaptureRoots(visibility);
+    }
   };
 
   applyUniforms();
@@ -169,14 +118,29 @@ export function createWaterRenderController({
       quality = nextQuality;
       aerialPerspectiveEnabled = aerialPerspective;
       if (reflectionModeChanged) probeReady = false;
+      if (reflectionModeChanged && quality.reflectionMode === 'planar') {
+        planarReady = false;
+      }
       applyUniforms();
       resize();
       if (quality.reflectionMode !== 'environment' && !probeReady) {
         refreshProbe();
       }
     },
+    setResolveMaterial(nextResolveMaterial) {
+      resolveMaterial = nextResolveMaterial;
+      applyUniforms();
+    },
     resize,
-    update(frame, viewerPosition = null) {
+    update(frame, viewerPosition = null, camera = null, elapsedTime = 0) {
+      currentTime = elapsedTime;
+      const cameraPosition = camera?.position ?? viewerPosition;
+      if (cameraPosition) {
+        lastCameraPosition.copy(cameraPosition);
+        hasCameraPosition = true;
+      }
+      applyFrameUniforms();
+
       if (
         quality?.reflectionMode !== 'environment'
         && viewerPosition
@@ -197,23 +161,6 @@ export function createWaterRenderController({
       const interval = Math.max(1, quality.reflectionUpdateFrames || 2);
       reflector.visible = frame % interval === 0;
     },
-    bindSceneBuffers({
-      colorTexture,
-      depthTexture,
-      width,
-      height,
-      camera,
-    }) {
-      forEachOpticalMaterial((material) => {
-        const uniforms = material.uniforms;
-
-        uniforms.uSceneColor.value = colorTexture;
-        uniforms.uSceneDepth.value = depthTexture;
-        uniforms.uSceneResolution.value.set(width, height);
-        uniforms.uCameraNear.value = camera.near;
-        uniforms.uCameraFar.value = camera.far;
-      });
-    },
     refreshProbe,
     dispose() {
       if (disposed) return;
@@ -228,10 +175,13 @@ export function createWaterRenderController({
   function resize() {
     const scale = quality?.reflectionScale ?? 0.5;
     const drawingBufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+
+    planarReady = false;
     reflector.getRenderTarget().setSize(
       Math.max(1, Math.floor(drawingBufferSize.x * scale)),
       Math.max(1, Math.floor(drawingBufferSize.y * scale)),
     );
+    applyUniforms();
   }
 
   function refreshProbe(viewerPosition = null) {
@@ -245,15 +195,18 @@ export function createWaterRenderController({
       lastProbePosition.copy(viewerPosition);
       hasLocalProbePosition = true;
     }
-    const visibility = waterRoots.map((root) => root.visible);
+    const visibility = hideCaptureRoots();
     const reflectorVisible = reflector.visible;
 
-    waterRoots.forEach((root) => { root.visible = false; });
     reflector.visible = false;
-    probeCamera.update(renderer, scene);
-    waterRoots.forEach((root, index) => { root.visible = visibility[index]; });
-    reflector.visible = reflectorVisible;
-    probeReady = true;
+    try {
+      probeCamera.update(renderer, scene);
+      probeReady = true;
+    } finally {
+      restoreCaptureRoots(visibility);
+      reflector.visible = reflectorVisible;
+    }
+    applyUniforms();
   }
 
   function applyUniforms() {
@@ -263,66 +216,81 @@ export function createWaterRenderController({
         ? 1
         : 0;
 
-    for (const root of waterRoots) {
-      root.traverse((object) => {
-        const material = object.material;
-        const uniforms = material?.uniforms;
-        if (uniforms?.uWaterFogDensity) {
-          uniforms.uWaterFogDensity.value = aerialPerspectiveEnabled
-            ? 0
-            : VISUAL_ENVIRONMENT.fog.density;
-        }
-        if (!uniforms?.uWaterReflectionMode) return;
-        const planarModeCap = object.name === 'AlpineLakeSurface' ? 2 : 1;
-        const objectMode = Math.min(
-          mode,
-          object.userData.waterReflectionModeCap ?? planarModeCap,
-          planarModeCap,
-        );
+    const uniforms = resolveMaterial?.uniforms;
+    if (!uniforms) return;
 
-        uniforms.uWaterEnvironmentMap.value = environmentTexture;
-        uniforms.uWaterReflectionProbe.value = probeTarget.texture;
-        uniforms.uWaterPlanarReflection.value = reflector.getRenderTarget().texture;
-        uniforms.uWaterPlanarTextureMatrix.value = textureMatrix;
-        uniforms.uWaterReflectionMode.value = objectMode;
-        uniforms.uWaterReflectionStrength.value = objectMode === 0
-          ? 0.46
-          : objectMode === 1
-            ? 0.64
-            : 0.74;
-        uniforms.uDepthShorelineEnabled.value = quality?.depthShoreline ? 1 : 0;
+    setUniformValue(uniforms, 'tEnvironmentMap', environmentTexture);
+    setUniformValue(uniforms, 'tReflectionProbe', probeTarget.texture);
+    setUniformValue(
+      uniforms,
+      'tPlanarReflection',
+      reflector.getRenderTarget().texture,
+    );
+    setUniformValue(uniforms, 'uPlanarTextureMatrix', textureMatrix);
+    setUniformValue(uniforms, 'uReflectionMode', mode);
+    setUniformValue(
+      uniforms,
+      'uReflectionStrength',
+      mode === 0 ? 0.46 : mode === 1 ? 0.64 : 0.74,
+    );
+    setUniformValue(
+      uniforms,
+      'uDepthShorelineEnabled',
+      quality?.depthShoreline ? 1 : 0,
+    );
+    setUniformValue(
+      uniforms,
+      'uRefractionPixels',
+      quality?.refractionPixels ?? 0,
+    );
+    setUniformValues(
+      uniforms,
+      ['uWaterFogDensity', 'uFogDensity'],
+      aerialPerspectiveEnabled ? 0 : VISUAL_ENVIRONMENT.fog.density,
+    );
+    setUniformValue(uniforms, 'uHasEnvironmentMap', environmentTexture ? 1 : 0);
+    setUniformValue(
+      uniforms,
+      'uHasReflectionProbe',
+      mode >= 1 && probeReady ? 1 : 0,
+    );
+    setUniformValue(
+      uniforms,
+      'uHasPlanarReflection',
+      mode >= 2 && planarReady ? 1 : 0,
+    );
+    applyFrameUniforms();
+  }
 
-        if (uniforms.uSceneColor) {
-          const singleLayerWater = quality?.singleLayerWater === true;
-          const wasSingleLayerWater = material.defines?.USE_SINGLE_LAYER_WATER === 1;
+  function applyFrameUniforms() {
+    const uniforms = resolveMaterial?.uniforms;
+    if (!uniforms) return;
 
-          if (singleLayerWater !== wasSingleLayerWater) {
-            material.defines ??= {};
-            if (singleLayerWater) {
-              material.defines.USE_SINGLE_LAYER_WATER = 1;
-            } else {
-              delete material.defines.USE_SINGLE_LAYER_WATER;
-            }
-            material.needsUpdate = true;
-          }
-
-          material.blending = singleLayerWater
-            ? THREE.NoBlending
-            : THREE.NormalBlending;
-          uniforms.uRefractionPixels.value = quality?.refractionPixels ?? 0;
-
-          if (!singleLayerWater) {
-            uniforms.uSceneColor.value = null;
-            uniforms.uSceneDepth.value = null;
-          }
-        }
-      });
+    setUniformValue(uniforms, 'uTime', currentTime);
+    if (hasCameraPosition && uniforms.uCameraPosition) {
+      uniforms.uCameraPosition.value.copy(lastCameraPosition);
     }
   }
 
-  function forEachOpticalMaterial(callback) {
-    opticalMaterials.forEach(callback);
+  function hideCaptureRoots() {
+    const visibility = captureRoots.map((root) => root.visible);
+    captureRoots.forEach((root) => { root.visible = false; });
+    return visibility;
   }
+
+  function restoreCaptureRoots(visibility) {
+    captureRoots.forEach((root, index) => {
+      root.visible = visibility[index];
+    });
+  }
+}
+
+function setUniformValue(uniforms, name, value) {
+  if (uniforms[name]) uniforms[name].value = value;
+}
+
+function setUniformValues(uniforms, names, value) {
+  names.forEach((name) => setUniformValue(uniforms, name, value));
 }
 
 export const WATER_NOISE_GLSL = `
@@ -347,21 +315,6 @@ export const WATER_NOISE_GLSL = `
   float waterNoise2(vec2 p) {
     return waterNoise(p) * 0.68
       + waterNoise(p * 2.03 + vec2(7.1, -4.3)) * 0.32;
-  }
-`;
-
-export const WATER_DUAL_WAVE_GLSL = `
-  vec3 getDualWaveNormal(vec2 flowUv, vec2 worldUv, float time, float strength) {
-    float broadX = sin(flowUv.x * 6.4 - time * 1.15 + sin(worldUv.y * 1.7) * 0.7);
-    float broadZ = sin(flowUv.x * 4.1 - flowUv.y * 8.0 - time * 0.82);
-    float detailX = sin(flowUv.x * 15.5 + flowUv.y * 18.0 - time * 2.1);
-    float detailZ = sin(flowUv.x * 11.0 - flowUv.y * 23.0 - time * 1.62);
-    vec2 slope = vec2(
-      broadX * 0.055 + detailX * 0.028,
-      broadZ * 0.05 + detailZ * 0.03
-    ) * strength;
-
-    return normalize(vec3(slope.x, 1.0, slope.y));
   }
 `;
 

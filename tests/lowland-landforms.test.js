@@ -232,7 +232,7 @@ test('lowland LOD promotes every lake and stream locally without filling unrelat
   }), 0);
 });
 
-test('water system batches three bounded watersheds through the shared river material pipeline', () => {
+test('water system exposes three bounded watershed geometry sources', () => {
   const system = createWaterSystem({ getHeightAt: () => -4 });
   const {
     stream, streams, lakes, group,
@@ -246,8 +246,9 @@ test('water system batches three bounded watersheds through the shared river mat
   assert.equal(lakes.length, 3);
   assert.equal(lakes[0].name, 'LowlandLake_east-meadow-pond');
   assert.equal(group.children.length, 4);
-  assert.ok(streams.every((mesh) => mesh.userData.waterReflectionModeCap === 0));
-  assert.ok(lakes.every((mesh) => mesh.userData.waterReflectionModeCap === 1));
+  assert.ok(streams.every((mesh) => mesh.visible === false));
+  assert.ok(lakes.every((mesh) => mesh.visible === false));
+  assert.ok(group.children.every((mesh) => mesh.material.isMeshBasicMaterial));
   assert.equal(
     streams.reduce((total, mesh) => total + mesh.userData.riverNetworkStats.reachCount, 0),
     5,
@@ -256,7 +257,7 @@ test('water system batches three bounded watersheds through the shared river mat
   assert.ok(stats.triangleCount > 0 && stats.triangleCount < 1000);
   assert.ok(waterFrame.lakeBedMask > 0.99);
   assert.equal(isInWaterSystemVegetationExclusion(820, -260), true);
-  assert.match(stream.material.vertexShader, /attribute float junctionMask/);
+  assert.equal(stream.geometry.getAttribute('junctionMask').itemSize, 1);
 
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');

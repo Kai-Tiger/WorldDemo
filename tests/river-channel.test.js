@@ -47,7 +47,9 @@ test('hero river water is one compiled DAG surface with metric downstream attrib
   assert.equal(stats.reachCount, 5);
   assert.equal(stats.junctionCount, 2);
   assert.ok(stats.triangleCount < 12000);
-  assert.equal(water.userData.waterReflectionModeCap, 0);
+  assert.equal(water.visible, false);
+  assert.equal(water.material.isMeshBasicMaterial, true);
+  assert.equal(water.material.visible, false);
   assert.ok(getRiverWaterGeometryMaxDistance() > 270);
 
   for (const [attribute, itemSize] of [
@@ -117,7 +119,7 @@ test('hero river water is one compiled DAG surface with metric downstream attrib
   water.material.dispose();
 });
 
-test('hero lower river grounds transparent banks while preserving the center surface', () => {
+test('hero lower river geometry grounds bank edges while preserving the center surface', () => {
   const terrainHeight = 1.4;
   const terrain = { getHeightAt: () => terrainHeight };
   const water = createRiverWaterMesh(terrain);

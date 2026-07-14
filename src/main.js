@@ -7,11 +7,8 @@ import { applyEnvironmentLighting } from './environmentLighting.js';
 import { applyGoldenShot, getGoldenShotFromLocation } from './goldenShots.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { configureRenderer, createPostProcessing } from './postProcessing.js';
-import { updateRiverVisuals } from './riverChannel.js';
 import { ThirdPersonCamera } from './thirdPersonCamera.js';
 import { SUN_LIGHT_DIRECTION } from './lighting.js';
-import { updateWaterSystemVisuals } from './waterSystem.js';
-import { updateSmallLakes } from './smallLakes.js';
 import { createTerrainEditor } from './terrainEditor.js';
 import {
   DEFAULT_RENDER_QUALITY,
@@ -82,17 +79,15 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const {
   scene,
   terrain,
-  water,
-  wetBanks,
-  waterSystem,
+  unifiedWaterSystem,
   grassManager,
   treeManager,
   sunLight,
   clouds,
-  smallLakes,
   backgroundReady,
 } = await createScene(renderer, renderQuality);
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
+const { surfaceRoot, effectsRoot } = unifiedWaterSystem;
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 1800);
 const shadowController = createShadowController({
@@ -104,23 +99,23 @@ const shadowController = createShadowController({
 });
 loadingStatus.textContent = 'Lighting the clear alpine morning';
 const environmentLighting = await applyEnvironmentLighting(renderer, scene, hemisphereLight);
-const waterRoots = [water, waterSystem.group, smallLakes];
-const waterRenderController = createWaterRenderController({
-  renderer,
-  scene,
-  roots: waterRoots,
-  environmentTexture: environmentLighting.sourceTexture,
-});
 const postProcessing = createPostProcessing(
   renderer,
   scene,
   camera,
   renderQuality,
   {
-    waterRoots,
-    bindWaterSceneBuffers: waterRenderController.bindSceneBuffers,
+    surfaceRoot,
+    effectsRoot,
   },
 );
+const waterRenderController = createWaterRenderController({
+  renderer,
+  scene,
+  roots: [surfaceRoot, effectsRoot],
+  resolveMaterial: postProcessing.getWaterResolveMaterial(),
+  environmentTexture: environmentLighting.sourceTexture,
+});
 let resolutionAdjustmentNotBefore = performance.now() + DYNAMIC_RESOLUTION.warmupMs;
 
 const input = new Input(canvas);
@@ -226,6 +221,9 @@ function applyRenderQuality(quality, rebuildPostProcessing = true) {
   postProcessing.setPixelRatio(renderer.getPixelRatio());
   if (rebuildPostProcessing) {
     postProcessing.applyQualityPreset(quality);
+    waterRenderController.setResolveMaterial(
+      postProcessing.getWaterResolveMaterial(),
+    );
   }
   postProcessing.setResolutionScale(quality.resolution.maxScale);
   postProcessing.resize(window.innerWidth, window.innerHeight);
@@ -236,6 +234,9 @@ function applyRenderQuality(quality, rebuildPostProcessing = true) {
   waterRenderController.applyQualityPreset(quality.water, {
     aerialPerspective: quality.postProcessing.aerialPerspective,
   });
+  unifiedWaterSystem.setAerialPerspectiveEnabled(
+    quality.postProcessing.aerialPerspective,
+  );
   clouds.setQualityPreset?.(quality);
   applyWaterAndTextureQuality(quality);
   shadowController.applyQualityPreset(quality.shadows);
@@ -301,7 +302,7 @@ function applyWaterAndTextureQuality(quality) {
     renderer.capabilities.getMaxAnisotropy(),
   );
   const visitedTextures = new Set();
-  const roots = [scene, water, wetBanks, waterSystem?.group, smallLakes];
+  const roots = [scene, surfaceRoot, effectsRoot];
 
   for (const root of roots) {
     root?.traverse?.((object) => {
@@ -384,14 +385,18 @@ function animate(now) {
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);
-  updateRiverVisuals(water, wetBanks, camera, flowingWaterTime);
-  updateWaterSystemVisuals(waterSystem, camera, flowingWaterTime);
+  unifiedWaterSystem.update(flowingWaterTime, camera);
+  postProcessing.setWaterTime(flowingWaterTime);
   if (toggleGrass.checked) {
     grassManager.update(player.position, visualTime);
   }
   clouds.update(visualTime, camera);
-  updateSmallLakes(smallLakes, camera, visualTime);
-  waterRenderController.update(renderFrame, player.position);
+  waterRenderController.update(
+    renderFrame,
+    player.position,
+    camera,
+    flowingWaterTime,
+  );
   shadowController.update(now, player.position);
   updatePlayerFillLight();
 
@@ -412,7 +417,12 @@ function animate(now) {
 
 window.addEventListener('resize', resize);
 window.addEventListener('pagehide', (event) => {
-  if (!event.persisted) shadowController.dispose();
+  if (!event.persisted) {
+    shadowController.dispose();
+    waterRenderController.dispose();
+    postProcessing.dispose();
+    unifiedWaterSystem.dispose();
+  }
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {

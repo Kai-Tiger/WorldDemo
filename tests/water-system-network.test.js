@@ -151,7 +151,7 @@ test('flowing-water grass acceptance combines rivers with lake and waterfall saf
   }
 });
 
-test('water system exposes one merged tributary surface and keeps the compatibility alias', () => {
+test('water system exposes one merged tributary geometry source and keeps the compatibility alias', () => {
   const system = createWaterSystem(createTerrainStub());
   const tributaries = system.tributaries;
   const confluencePositions = system.confluence.geometry.getAttribute('position');
@@ -159,29 +159,29 @@ test('water system exposes one merged tributary surface and keeps the compatibil
   assert.equal(system.snowmelt, tributaries);
   assert.equal(tributaries.name, 'AlpineRiverNetworkSurface');
   assert.equal(tributaries.isMesh, true);
-  assert.equal(tributaries.userData.waterReflectionModeCap, 0);
+  assert.equal(tributaries.visible, false);
   assert.ok(tributaries.userData.riverNetworkStats.triangleCount < 12000);
-  assert.equal(tributaries.material.transparent, true);
+  assert.equal(tributaries.material.isMeshBasicMaterial, true);
+  assert.equal(tributaries.material.visible, false);
   assert.equal(tributaries.material.depthWrite, false);
-  assert.match(tributaries.material.vertexShader, /attribute float junctionMask/);
-  assert.match(tributaries.material.vertexShader, /attribute float viewDistance/);
-  assert.match(tributaries.material.fragmentShader, /vViewDistance - 55\.0/);
-  assert.doesNotMatch(tributaries.material.fragmentShader, /smoothstep\(6\.9, 8\.0, vUv\.x\)/);
+  assert.equal(tributaries.geometry.getAttribute('junctionMask').itemSize, 1);
+  assert.equal(tributaries.geometry.getAttribute('viewDistance').itemSize, 1);
   assert.ok(Math.abs(
     confluencePositions.getY(0) - (PLUNGE_POOL.waterLevel + 0.02),
   ) < 1e-6);
 
   const camera = new THREE.PerspectiveCamera();
+  const waterfallMaterial = system.waterfall.children[0].material;
 
   camera.position.set(12, 34, 56);
   updateWaterSystemVisuals(system, camera, 4.25);
-  assert.equal(tributaries.material.uniforms.uTime.value, 4.25);
-  assert.deepEqual(tributaries.material.uniforms.uCameraPosition.value.toArray(), [12, 34, 56]);
+  assert.equal(waterfallMaterial.uniforms.uTime.value, 4.25);
+  assert.deepEqual(waterfallMaterial.uniforms.uCameraPosition.value.toArray(), [12, 34, 56]);
 
   disposeSystem(system);
 });
 
-test('all flowing water meshes share one environment-lit material and update it once per frame', () => {
+test('flowing water geometry sources share one non-rendering material', () => {
   const system = createWaterSystem(createTerrainStub());
   const flowingMeshes = [
     system.outletStream,
@@ -192,7 +192,9 @@ test('all flowing water meshes share one environment-lit material and update it 
 
   assert.equal(flowingMeshes.length, 3);
   assert.ok(flowingMeshes.every((mesh) => mesh.material === sharedMaterial));
-  assert.ok(flowingMeshes.every((mesh) => mesh.userData.waterReflectionModeCap === 0));
+  assert.ok(flowingMeshes.every((mesh) => mesh.visible === false));
+  assert.equal(sharedMaterial.isMeshBasicMaterial, true);
+  assert.equal(sharedMaterial.visible, false);
   for (const mesh of flowingMeshes) {
     for (const [attribute, itemSize] of [
       ['waterDepth', 1],
@@ -279,28 +281,6 @@ test('all flowing water meshes share one environment-lit material and update it 
     assert.ok(Math.abs(outletFlowUvs.getY(right) - width * 0.5) < 3e-5);
   }
 
-  let timeWrites = 0;
-  let cameraWrites = 0;
-  let elapsedTime = 0;
-
-  Object.defineProperty(sharedMaterial.uniforms.uTime, 'value', {
-    configurable: true,
-    get: () => elapsedTime,
-    set: (value) => {
-      elapsedTime = value;
-      timeWrites += 1;
-    },
-  });
-  sharedMaterial.uniforms.uCameraPosition.value = {
-    copy() {
-      cameraWrites += 1;
-    },
-  };
-
-  updateWaterSystemVisuals(system, new THREE.PerspectiveCamera(), 3.5);
-
-  assert.equal(timeWrites, 1);
-  assert.equal(cameraWrites, 1);
   assert.ok(flowingMeshes.reduce(
     (triangles, mesh) => triangles + mesh.geometry.index.count / 3,
     0,
@@ -309,7 +289,7 @@ test('all flowing water meshes share one environment-lit material and update it 
   disposeSystem(system);
 });
 
-test('all flowing river surfaces stay within the shared draw-call and triangle budgets', () => {
+test('all flowing river geometry sources stay within the triangle budget', () => {
   const terrain = createTerrainStub();
   const system = createWaterSystem(terrain);
   const heroRiver = createRiverWaterMesh(terrain);
@@ -332,14 +312,15 @@ test('all flowing river surfaces stay within the shared draw-call and triangle b
   disposeSystem(system);
 });
 
-test('cirque tarn is an upward circular lake surface capped at probe reflections', () => {
+test('cirque tarn is an upward circular lake geometry source', () => {
   const system = createWaterSystem(createTerrainStub());
   const tarn = system.cirqueTarn;
   const positions = tarn.geometry.getAttribute('position');
   const normals = tarn.geometry.getAttribute('normal');
 
   assert.equal(tarn.name, 'CirqueTarnSurface');
-  assert.equal(tarn.userData.waterReflectionModeCap, 1);
+  assert.equal(tarn.visible, false);
+  assert.equal(tarn.material.isMeshBasicMaterial, true);
   assert.ok(Math.abs(positions.getX(0) - 76) < 1e-6);
   assert.ok(Math.abs(positions.getY(0) - 49.545) < 1e-4);
   assert.ok(Math.abs(positions.getZ(0) + 552) < 1e-6);
