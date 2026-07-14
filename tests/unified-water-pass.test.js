@@ -105,6 +105,8 @@ test('water attribute material writes the documented MRT contract', () => {
   );
   assert.match(material.vertexShader, /in float shoreDistanceMeters;/);
   assert.match(material.vertexShader, /in float riverInfluence;/);
+  assert.match(material.vertexShader, /vFlowUv = flowUv;/);
+  assert.doesNotMatch(material.vertexShader, /vFlowUv = flowUv \+/);
   assert.doesNotMatch(material.vertexShader, /mouthInfluence/);
   assert.match(
     material.fragmentShader,
@@ -135,6 +137,10 @@ test('water attribute material writes the documented MRT contract', () => {
     ],
   );
   assert.match(material.fragmentShader, /encodeOctahedron/);
+  assert.match(material.fragmentShader, /float getNaturalWaterHeight/);
+  assert.match(material.fragmentShader, /vec2 getNaturalWaterSlope/);
+  assert.match(material.fragmentShader, /float riverTravel = uTime/);
+  assert.doesNotMatch(material.fragmentShader, /float riverPhase/);
   assert.match(material.fragmentShader, /vec3 lakeDetailNormal = normalize/);
   assert.match(material.fragmentShader, /vec3 riverDetailNormal = normalize/);
   assert.doesNotMatch(

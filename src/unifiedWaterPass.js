@@ -10,6 +10,7 @@ import {
   WATER_SHALLOW_COLOR,
   WATER_SUN_REFLECTION_COLOR,
 } from './waterPalette.js';
+import { WATER_NOISE_GLSL } from './waterContext.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 
 export const WATER_INFO_ENCODING_AUTO = 'auto';
@@ -59,7 +60,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
     vShoreDistanceMeters = max(shoreDistanceMeters, 0.0);
     vRiverInfluence = clamp(riverInfluence, 0.0, 1.0);
     vReflectionTier = clamp(reflectionTier, 0.0, 1.0);
-    vFlowUv = flowUv + blendedFlow * (uTime * flowSpeed);
+    vFlowUv = flowUv;
     float flowLength = length(blendedFlow);
     vFlowDirection = flowLength > 0.0001
       ? blendedFlow / flowLength
@@ -104,6 +105,38 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   layout(location = 0) out vec4 waterOpticsOutput;
   layout(location = 1) out vec4 waterMaterialOutput;
 
+  ${WATER_NOISE_GLSL}
+
+  float getNaturalWaterHeight(vec2 domain) {
+    float macroWave = waterNoise(
+      domain * vec2(0.16, 0.36) + vec2(3.7, -8.2)
+    );
+    vec2 warpedDomain = domain + vec2(
+      (macroWave - 0.5) * 0.72,
+      (macroWave - 0.5) * -0.44
+    );
+    float middleWave = waterNoise2(
+      warpedDomain * vec2(0.52, 1.22) + vec2(-11.3, 6.9)
+    );
+    float detailWave = waterNoise(
+      warpedDomain * vec2(1.31, 2.63)
+        + vec2(middleWave * 0.24, middleWave * -0.18)
+        + vec2(17.8, 21.4)
+    );
+
+    return macroWave * 0.46 + middleWave * 0.37 + detailWave * 0.17;
+  }
+
+  vec2 getNaturalWaterSlope(vec2 domain) {
+    const float epsilon = 0.11;
+    float centerHeight = getNaturalWaterHeight(domain);
+
+    return vec2(
+      getNaturalWaterHeight(domain + vec2(epsilon, 0.0)) - centerHeight,
+      getNaturalWaterHeight(domain + vec2(0.0, epsilon)) - centerHeight
+    ) / epsilon;
+  }
+
   vec2 encodeOctahedron(vec3 normalValue) {
     normalValue /= abs(normalValue.x) + abs(normalValue.y) + abs(normalValue.z);
     vec2 encoded = normalValue.xz;
@@ -120,32 +153,54 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     float coverage = smoothstep(0.0, shoreAa, vShoreDistanceMeters);
     if (coverage < (1.0 / 255.0)) discard;
 
-    float lakePhase = dot(vFlowUv, vec2(0.052, 0.039));
-    float riverPhase = dot(vFlowUv, vec2(0.19, 0.11));
-    float lakeCrossPhase = dot(vFlowUv.yx, vec2(-0.043, 0.061));
-    float riverCrossPhase = dot(vFlowUv.yx, vec2(-0.13, 0.17));
-    float lakeWave = sin(lakePhase * 6.28318 + uTime * 0.38);
-    float riverWave = sin(riverPhase * 6.28318 + uTime * 0.38);
-    float lakeCrossWave = cos(lakeCrossPhase * 6.28318 - uTime * 0.27);
-    float riverCrossWave = cos(riverCrossPhase * 6.28318 - uTime * 0.27);
-    float calmWave = mix(lakeWave, riverWave, vRiverInfluence);
+    float riverBlend = smoothstep(0.02, 0.72, vRiverInfluence);
+    float riverTravel = uTime * mix(
+      0.42,
+      1.0,
+      smoothstep(0.35, 1.8, vFlowSpeed)
+    );
+    vec2 lakeFlowDomain = vFlowUv + vec2(-uTime * 0.08, uTime * 0.055);
+    vec2 riverFlowDomain = vec2(vFlowUv.x - riverTravel, vFlowUv.y);
+    vec2 surfaceFlowDomain = mix(
+      lakeFlowDomain,
+      riverFlowDomain,
+      riverBlend
+    );
+    float surfaceHeight = getNaturalWaterHeight(surfaceFlowDomain);
+    vec2 localSlope = getNaturalWaterSlope(surfaceFlowDomain);
     float riverMotion = mix(0.45, 1.0, vRiverInfluence);
-    float detailStrength = mix(0.025, 0.065, riverMotion)
+    float detailStrength = mix(0.10, 0.18, riverMotion)
       * (1.0 + vRapidMask * 0.9 + vDisturbanceMask * 0.55)
       * uNormalDetail;
+    localSlope *= detailStrength;
+    float maximumSlope = mix(
+      0.09,
+      0.18,
+      clamp(max(vRapidMask, vDisturbanceMask), 0.0, 1.0)
+    );
+    localSlope *= min(
+      1.0,
+      maximumSlope / max(length(localSlope), 0.0001)
+    );
     vec2 lakeAxis = normalize(vec2(0.72, 0.69));
     vec2 riverAxis = length(vFlowDirection) > 0.0001
       ? vFlowDirection
       : lakeAxis;
+    vec2 lakeAcross = vec2(-lakeAxis.y, lakeAxis.x);
+    vec2 riverAcross = vec2(-riverAxis.y, riverAxis.x);
+    vec2 lakeWorldSlope = lakeAxis * localSlope.x
+      + lakeAcross * localSlope.y;
+    vec2 riverWorldSlope = riverAxis * localSlope.x
+      + riverAcross * localSlope.y;
     vec3 lakeDetailNormal = normalize(vec3(
-      (lakeWave * lakeAxis.x + lakeCrossWave * lakeAxis.y * 0.45) * detailStrength,
+      lakeWorldSlope.x,
       1.0,
-      (lakeWave * lakeAxis.y - lakeCrossWave * lakeAxis.x * 0.45) * detailStrength
+      lakeWorldSlope.y
     ));
     vec3 riverDetailNormal = normalize(vec3(
-      (riverWave * riverAxis.x + riverCrossWave * riverAxis.y * 0.45) * detailStrength,
+      riverWorldSlope.x,
       1.0,
-      (riverWave * riverAxis.y - riverCrossWave * riverAxis.x * 0.45) * detailStrength
+      riverWorldSlope.y
     ));
     vec3 detailNormal = normalize(mix(
       lakeDetailNormal,
@@ -153,6 +208,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
       vRiverInfluence
     ));
     vec3 worldNormal = normalize(mix(vWorldNormal, detailNormal, 0.72));
+    float calmWave = surfaceHeight * 2.0 - 1.0;
 
     float shoreFoam = 1.0 - smoothstep(0.15, 1.7, vShoreDistanceMeters);
     float mouthBlend = 4.0 * vRiverInfluence * (1.0 - vRiverInfluence);
