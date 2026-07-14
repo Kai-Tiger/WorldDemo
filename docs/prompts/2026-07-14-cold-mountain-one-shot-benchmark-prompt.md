@@ -4,11 +4,7 @@
 
 这是用于比较不同模型或 coding harness 一次性交付能力的黑盒 Prompt。它描述最终体验、现有资源和可观察验收，不提供当前项目的源码结构、精确河道坐标或现成算法。
 
-为避免模型从现有实现中抄答案，推荐让 harness 在空工作目录执行，只把 `public/assets/` 和 `public/basis/` 复制或只读挂载进去。若直接使用本机资源，资源源目录为：
-
-```text
-/Users/likai.lear/Desktop/my-example
-```
+为避免模型从现有实现中抄答案，请让 harness 在空工作目录执行，只预置 `public/assets/` 和 `public/basis/`。
 
 复制下面整个代码块作为任务 Prompt。
 
@@ -35,29 +31,14 @@
 
 ## 2. 干净评测与目录边界
 
-本机只读资源源根目录：
-
-```text
-/Users/likai.lear/Desktop/my-example
-```
-
-如果当前工作目录是空目录，直接在其中创建项目。如果当前目录就是上述资源源仓库，或其中已有其他项目文件，不得覆盖它；请在当前目录下创建独立的 `cold-mountain-one-shot-output/` 作为输出项目。
-
-允许读取或复制的源内容只有：
-
-```text
-/Users/likai.lear/Desktop/my-example/public/assets/
-/Users/likai.lear/Desktop/my-example/public/basis/
-```
-
-禁止读取、复制或参考资源源仓库中的 `src/`、`tests/`、`docs/`、Git 历史、构建产物和对话日志。这是一次从零构建评测，不允许从现有实现抄答案。
-
-输出项目内资源应位于：
+当前工作目录就是输出项目根目录。评测开始时只预置以下资源目录，其他项目文件都必须由你从零创建：
 
 ```text
 public/assets/
 public/basis/
 ```
+
+只能检查和使用当前工作区内的文件。禁止搜索、读取或引用当前工作区之外的目录；禁止尝试定位同名项目、参考实现、Git 历史、构建产物、缓存、对话日志或其他可能包含答案的文件。这是一次从零构建评测。
 
 `public` 是文件系统前缀，不属于浏览器 URL。例如：
 
@@ -66,7 +47,7 @@ public/basis/
 浏览器 URL：/assets/terrain/height.webp
 ```
 
-不得修改源资源字节。可以复制、只读挂载或建立由 harness 管理的链接，但最终运行时不能依赖网络资源。
+不要修改预置资源字节。最终运行时不能依赖网络资源。
 
 ## 3. 技术栈与命令
 
@@ -457,7 +438,7 @@ HUD 要小而清晰，不能遮住主要画面。默认 Balanced。
 - 首次保存前生成备份；
 - 不需要 undo、redo、材质绘制或生产级权限系统。
 
-此功能不得修改只读源仓库中的原始资源。
+此功能只能写入当前输出项目，并在首次保存前备份预置高度图。
 
 ### 7.3 调试与可重复观察
 
@@ -542,7 +523,7 @@ debug HUD 可额外显示：frame ms、draw calls、triangles、geometries、tex
 - 为了看起来“完成”而吞掉加载、shader 或测试错误；
 - 引入不存在的 HDR/EXR、CDN 或外部 URL；
 - 误用 `public` 前缀形成 `/public/assets/...` 浏览器 URL；
-- 读取或复制源仓库现有实现。
+- 搜索工作区之外的参考实现或同名项目。
 
 ## 12. 完成定义与最终报告
 
@@ -580,5 +561,5 @@ debug HUD 可额外显示：frame ms、draw calls、triangles、geometries、tex
 - 5 分：HUD、画质档、固定机位和调试工具；
 - 5 分：代码简洁度、测试质量、资源生命周期和最终报告可信度。
 
-现在开始执行。先确认输出目录和只读资源可用，然后直接实现、验证并交付项目。
+现在开始执行。先确认当前工作区中的预置资源可用，然后直接实现、验证并交付项目。
 ````
