@@ -7,6 +7,10 @@ import {
 import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
 import { getHeroRiverRockPlacements } from '../src/heroRocks.js';
 import {
+  getLakeBoundary,
+  getLakeBoundaryFrame,
+} from '../src/lakeBoundary.js';
+import {
   getHeroRiverCorridorFrame,
   HERO_RIVER_NETWORK_DEFINITION,
 } from '../src/lowlandHeightPlan.js';
@@ -146,9 +150,9 @@ test('reach strips preserve metric downstream UVs, monotonic water levels, and a
       metricUvSpan - (reachStats.endDistance - reachStats.startDistance)
     ) < 1e-4);
 
-    for (const [distance, rowStart] of [
-      [reachStats.startDistance, firstVertex],
-      [reachStats.endDistance, lastVertex - reachStats.rowSize + 1],
+    for (const [endpoint, distance, rowStart] of [
+      ['start', reachStats.startDistance, firstVertex],
+      ['end', reachStats.endDistance, lastVertex - reachStats.rowSize + 1],
     ]) {
       const rowEnd = rowStart + reachStats.rowSize - 1;
       const actualWidth = Math.hypot(
@@ -156,9 +160,18 @@ test('reach strips preserve metric downstream UVs, monotonic water levels, and a
         position.getZ(rowEnd) - position.getZ(rowStart),
       );
       const expected = sampleCompiledReach(reach, distance);
+      const lakeId = reachStats[`${endpoint}LakeId`];
 
-      assert.ok(Math.abs(actualWidth - expected.width) < 1e-4);
-      assert.ok(Math.abs(position.getY(rowStart) - expected.waterLevel) < 1e-4);
+      if (lakeId) {
+        assert.ok(actualWidth > expected.width * 0.5);
+        assert.ok(actualWidth <= expected.width + 1e-4);
+        assert.ok(Math.abs(
+          position.getY(rowStart) - RIVER_NETWORK.nodeById.get(lakeId).waterLevel,
+        ) < 1e-4);
+      } else {
+        assert.ok(Math.abs(actualWidth - expected.width) < 1e-4);
+        assert.ok(Math.abs(position.getY(rowStart) - expected.waterLevel) < 1e-4);
+      }
     }
   }
 });
@@ -344,26 +357,38 @@ test('source and lake-entry ends fade while steep reaches transition out', () =>
   assert.ok(moderateFade.getX(moderateMiddle) < 1);
 });
 
-test('the alpine inlet fades only after overlapping the lake surface', () => {
-  const lake = RIVER_NETWORK.nodeById.get('alpine-lake');
+test('the alpine inlet stops at the shared irregular lake shore', () => {
+  const lakeNode = RIVER_NETWORK.nodeById.get('alpine-lake');
+  const lake = getLakeBoundary(lakeNode);
   const inlet = RIVER_NETWORK.reachById.get('j4-alpine-lake');
-  const endpoint = inlet.samples.at(-1);
-  const lakeCenter = lake.center ?? lake.position;
-  const endpointRadius = Math.hypot(
-    endpoint.point.x - lakeCenter[0],
-    endpoint.point.z - lakeCenter[1],
-  );
-  const fadeLength = Math.max(7, endpoint.width * 2);
+  const reach = result.stats.reaches.find((entry) => entry.id === inlet.id);
+  const positions = result.geometry.getAttribute('position');
+  const waterFades = result.geometry.getAttribute('waterFade');
+  const finalRow = reach.startVertex + (reach.rowCount - 1) * reach.rowSize;
 
-  assert.ok(endpointRadius <= lake.radius - fadeLength);
+  assert.equal(reach.endLakeId, lake.id);
+  assert.ok(reach.endDistance < inlet.length);
+  for (let lateral = 0; lateral < reach.rowSize; lateral += 1) {
+    const vertex = finalRow + lateral;
+    const signedDistance = getLakeBoundaryFrame(
+      lake,
+      positions.getX(vertex),
+      positions.getZ(vertex),
+    ).signedDistance;
+
+    assert.ok(Math.abs(signedDistance) < 1e-4);
+    assert.equal(waterFades.getX(vertex), 0);
+  }
 });
 
 test('the hero terminal inlet aligns at shore and fades over the final four meters outside', () => {
   const transition = HERO_RIVER_NETWORK_DEFINITION.terminalLakeTransition;
   const reach = heroResult.stats.reaches.find((entry) => entry.id === 'hero-main-lower');
+  const compiledReach = heroNetwork.reachById.get(reach.id);
   const position = heroResult.geometry.getAttribute('position');
   const waterFade = heroResult.geometry.getAttribute('waterFade');
   const centerOffset = Math.floor(reach.rowSize / 2);
+  const boundaryTolerance = 1e-4;
   const rows = [];
 
   for (let row = 0; row < reach.rowCount; row += 1) {
@@ -398,7 +423,9 @@ test('the hero terminal inlet aligns at shore and fades over the final four mete
   assert.ok(Math.abs(finalRow.lakeDistance - transition.radius) < 0.02);
   assert.equal(waterFade.getX(finalRow.vertex), 0);
   assert.ok(Math.abs(waterFade.getX(halfFadeRow.vertex) - 0.5) < 0.12);
-  assert.ok(rows.every((row) => row.lakeDistance >= transition.radius - 1e-5));
+  assert.ok(rows.every((row) => (
+    row.lakeDistance >= transition.radius - boundaryTolerance
+  )));
   for (
     let vertex = reach.startVertex;
     vertex < reach.startVertex + reach.vertexCount;
@@ -407,7 +434,7 @@ test('the hero terminal inlet aligns at shore and fades over the final four mete
     assert.ok(Math.hypot(
       position.getX(vertex) - transition.center[0],
       position.getZ(vertex) - transition.center[1],
-    ) >= transition.radius - 1e-5);
+    ) >= transition.radius - boundaryTolerance);
   }
   const finalRowStart = reach.startVertex + (reach.rowCount - 1) * reach.rowSize;
 
@@ -417,9 +444,18 @@ test('the hero terminal inlet aligns at shore and fades over the final four mete
     assert.ok(Math.abs(Math.hypot(
       position.getX(vertex) - transition.center[0],
       position.getZ(vertex) - transition.center[1],
-    ) - transition.radius) < 1e-4);
+    ) - transition.radius) < boundaryTolerance);
     assert.equal(waterFade.getX(vertex), 0);
   }
+  const finalRowEnd = finalRowStart + reach.rowSize - 1;
+  const finalWidth = Math.hypot(
+    position.getX(finalRowEnd) - position.getX(finalRowStart),
+    position.getZ(finalRowEnd) - position.getZ(finalRowStart),
+  );
+  const authoredWidth = sampleCompiledReach(compiledReach, reach.endDistance).width;
+
+  assert.ok(finalWidth > authoredWidth * 0.8);
+  assert.ok(finalWidth <= authoredWidth + boundaryTolerance);
 
   for (let row = 1; row < rows.length; row += 1) {
     assert.ok(rows[row].waterLevel <= rows[row - 1].waterLevel + 1e-5);

@@ -3,6 +3,10 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { getGoldenShotFromLocation } from '../src/goldenShots.js';
 import {
+  ALPINE_LAKE_BOUNDARY,
+  getLakeBoundaryFrame,
+} from '../src/lakeBoundary.js';
+import {
   PLUNGE_POOL,
   getBakedLowlandHeight,
 } from '../src/lowlandHeightPlan.js';
@@ -54,6 +58,35 @@ test('runtime water terrain keeps baked lowland channels while retaining mountai
   assert.ok(applyWaterSystemMacroTerrain(80, 300, -400) < 32);
 });
 
+test('the independent Alpine outlet shares one continuous lake-edge bed', () => {
+  const system = createWaterSystem(createTerrainStub());
+  const positions = system.outletStream.geometry.getAttribute('position');
+  const shoreX = positions.getX(5);
+  const shoreZ = positions.getZ(5);
+  const directionX = shoreX - ALPINE_LAKE_BOUNDARY.cx;
+  const directionZ = shoreZ - ALPINE_LAKE_BOUNDARY.cz;
+  const directionLength = Math.hypot(directionX, directionZ);
+
+  for (const distance of [0.01, 0.001]) {
+    const offsetX = directionX / directionLength * distance;
+    const offsetZ = directionZ / directionLength * distance;
+    const outsideHeight = applyWaterSystemMacroTerrain(
+      50,
+      shoreX + offsetX,
+      shoreZ + offsetZ,
+    );
+    const insideHeight = applyWaterSystemMacroTerrain(
+      50,
+      shoreX - offsetX,
+      shoreZ - offsetZ,
+    );
+
+    assert.ok(Math.abs(outsideHeight - insideHeight) < 1e-3);
+  }
+
+  disposeSystem(system);
+});
+
 test('flowing-water grass acceptance combines rivers with lake and waterfall safety zones', () => {
   for (const [x, z] of [
     [300, -400],
@@ -70,19 +103,30 @@ test('flowing-water grass acceptance combines rivers with lake and waterfall saf
   assert.equal(getFlowingWaterGrassAcceptance(418, -437.9), 0);
   assert.equal(getFlowingWaterGrassAcceptance(418, -438.1), 1);
 
-  const outletCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(340, 0, -410),
-    new THREE.Vector3(365, 0, -417),
-    new THREE.Vector3(392, 0, -419),
-    new THREE.Vector3(409, 0, -421),
-  ], false, 'centripetal');
-  const outletCenter = outletCurve.getPoint(2 / 3);
-  const outletTangent = outletCurve.getTangent(2 / 3).normalize();
+  const system = createWaterSystem(createTerrainStub());
+  const outletPositions = system.outletStream.geometry.getAttribute('position');
+  const outletRowSize = 11;
+  const outletRow = 60;
+  const outletCenterVertex = outletRow * outletRowSize + 5;
+  const outletPreviousVertex = (outletRow - 1) * outletRowSize + 5;
+  const outletNextVertex = (outletRow + 1) * outletRowSize + 5;
+  const outletCenter = new THREE.Vector3(
+    outletPositions.getX(outletCenterVertex),
+    0,
+    outletPositions.getZ(outletCenterVertex),
+  );
+  const outletTangent = new THREE.Vector3(
+    outletPositions.getX(outletNextVertex) - outletPositions.getX(outletPreviousVertex),
+    0,
+    outletPositions.getZ(outletNextVertex) - outletPositions.getZ(outletPreviousVertex),
+  ).normalize();
   const outletSide = new THREE.Vector3(-outletTangent.z, 0, outletTangent.x);
   const outletAcceptanceAt = (lateralDistance) => getFlowingWaterGrassAcceptance(
     outletCenter.x + outletSide.x * lateralDistance,
     outletCenter.z + outletSide.z * lateralDistance,
   );
+
+  disposeSystem(system);
 
   assert.ok(outletAcceptanceAt(6.2) < 0.001);
   assert.ok(Math.abs(outletAcceptanceAt(8.5) - 0.35) < 0.001);
@@ -194,6 +238,7 @@ test('all flowing water meshes share one environment-lit material and update it 
   assert.equal(outletUvs.getX(outletLastRow), outletUvs.getX(outletLastRow + 10));
 
   const outletFlowUvs = system.outletStream.geometry.getAttribute('flowUv');
+  const outletWaterFades = system.outletStream.geometry.getAttribute('waterFade');
   const outletJunctionDirections = system.outletStream.geometry.getAttribute(
     'junctionFlowDirection',
   );
@@ -207,6 +252,17 @@ test('all flowing water meshes share one environment-lit material and update it 
         outletJunctionDirections.getY(vertex),
       ) - 1,
     ) < 1e-5);
+  }
+
+  for (let vertex = 0; vertex < 11; vertex += 1) {
+    const frame = getLakeBoundaryFrame(
+      ALPINE_LAKE_BOUNDARY,
+      outletPositions.getX(vertex),
+      outletPositions.getZ(vertex),
+    );
+
+    assert.ok(Math.abs(frame.signedDistance) < 1e-4);
+    assert.equal(outletWaterFades.getX(vertex), 0);
   }
 
   for (let row = 0; row <= 90; row += 15) {

@@ -1,8 +1,18 @@
 import * as THREE from 'three';
+import {
+  ALPINE_LAKE_BOUNDARY,
+  getLakeBoundary,
+  getLakeBoundaryFrame,
+  getLakeMaximumRadius,
+  getLakeOutsideFadeFromSignedDistance,
+  getLakesOutsideFade,
+  hasLakeBoundary,
+} from '../lakeBoundary.js';
 
 const DEFAULT_SAMPLE_SPACING = 2;
 const DEFAULT_SPATIAL_CELL_SIZE = 64;
 const DEFAULT_FLOW_SPEED = 1;
+const LAKE_LEVEL_BLEND_LENGTH = 12;
 const ENDPOINT_EPSILON = 1e-4;
 const WATER_LEVEL_EPSILON = 1e-6;
 const GRASS_WET_GUARD = 0.6;
@@ -84,12 +94,8 @@ const nodes = [
     id: 'alpine-lake',
     type: 'lake',
     position: [300, -436],
-    center: [300, -400],
     waterLevel: 31,
-    radius: 47,
-    shoreWidth: 9,
-    maxDepth: 6.5,
-    edgeDepth: 0.25,
+    lakeBoundary: ALPINE_LAKE_BOUNDARY,
     existing: true,
   },
 ];
@@ -258,7 +264,9 @@ export function compileRiverNetwork(definition, options = {}) {
   const compiledReaches = definition.reaches
     .map((reach) => compileReach(reach, graph.nodeById, sampleSpacing))
     .sort((a, b) => nodeOrder.get(a.from) - nodeOrder.get(b.from));
-  const lakeFeatures = definition.nodes.filter((node) => node.radius > 0);
+  const lakeFeatures = definition.nodes.filter(
+    (node) => node.type === 'lake' && hasLakeBoundary(node),
+  );
   const featureBounds = createFeatureBounds(compiledReaches, lakeFeatures);
 
   return {
@@ -340,10 +348,10 @@ export function getRiverBankGrassAcceptance(frame) {
 
 export function getRiverNetworkGrassAcceptance(x, z, network = RIVER_NETWORK) {
   for (const lake of network.lakeFeatures) {
-    const center = lake.center ?? lake.position;
-    const distance = Math.hypot(x - center[0], z - center[1]);
+    const boundary = getLakeBoundary(lake);
+    const frame = getLakeBoundaryFrame(boundary, x, z);
 
-    if (distance <= lake.radius + (lake.shoreWidth ?? 0) + GRASS_LAKE_HARD_BUFFER) {
+    if (frame.signedDistance <= (boundary.shoreWidth ?? 0) + GRASS_LAKE_HARD_BUFFER) {
       return 0;
     }
   }
@@ -372,16 +380,36 @@ export function getRiverNetworkTerrainTarget(
   network = RIVER_NETWORK,
 ) {
   let result = null;
+  const candidates = getSpatialCandidates(network, x, z, 0);
+  const sceneLakeFade = candidates.size > 0
+    ? getLakesOutsideFade(network.lakeFeatures, x, z)
+    : 1;
 
-  for (const reach of getSpatialCandidates(network, x, z, 0)) {
+  for (const reach of candidates) {
     const frame = getClosestReachFrame(reach, x, z);
 
-    if (!frame || frame.distance > frame.influence) continue;
+    if (!frame || frame.distance > frame.influence || sceneLakeFade <= 0) continue;
+
+    const lakeTransition = getReachLakeTransition(reach, frame, x, z, network);
+    const waterLevel = lakeTransition
+      ? THREE.MathUtils.lerp(
+        lakeTransition.boundary.waterLevel,
+        frame.waterLevel,
+        smoothstep(0, LAKE_LEVEL_BLEND_LENGTH, lakeTransition.centerlineDistance),
+      )
+      : frame.waterLevel;
 
     const coreMask = 1 - smoothstep(frame.halfWidth * 0.65, frame.halfWidth, frame.distance);
     const bankMask = 1 - smoothstep(frame.halfWidth, frame.influence, frame.distance);
     const carveMask = Math.max(coreMask, bankMask * 0.22);
-    const bedHeight = frame.waterLevel - frame.depth;
+    const riverBedHeight = waterLevel - frame.depth;
+    const bedHeight = lakeTransition && lakeTransition.fade < 1
+      ? THREE.MathUtils.lerp(
+        lakeTransition.boundary.waterLevel - lakeTransition.boundary.edgeDepth,
+        riverBedHeight,
+        lakeTransition.fade,
+      )
+      : riverBedHeight;
     const terrainHeight = Math.min(
       baseHeight,
       THREE.MathUtils.lerp(baseHeight, bedHeight, carveMask),
@@ -393,36 +421,61 @@ export function getRiverNetworkTerrainTarget(
       featureType: 'reach',
       featureId: reach.id,
       terrainHeight,
-      waterLevel: frame.waterLevel,
+      waterLevel,
       bedHeight,
       carveMask,
     };
   }
 
   for (const lake of network.lakeFeatures) {
-    const center = lake.center ?? lake.position;
-    const distance = Math.hypot(x - center[0], z - center[1]);
+    const boundary = getLakeBoundary(lake);
+    const frame = getLakeBoundaryFrame(boundary, x, z);
 
-    if (distance > lake.radius) continue;
+    if (frame.signedDistance > 1e-6) continue;
 
-    const depthT = smoothstep(lake.radius * 0.18, lake.radius, distance);
-    const depth = THREE.MathUtils.lerp(lake.maxDepth, lake.edgeDepth, depthT);
-    const bedHeight = lake.waterLevel - depth;
+    const depthT = smoothstep(0.18, 1, frame.normalizedRadius);
+    const depth = THREE.MathUtils.lerp(boundary.maxDepth, boundary.edgeDepth, depthT);
+    const bedHeight = boundary.waterLevel - depth;
     const terrainHeight = Math.min(baseHeight, bedHeight);
 
     if (result && terrainHeight >= result.terrainHeight) continue;
 
     result = {
       featureType: 'lake',
-      featureId: lake.id,
+      featureId: boundary.id,
       terrainHeight,
-      waterLevel: lake.waterLevel,
+      waterLevel: boundary.waterLevel,
       bedHeight,
       carveMask: 1,
     };
   }
 
   return result;
+}
+
+function getReachLakeTransition(reach, frame, x, z, network) {
+  let closest = null;
+
+  for (const nodeId of [reach.from, reach.to]) {
+    const node = network.nodeById.get(nodeId);
+
+    if (node?.type !== 'lake' || !hasLakeBoundary(node)) continue;
+
+    const boundary = getLakeBoundary(node);
+    const sampleFrame = getLakeBoundaryFrame(boundary, x, z);
+    const centerlineFrame = getLakeBoundaryFrame(boundary, frame.x, frame.z);
+    const distance = Math.max(centerlineFrame.signedDistance, 0);
+
+    if (closest && distance >= closest.centerlineDistance) continue;
+
+    closest = {
+      boundary,
+      centerlineDistance: distance,
+      fade: getLakeOutsideFadeFromSignedDistance(sampleFrame.signedDistance),
+    };
+  }
+
+  return closest;
 }
 
 export function applyRiverNetworkTerrain(baseHeight, x, z, network = RIVER_NETWORK) {
@@ -444,10 +497,10 @@ export function isInRiverNetworkVegetationExclusion(
   }
 
   for (const lake of network.lakeFeatures) {
-    const center = lake.center ?? lake.position;
-    const distance = Math.hypot(x - center[0], z - center[1]);
+    const boundary = getLakeBoundary(lake);
+    const frame = getLakeBoundaryFrame(boundary, x, z);
 
-    if (distance <= lake.radius + lake.shoreWidth + buffer) return true;
+    if (frame.signedDistance <= boundary.shoreWidth + buffer) return true;
   }
 
   return false;
@@ -810,16 +863,19 @@ function createFeatureBounds(compiledReaches, lakeFeatures) {
   }));
 
   for (const lake of lakeFeatures) {
-    const center = lake.center ?? lake.position;
-    const radius = lake.radius + lake.shoreWidth;
+    const boundary = getLakeBoundary(lake);
+    const center = boundary.center ?? boundary.position;
+    const centerX = boundary.cx ?? center[0];
+    const centerZ = boundary.cz ?? center[1];
+    const radius = getLakeMaximumRadius(boundary) + boundary.shoreWidth;
 
     bounds.push({
       id: lake.id,
       type: 'lake',
-      minX: center[0] - radius,
-      maxX: center[0] + radius,
-      minZ: center[1] - radius,
-      maxZ: center[1] + radius,
+      minX: centerX - radius,
+      maxX: centerX + radius,
+      minZ: centerZ - radius,
+      maxZ: centerZ + radius,
     });
   }
 

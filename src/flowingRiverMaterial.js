@@ -13,10 +13,49 @@ import {
   FLOWING_RIVER_SHALLOW_COLOR,
 } from './waterPalette.js';
 import {
-  TERMINAL_LOWLAND_LAKE_TRANSITION,
+  TERMINAL_LOWLAND_LAKE,
 } from './lowlandHeightPlan.js';
+import {
+  RIVER_LAKE_FADE_LENGTH,
+  getLakeShaderDescriptor,
+  getUniqueLakeBoundaries,
+} from './lakeBoundary.js';
 
-export function createFlowingRiverMaterial() {
+export const MAX_FLOWING_RIVER_LAKES = 12;
+
+export function createFlowingRiverMaterial({
+  lakeBoundaries = [TERMINAL_LOWLAND_LAKE],
+} = {}) {
+  const boundaries = getUniqueLakeBoundaries(lakeBoundaries);
+
+  if (boundaries.length > MAX_FLOWING_RIVER_LAKES) {
+    throw new Error(`Flowing river material supports at most ${MAX_FLOWING_RIVER_LAKES} lakes.`);
+  }
+
+  const descriptors = boundaries.map(getLakeShaderDescriptor);
+  const lakeCenters = [];
+  const lakeRadii = [];
+  const lakeShapes = [];
+
+  for (let index = 0; index < MAX_FLOWING_RIVER_LAKES; index += 1) {
+    const descriptor = descriptors[index];
+
+    lakeCenters.push(new THREE.Vector2(
+      descriptor?.center.x ?? 0,
+      descriptor?.center.z ?? 0,
+    ));
+    lakeRadii.push(new THREE.Vector2(
+      descriptor?.radiusX ?? 1,
+      descriptor?.radiusZ ?? 1,
+    ));
+    lakeShapes.push(new THREE.Vector4(
+      descriptor?.rotation ?? 0,
+      descriptor?.shapeAmp ?? 0,
+      descriptor?.phase ?? 0,
+      descriptor?.shapeKind ?? 0,
+    ));
+  }
+
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     transparent: true,
@@ -34,14 +73,11 @@ export function createFlowingRiverMaterial() {
       uCameraNear: { value: 0.25 },
       uCameraFar: { value: 1800 },
       uRefractionPixels: { value: 0 },
-      uTerminalLakeBoundary: {
-        value: new THREE.Vector4(
-          TERMINAL_LOWLAND_LAKE_TRANSITION.center[0],
-          TERMINAL_LOWLAND_LAKE_TRANSITION.center[1],
-          TERMINAL_LOWLAND_LAKE_TRANSITION.radius,
-          TERMINAL_LOWLAND_LAKE_TRANSITION.fadeLength,
-        ),
-      },
+      uLakeBoundaryCount: { value: descriptors.length },
+      uLakeBoundaryCenters: { value: lakeCenters },
+      uLakeBoundaryRadii: { value: lakeRadii },
+      uLakeBoundaryShapes: { value: lakeShapes },
+      uLakeFadeLength: { value: RIVER_LAKE_FADE_LENGTH },
     }),
     vertexShader: `
       attribute float waterDepth;
@@ -110,7 +146,12 @@ export function createFlowingRiverMaterial() {
       uniform float uSunIntensity;
       uniform sampler2D uWaterEnvironmentMap;
       uniform float uWaterReflectionStrength;
-      uniform vec4 uTerminalLakeBoundary;
+      #define MAX_RIVER_LAKES ${MAX_FLOWING_RIVER_LAKES}
+      uniform int uLakeBoundaryCount;
+      uniform vec2 uLakeBoundaryCenters[MAX_RIVER_LAKES];
+      uniform vec2 uLakeBoundaryRadii[MAX_RIVER_LAKES];
+      uniform vec4 uLakeBoundaryShapes[MAX_RIVER_LAKES];
+      uniform float uLakeFadeLength;
       #ifdef USE_SINGLE_LAYER_WATER
         uniform sampler2D uSceneColor;
         uniform sampler2D uSceneDepth;
@@ -568,17 +609,69 @@ export function createFlowingRiverMaterial() {
         return anchoredStrand * mix(0.12, 1.0, movingBreakup);
       }
 
+      float getSceneLakeFade(vec2 worldPosition) {
+        float fade = 1.0;
+
+        for (int lakeIndex = 0; lakeIndex < MAX_RIVER_LAKES; lakeIndex++) {
+          if (lakeIndex >= uLakeBoundaryCount) break;
+
+          vec2 delta = worldPosition - uLakeBoundaryCenters[lakeIndex];
+          float radialDistance = length(delta);
+          vec2 direction = radialDistance > 0.000001
+            ? delta / radialDistance
+            : vec2(1.0, 0.0);
+          vec2 radii = uLakeBoundaryRadii[lakeIndex];
+          vec4 shape = uLakeBoundaryShapes[lakeIndex];
+          float maximumRadius = shape.w > 0.5
+            ? 56.0
+            : max(radii.x, radii.y) * (1.0 + abs(shape.y));
+
+          if (radialDistance >= maximumRadius + uLakeFadeLength) continue;
+
+          float boundaryRadius;
+
+          if (shape.w > 0.5) {
+            float angle = atan(direction.y, direction.x);
+            boundaryRadius = clamp(
+              radii.x
+                + sin(angle * 3.0 + 0.7) * 4.4
+                + sin(angle * 5.0 - 1.1) * 3.1
+                + sin(angle * 9.0 + 2.2) * 1.8,
+              39.0,
+              56.0
+            );
+          } else {
+            float rotationCos = cos(shape.x);
+            float rotationSin = sin(shape.x);
+            vec2 localDirection = vec2(
+              direction.x * rotationCos + direction.y * rotationSin,
+              -direction.x * rotationSin + direction.y * rotationCos
+            );
+            vec2 normalizedDirection = localDirection / radii;
+            float normalizedAngle = atan(
+              normalizedDirection.y,
+              normalizedDirection.x
+            );
+            float shapeScale = 1.0 + shape.y * (
+              sin(normalizedAngle * 3.0 + shape.z) * 0.5
+              + sin(normalizedAngle * 5.0 - shape.z * 0.7) * 0.3
+              + sin(normalizedAngle * 7.0 + shape.z * 1.3) * 0.2
+            );
+
+            boundaryRadius = shapeScale / max(length(normalizedDirection), 0.000001);
+          }
+
+          float signedDistance = radialDistance - boundaryRadius;
+
+          fade = min(fade, smoothstep(0.0, uLakeFadeLength, signedDistance));
+        }
+
+        return fade;
+      }
+
       void main() {
-        float terminalLakeSignedDistance = distance(
-          vWorldPosition.xz,
-          uTerminalLakeBoundary.xy
-        ) - uTerminalLakeBoundary.z;
-        float terminalLakeFade = smoothstep(
-          0.0,
-          uTerminalLakeBoundary.w,
-          terminalLakeSignedDistance
-        );
-        float effectiveWaterFade = min(vWaterFade, terminalLakeFade);
+        float sceneLakeFade = getSceneLakeFade(vWorldPosition.xz);
+        float effectiveWaterFade = min(vWaterFade, sceneLakeFade);
         if (effectiveWaterFade <= 0.0001) {
           discard;
         }

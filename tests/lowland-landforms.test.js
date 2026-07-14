@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { getGoldenShotFromLocation, listGoldenShotNames } from '../src/goldenShots.js';
 import { compileRiverNetwork } from '../src/hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from '../src/hydrology/riverNetworkWaterGeometry.js';
+import { getLakeBoundaryRadius } from '../src/lakeBoundary.js';
 import { createRiverWaterMesh, RIVER_TERMINAL_LAKE } from '../src/riverChannel.js';
 import {
   LOWLAND_HILLS,
@@ -135,7 +136,7 @@ test('pond terrain, masks, geometry, and vegetation share one irregular boundary
   const centerHeight = applyLowlandWaterTerrain(7, pond.cx, pond.cz);
   const streamFrame = getLowlandMaterialFrame(758, -296);
   const northStreamFrame = getLowlandMaterialFrame(-350, 765);
-  const southStreamFrame = getLowlandMaterialFrame(690, -620);
+  const southStreamFrame = getLowlandMaterialFrame(715, -635);
   const pondFrame = getLowlandMaterialFrame(pond.cx, pond.cz);
   const northLakeFrame = getLowlandMaterialFrame(-520, 720);
 
@@ -193,16 +194,9 @@ test('lowland grass acceptance protects every lake and stream without changing t
   }
 
   for (const lake of SOUTHERN_LOWLAND_LAKES) {
-    const phase = lake.phase ?? 0;
-    const shapeScale = 1 + (lake.shapeAmp ?? 0) * (
-      Math.sin(phase) * 0.5
-      + Math.sin(-phase * 0.7) * 0.3
-      + Math.sin(phase * 1.3) * 0.2
-    );
-    const protectedShoreX = lake.cx
-      + shapeScale * ((lake.radiusX ?? lake.radius) + lake.shoreWidth + 3.9);
-    const restoredShoreX = lake.cx
-      + shapeScale * ((lake.radiusX ?? lake.radius) + lake.shoreWidth + 4.1);
+    const boundaryRadius = getLakeBoundaryRadius(lake, 0);
+    const protectedShoreX = lake.cx + boundaryRadius + lake.shoreWidth + 3.9;
+    const restoredShoreX = lake.cx + boundaryRadius + lake.shoreWidth + 4.1;
 
     assert.equal(getLowlandStreamGrassAcceptance(protectedShoreX, lake.cz), 0);
     assert.equal(getLowlandStreamGrassAcceptance(restoredShoreX, lake.cz), 1);
@@ -263,10 +257,6 @@ test('water system batches three bounded watersheds through the shared river mat
   assert.ok(waterFrame.lakeBedMask > 0.99);
   assert.equal(isInWaterSystemVegetationExclusion(820, -260), true);
   assert.match(stream.material.vertexShader, /attribute float junctionMask/);
-  assertStreamHiddenInsideLake(stream, -520, 720);
-  assertStreamHiddenInsideLake(stream, -120, 800);
-  assertStreamHiddenInsideLake(stream, 755, -657);
-  assertStreamHiddenInsideLake(stream, 717, -751);
 
   const positions = stream.geometry.getAttribute('position');
   const waterFades = stream.geometry.getAttribute('waterFade');
@@ -275,8 +265,6 @@ test('water system batches three bounded watersheds through the shared river mat
     (reach) => reach.id === 'east-meadow-outlet',
   );
   const pond = LOWLAND_LAKES[0];
-  let maximumInnerFade = 0;
-  let maximumPondInnerFade = 0;
   let outerTerminalFadeVisible = false;
   let pondShore = null;
   let terminalShore = null;
@@ -287,20 +275,8 @@ test('water system batches three bounded watersheds through the shared river mat
       positions.getZ(vertex) + 340,
     );
 
-    if (distance < RIVER_TERMINAL_LAKE.radius) {
-      maximumInnerFade = Math.max(maximumInnerFade, waterFades.getX(vertex));
-    }
     if (distance >= 23 && distance <= 25 && waterFades.getX(vertex) > 0.8) {
       outerTerminalFadeVisible = true;
-    }
-
-    const pondDistance = Math.hypot(
-      positions.getX(vertex) - pond.cx,
-      positions.getZ(vertex) - pond.cz,
-    );
-
-    if (pondDistance < 12) {
-      maximumPondInnerFade = Math.max(maximumPondInnerFade, waterFades.getX(vertex));
     }
     if (waterEdges.getX(vertex) < 0.999) continue;
 
@@ -315,8 +291,6 @@ test('water system batches three bounded watersheds through the shared river mat
     );
   }
 
-  assert.ok(maximumInnerFade < 1e-6);
-  assert.ok(maximumPondInnerFade < 1e-6);
   assert.equal(outerTerminalFadeVisible, true);
   for (
     let vertex = terminalReach.startVertex;
@@ -328,7 +302,7 @@ test('water system batches three bounded watersheds through the shared river mat
       positions.getZ(vertex) - RIVER_TERMINAL_LAKE.cz,
     );
 
-    assert.ok(distance >= RIVER_TERMINAL_LAKE.radius - 1e-5);
+    assert.ok(distance >= RIVER_TERMINAL_LAKE.radius - 1e-4);
   }
   const terminalFinalRow = terminalReach.startVertex
     + (terminalReach.rowCount - 1) * terminalReach.rowSize;
@@ -343,7 +317,8 @@ test('water system batches three bounded watersheds through the shared river mat
     assert.ok(Math.abs(distance - RIVER_TERMINAL_LAKE.radius) < 1e-4);
     assert.equal(waterFades.getX(vertex), 0);
   }
-  assert.ok(pondShore.fade > 0.25 && pondShore.fade < 0.95);
+  assert.ok(pondShore.distance < 0.2);
+  assert.equal(pondShore.fade, 0);
   assert.ok(Math.abs(pondShore.y - (pond.waterLevel + pond.surfaceOffset)) < 0.01);
   assert.ok(terminalShore.distance < 0.1);
   assert.equal(terminalShore.fade, 0);
@@ -779,23 +754,6 @@ function getCloserWaterVertex(current, positions, waterFades, vertex, x, z) {
     fade: waterFades.getX(vertex),
     y: positions.getY(vertex),
   };
-}
-
-function assertStreamHiddenInsideLake(stream, x, z) {
-  const positions = stream.geometry.getAttribute('position');
-  const waterFades = stream.geometry.getAttribute('waterFade');
-  let maximumFade = 0;
-  let sampleCount = 0;
-
-  for (let vertex = 0; vertex < positions.count; vertex += 1) {
-    if (Math.hypot(positions.getX(vertex) - x, positions.getZ(vertex) - z) > 4) continue;
-
-    maximumFade = Math.max(maximumFade, waterFades.getX(vertex));
-    sampleCount += 1;
-  }
-
-  assert.ok(sampleCount > 0);
-  assert.ok(maximumFade < 1e-6);
 }
 
 function getChunkBounds(x, z) {

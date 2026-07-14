@@ -6,6 +6,11 @@ import {
 import { MAP_SIZE } from './vegetationConfig.js';
 import { createLakeSurfaceMaterial } from './waterSystem.js';
 import { WATER_RENDER_ORDER } from './waterContext.js';
+import {
+  getLakeBoundaryFrame,
+  getLakeBoundaryRadius,
+  getLakeMaximumRadius,
+} from './lakeBoundary.js';
 
 const LAKES = [
   ...SOUTHERN_LOWLAND_LAKES,
@@ -28,19 +33,14 @@ export function applySmallLakesTerrain(baseHeight, x, z) {
 export function isInSmallLakeExclusion(x, z, buffer = 0) {
   for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
     const lake = ACTIVE_LAKES[i];
-    const dx = x - lake.cx;
-    const dz = z - lake.cz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    const frame = getLakeBoundaryFrame(lake, x, z);
 
     if (lake.isTerminal) {
-      if (dist < lake.radius + lake.shoreWidth + buffer) return true;
+      if (frame.signedDistance < lake.shoreWidth + buffer) return true;
       continue;
     }
 
-    const angle = Math.atan2(dz, dx);
-    const actualRadius = lakeRadiusAt(angle, lake);
-
-    if (dist < actualRadius + buffer) return true;
+    if (frame.signedDistance < buffer) return true;
   }
 
   return false;
@@ -51,16 +51,11 @@ export function getSmallLakesMaterialMask(x, z) {
 
   for (let i = 0; i < ACTIVE_LAKES.length; i += 1) {
     const lake = ACTIVE_LAKES[i];
-    const dx = x - lake.cx;
-    const dz = z - lake.cz;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    const actualRadius = lake.isTerminal
-      ? lake.radius
-      : lakeRadiusAt(Math.atan2(dz, dx), lake);
+    const frame = getLakeBoundaryFrame(lake, x, z);
 
     const bedMask = lake.isTerminal
-      ? smoothstep(actualRadius, actualRadius - 2, dist)
-      : smoothstep(actualRadius + BED_MASK_RADIUS, actualRadius - 1, dist);
+      ? smoothstep(0, -2, frame.signedDistance)
+      : smoothstep(BED_MASK_RADIUS, -1, frame.signedDistance);
 
     mask = Math.max(mask, bedMask);
   }
@@ -86,12 +81,10 @@ export function createSmallLakes(terrain) {
       continue;
     }
 
-    const lr = lakeRadiusAt;
-
     const geometry = createLakeGeometry(
       lake,
       lake.waterLevel + lake.surfaceOffset,
-      lr,
+      getLakeBoundaryRadius,
     );
     const material = createLakeSurfaceMaterial();
     const mesh = new THREE.Mesh(geometry, material);
@@ -118,24 +111,13 @@ export function updateSmallLakes(group, camera, elapsedTime) {
 }
 
 function isLakeFullyInsideMap(lake) {
-  const maxRadius = lake.isTerminal
-    ? lake.radius + lake.shoreWidth
-    : lake.radius * (1 + lake.shapeAmp) + SHORE_WIDTH;
+  const maxRadius = getLakeMaximumRadius(lake)
+    + (lake.isTerminal ? lake.shoreWidth : SHORE_WIDTH);
 
   return lake.cx - maxRadius >= -HALF_MAP_SIZE
     && lake.cx + maxRadius <= HALF_MAP_SIZE
     && lake.cz - maxRadius >= -HALF_MAP_SIZE
     && lake.cz + maxRadius <= HALF_MAP_SIZE;
-}
-
-function lakeRadiusAt(angle, lake) {
-  const phase = lake.phase ?? 0;
-
-  return lake.radius * (1 + lake.shapeAmp * (
-    Math.sin(angle * 3 + phase) * 0.5
-    + Math.sin(angle * 5 - phase * 0.7) * 0.3
-    + Math.sin(angle * 7 + phase * 1.3) * 0.2
-  ));
 }
 
 function createLakeGeometry(lake, waterLevel, lr) {
@@ -156,7 +138,7 @@ function createLakeGeometry(lake, waterLevel, lr) {
 
     for (let a = 0; a < ANGLE_SEGMENTS; a += 1) {
       const angle = (a / ANGLE_SEGMENTS) * Math.PI * 2;
-      const r = t * lake.radius * lr(angle, lake) / lake.radius;
+      const r = t * lr(lake, angle);
       const x = lake.cx + Math.cos(angle) * r;
       const z = lake.cz + Math.sin(angle) * r;
 
@@ -223,7 +205,7 @@ function createTerminalLakeGeometry(lake, terrain) {
   const geometry = createLakeGeometry(
     lake,
     lake.waterLevel + lake.surfaceOffset,
-    (_angle, currentLake) => currentLake.radius,
+    getLakeBoundaryRadius,
   );
   const positions = geometry.getAttribute('position');
   const uvs = geometry.getAttribute('uv');

@@ -13,6 +13,13 @@ import {
   isInRiverNetworkVegetationExclusion,
   validateRiverNetworkDefinition,
 } from '../src/hydrology/riverNetwork.js';
+import {
+  findLakeBoundaryIntersection,
+  getLakeBoundary,
+  getLakeBoundaryFrame,
+  getLakeBoundaryRadius,
+  getLakeCenter,
+} from '../src/lakeBoundary.js';
 
 test('river network is one upstream-to-downstream DAG with five sources and four confluences', () => {
   assert.equal(validateRiverNetworkDefinition(RIVER_NETWORK_DEFINITION), true);
@@ -205,6 +212,49 @@ test('spatial queries find channels and lakes without affecting terrain away fro
   assert.ok(RIVER_NETWORK.bounds.minZ < -680);
 });
 
+test('mountain river beds stay below transitioned water and meet lake edge beds continuously', () => {
+  const transitions = [
+    { reachId: 's3-tarn', lakeId: 'cirque-tarn', endpoint: 'end' },
+    { reachId: 'tarn-j3', lakeId: 'cirque-tarn', endpoint: 'start' },
+    { reachId: 'j4-alpine-lake', lakeId: 'alpine-lake', endpoint: 'end' },
+  ];
+
+  for (const transition of transitions) {
+    const reach = RIVER_NETWORK.reachById.get(transition.reachId);
+    const lake = getLakeBoundary(RIVER_NETWORK.nodeById.get(transition.lakeId));
+    let shore = null;
+    let outsideSample = null;
+
+    for (let index = 0; index < reach.samples.length - 1; index += 1) {
+      const start = reach.samples[index].point;
+      const end = reach.samples[index + 1].point;
+      const startDistance = getLakeBoundaryFrame(lake, start.x, start.z).signedDistance;
+      const endDistance = getLakeBoundaryFrame(lake, end.x, end.z).signedDistance;
+
+      if (startDistance * endDistance > 0) continue;
+      shore = findLakeBoundaryIntersection(lake, start, end);
+      outsideSample = startDistance >= 0 ? start : end;
+      if (transition.endpoint === 'start' || endDistance <= 0) break;
+    }
+
+    const directionX = outsideSample.x - shore.x;
+    const directionZ = outsideSample.z - shore.z;
+    const directionLength = Math.hypot(directionX, directionZ);
+    const sampleAt = (signedDistance) => getRiverNetworkTerrainTarget(
+      50,
+      shore.x + directionX / directionLength * signedDistance,
+      shore.z + directionZ / directionLength * signedDistance,
+    );
+    const outside = sampleAt(0.01);
+    const inside = sampleAt(-0.01);
+
+    assert.equal(outside.featureType, 'reach');
+    assert.equal(inside.featureType, 'lake');
+    assert.ok(Math.abs(outside.terrainHeight - inside.terrainHeight) < 1e-3);
+    assert.ok(outside.bedHeight < outside.waterLevel);
+  }
+});
+
 test('river-bank grass acceptance is finite, monotonic, and honors authored bank widths', () => {
   const frame = {
     distance: 0,
@@ -293,9 +343,20 @@ test('the four authored mountain confluences keep every connected wet arm clear'
 });
 
 test('river-network grass acceptance keeps a hard buffer around lakes', () => {
-  assert.equal(getRiverNetworkGrassAcceptance(300, -400), 0);
-  assert.equal(getRiverNetworkGrassAcceptance(359.9, -400), 0);
-  assert.equal(getRiverNetworkGrassAcceptance(360.1, -400), 1);
+  const lake = getLakeBoundary(RIVER_NETWORK.nodeById.get('alpine-lake'));
+  const center = getLakeCenter(lake);
+  const hardBuffer = lake.shoreWidth + 4;
+  const eastShore = getLakeBoundaryRadius(lake, 0);
+
+  assert.equal(getRiverNetworkGrassAcceptance(center.x, center.z), 0);
+  assert.equal(
+    getRiverNetworkGrassAcceptance(center.x + eastShore + hardBuffer - 0.1, center.z),
+    0,
+  );
+  assert.equal(
+    getRiverNetworkGrassAcceptance(center.x + eastShore + hardBuffer + 0.1, center.z),
+    1,
+  );
 });
 
 function createExtendedDefinition() {

@@ -1,6 +1,12 @@
 import { CatmullRomCurve3, Vector3 } from 'three';
 import { compileRiverNetwork } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
+import {
+  getLakeBoundary,
+  getLakeBoundaryFrame,
+  getLakeOutsideFade,
+  getLakeOutsideFadeFromSignedDistance,
+} from './lakeBoundary.js';
 
 const DEFAULT_WORLD_SIZE = 2048;
 const DEFAULT_MAX_HEIGHT = 300;
@@ -78,18 +84,11 @@ export const TERMINAL_LOWLAND_LAKE_TRANSITION = deepFreeze({
 });
 
 export function getTerminalLowlandLakeInletFade(x, z) {
-  const distance = Math.hypot(
-    x - TERMINAL_LOWLAND_LAKE.cx,
-    z - TERMINAL_LOWLAND_LAKE.cz,
-  );
-  const signedDistance = distance - TERMINAL_LOWLAND_LAKE.radius;
-
-  if (signedDistance <= 1e-6) return 0;
-
-  return smoothstep(
-    0,
+  return getLakeOutsideFade(
+    TERMINAL_LOWLAND_LAKE,
+    x,
+    z,
     TERMINAL_LOWLAND_LAKE_TRANSITION.fadeLength,
-    signedDistance,
   );
 }
 
@@ -148,12 +147,34 @@ export const SOUTHERN_LOWLAND_LAKES = deepFreeze([
   { id: 'south-terminal-lake', cx: 717, cz: -751, radius: 30, shapeAmp: 0.32, phase: 4.1, waterLevel: 1.8, maxDepth: 1.6, edgeDepth: 0.15, shoreWidth: 6, surfaceOffset: 0.045 },
 ]);
 
+const riverConnectedLowlandLakes = [
+  TERMINAL_LOWLAND_LAKE,
+  ...LOWLAND_LAKES,
+  ...SOUTHERN_LOWLAND_LAKES,
+];
+const lowlandLakeById = new Map(
+  riverConnectedLowlandLakes.map((lake) => [lake.id, lake]),
+);
+
+function createLakeNetworkNode(id, properties = {}) {
+  const lake = lowlandLakeById.get(id);
+
+  return {
+    id,
+    type: 'lake',
+    position: [lake.cx, lake.cz],
+    waterLevel: lake.waterLevel,
+    lakeBoundary: lake,
+    ...properties,
+  };
+}
+
 const eastStream = {
   id: 'east-lowland-basin',
   terminalLakeTransition: TERMINAL_LOWLAND_LAKE_TRANSITION,
   nodes: [
-    { id: 'east-meadow-pond', type: 'lake', position: [820, -260], waterLevel: 3.2 },
-    { id: 'terminal-lake', type: 'lake', position: [690, -340], waterLevel: 1.6, existing: true },
+    createLakeNetworkNode('east-meadow-pond'),
+    createLakeNetworkNode('terminal-lake', { existing: true }),
   ],
   reaches: [
     {
@@ -174,8 +195,8 @@ const eastStream = {
 const northStream = {
   id: 'north-lowland-basin',
   nodes: [
-    { id: 'northwest-shallow-lake', type: 'lake', position: [-520, 720], waterLevel: 3.5 },
-    { id: 'northeast-shallow-lake', type: 'lake', position: [-120, 800], waterLevel: 2 },
+    createLakeNetworkNode('northwest-shallow-lake'),
+    createLakeNetworkNode('northeast-shallow-lake'),
   ],
   reaches: [
     {
@@ -196,10 +217,10 @@ const northStream = {
 const southStream = {
   id: 'south-lowland-basin',
   nodes: [
-    { id: 'south-northwest-lake', type: 'lake', position: [667, -605], waterLevel: 3.5 },
-    { id: 'south-east-lake', type: 'lake', position: [859, -692], waterLevel: 3.2 },
-    { id: 'south-central-lake', type: 'lake', position: [755, -657], waterLevel: 2.8 },
-    { id: 'south-terminal-lake', type: 'lake', position: [717, -751], waterLevel: 1.8 },
+    createLakeNetworkNode('south-northwest-lake'),
+    createLakeNetworkNode('south-east-lake'),
+    createLakeNetworkNode('south-central-lake'),
+    createLakeNetworkNode('south-terminal-lake'),
   ],
   reaches: [
     {
@@ -246,7 +267,7 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       id: 'hero-j2', type: 'confluence', position: [633, -349], waterLevel: 1.88,
       poolRadius: 12,
     },
-    { id: 'terminal-lake', type: 'lake', position: [690, -340], waterLevel: 1.6 },
+    createLakeNetworkNode('terminal-lake'),
   ],
   reaches: [
     {
@@ -756,18 +777,39 @@ function getPolygonSample(points, x, z) {
   return { inside, distance };
 }
 
+function getClosestLakeTransition(x, z) {
+  let closest = null;
+  let fade = 1;
+
+  for (const lake of riverConnectedLowlandLakes) {
+    const frame = getLakeBoundaryFrame(lake, x, z);
+
+    fade = Math.min(
+      fade,
+      getLakeOutsideFadeFromSignedDistance(frame.signedDistance),
+    );
+    if (closest && frame.signedDistance >= closest.frame.signedDistance) continue;
+    closest = { boundary: getLakeBoundary(lake), frame };
+  }
+
+  return { ...closest, fade };
+}
+
 export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
   let height = baseHeight;
   let strongest = null;
   let waterOverrideMask = 0;
   const reaches = LOWLAND_STREAM_PLAN.reaches;
-  const terminalFade = getTerminalLowlandLakeInletFade(x, z);
+  let lakeTransition = null;
 
   for (const reach of reaches) {
     const frame = getReachFrame(reach, x, z);
 
     if (!frame || frame.distance > frame.influence) continue;
-    if (terminalFade <= 0) continue;
+    lakeTransition ??= getClosestLakeTransition(x, z);
+    const riverLakeFade = lakeTransition.fade;
+
+    if (riverLakeFade <= 0) continue;
 
     const smoothingPadding = 1.5;
     const bedOuter = Math.min(frame.halfWidth + smoothingPadding, frame.influence - 0.5);
@@ -775,11 +817,11 @@ export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
       ? 1
       : 1 - smoothstep(bedOuter, frame.influence, frame.distance);
     const riverBedHeight = Math.max(0, frame.waterLevel - frame.depth);
-    const bedHeight = terminalFade < 1
+    const bedHeight = riverLakeFade < 1
       ? lerp(
-        TERMINAL_LOWLAND_LAKE.waterLevel - TERMINAL_LOWLAND_LAKE.edgeDepth,
+        lakeTransition.boundary.waterLevel - lakeTransition.boundary.edgeDepth,
         riverBedHeight,
-        terminalFade,
+        riverLakeFade,
       )
       : riverBedHeight;
 
@@ -787,7 +829,7 @@ export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
     const candidate = {
       featureType: 'reach',
       featureId: reach.id,
-      mask: mask * terminalFade,
+      mask: mask * riverLakeFade,
       bedHeight,
       waterLevel: frame.waterLevel,
     };
@@ -860,25 +902,7 @@ function getBakedWaterOverrideMask(target) {
 }
 
 export function getLowlandLakeFrame(lake, x, z) {
-  const rotation = lake.rotation ?? 0;
-  const dx = x - lake.cx;
-  const dz = z - lake.cz;
-  const cos = Math.cos(rotation);
-  const sin = Math.sin(rotation);
-  const localX = dx * cos + dz * sin;
-  const localZ = -dx * sin + dz * cos;
-  const radiusX = lake.radiusX ?? lake.radius;
-  const radiusZ = lake.radiusZ ?? lake.radius;
-  const angle = Math.atan2(localZ / radiusZ, localX / radiusX);
-  const shapeScale = getShapeScale(lake.shapeAmp ?? 0, lake.phase ?? 0, angle);
-  const normalizedRadius = Math.hypot(localX / radiusX, localZ / radiusZ) / shapeScale;
-  const averageRadius = (radiusX + radiusZ) * 0.5;
-
-  return {
-    normalizedRadius,
-    signedDistance: (normalizedRadius - 1) * averageRadius,
-    angle,
-  };
+  return getLakeBoundaryFrame(lake, x, z);
 }
 
 export function heightmapPixelToWorld(pixelX, pixelY, width, height, worldSize = DEFAULT_WORLD_SIZE) {

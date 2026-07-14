@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  MAX_FLOWING_RIVER_LAKES,
   createFlowingRiverMaterial,
 } from '../src/flowingRiverMaterial.js';
+import { RIVER_NETWORK } from '../src/hydrology/riverNetwork.js';
+import { getUniqueLakeBoundaries } from '../src/lakeBoundary.js';
+import { LOWLAND_STREAM_NETWORKS } from '../src/lowlandLandforms.js';
 import {
   FLOWING_RIVER_DEEP_COLOR,
   FLOWING_RIVER_FOAM_COLOR,
@@ -10,8 +14,15 @@ import {
   FLOWING_RIVER_SHALLOW_COLOR,
 } from '../src/waterPalette.js';
 
+const SCENE_LAKE_BOUNDARIES = getUniqueLakeBoundaries([
+  ...RIVER_NETWORK.lakeFeatures,
+  ...LOWLAND_STREAM_NETWORKS.flatMap((network) => network.lakeFeatures),
+]);
+
 test('flowing river material consumes the terrain-aware river geometry contract', () => {
-  const material = createFlowingRiverMaterial();
+  const material = createFlowingRiverMaterial({
+    lakeBoundaries: SCENE_LAKE_BOUNDARIES,
+  });
 
   for (const [attribute, itemSize] of [
     ['waterDepth', 1],
@@ -122,14 +133,24 @@ test('flowing river material consumes the terrain-aware river geometry contract'
   assert.equal(material.uniforms.uSceneDepth.value, null);
   assert.deepEqual(material.uniforms.uSceneResolution.value.toArray(), [1, 1]);
   assert.equal(material.uniforms.uRefractionPixels.value, 0);
-  assert.deepEqual(
-    material.uniforms.uTerminalLakeBoundary.value.toArray(),
-    [690, -340, 20, 4],
+  assert.equal(material.uniforms.uLakeBoundaryCount.value, 10);
+  assert.equal(material.uniforms.uLakeBoundaryCenters.value.length, MAX_FLOWING_RIVER_LAKES);
+  assert.equal(material.uniforms.uLakeBoundaryRadii.value.length, MAX_FLOWING_RIVER_LAKES);
+  assert.equal(material.uniforms.uLakeBoundaryShapes.value.length, MAX_FLOWING_RIVER_LAKES);
+  assert.equal(material.uniforms.uLakeFadeLength.value, 4);
+  assert.ok(material.uniforms.uLakeBoundaryShapes.value.some((shape) => shape.w === 1));
+  assert.match(material.fragmentShader, /uniform int uLakeBoundaryCount;/);
+  assert.match(material.fragmentShader, /uniform vec2 uLakeBoundaryCenters\[MAX_RIVER_LAKES\];/);
+  assert.match(material.fragmentShader, /uniform vec2 uLakeBoundaryRadii\[MAX_RIVER_LAKES\];/);
+  assert.match(material.fragmentShader, /uniform vec4 uLakeBoundaryShapes\[MAX_RIVER_LAKES\];/);
+  assert.match(material.fragmentShader, /float getSceneLakeFade\(vec2 worldPosition\)/);
+  assert.match(
+    material.fragmentShader,
+    /if \(radialDistance >= maximumRadius \+ uLakeFadeLength\) continue;/,
   );
-  assert.match(material.fragmentShader, /uniform vec4 uTerminalLakeBoundary;/);
-  assert.match(material.fragmentShader, /float terminalLakeSignedDistance = distance\(/);
-  assert.match(material.fragmentShader, /float terminalLakeFade = smoothstep\(/);
-  assert.match(material.fragmentShader, /float effectiveWaterFade = min\(vWaterFade, terminalLakeFade\);/);
+  assert.match(material.fragmentShader, /float signedDistance = radialDistance - boundaryRadius;/);
+  assert.match(material.fragmentShader, /float sceneLakeFade = getSceneLakeFade\(vWorldPosition\.xz\);/);
+  assert.match(material.fragmentShader, /float effectiveWaterFade = min\(vWaterFade, sceneLakeFade\);/);
   assert.match(
     material.fragmentShader,
     /if \(effectiveWaterFade <= 0\.0001\) \{\s+discard;\s+\}/,

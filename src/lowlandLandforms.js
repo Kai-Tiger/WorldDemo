@@ -16,6 +16,12 @@ import {
   TERMINAL_LOWLAND_LAKE,
   getTerminalLowlandLakeInletFade,
 } from './lowlandHeightPlan.js';
+import {
+  getLakeBoundaryFrame,
+  getLakeBoundaryRadius,
+  getLakeOutsideFade,
+  getLakesOutsideFade,
+} from './lakeBoundary.js';
 
 const LOWLAND_FEATURE_SEGMENTS = 256;
 const LAKE_ANGLE_SEGMENTS = 72;
@@ -37,7 +43,11 @@ const streamDetailBounds = createStreamDetailBounds([
   heroRiverNetwork,
 ]);
 const lakeDetailBounds = LOWLAND_LAKES.map(createLakeBounds);
-const streamTransitionLakes = [...LOWLAND_LAKES, ...SOUTHERN_LOWLAND_LAKES];
+const streamTransitionLakes = [
+  TERMINAL_LOWLAND_LAKE,
+  ...LOWLAND_LAKES,
+  ...SOUTHERN_LOWLAND_LAKES,
+];
 
 export function applyLowlandHillsTerrain(baseHeight, x, z) {
   return baseHeight;
@@ -61,7 +71,7 @@ export function getLowlandMaterialFrame(x, z) {
 
     if (reach && reach.distance <= reach.influence) {
       const wetOuter = Math.min(reach.influence, reach.halfWidth + 3);
-      const inletFade = getLowlandTerminalInletFade(x, z);
+      const inletFade = getLowlandStreamLakeFade(x, z);
 
       bedMask = Math.max(
         bedMask,
@@ -78,8 +88,10 @@ export function getLowlandMaterialFrame(x, z) {
     }
   }
 
+  const riverWetMask = wetMask;
+
   for (const lake of LOWLAND_LAKES) {
-    const frame = getLakeFrame(lake, x, z);
+    const frame = getLakeBoundaryFrame(lake, x, z);
     const currentBedMask = 1 - smoothstep(-1, 0.35, frame.signedDistance);
     const innerWet = smoothstep(-5, -0.8, frame.signedDistance)
       * (1 - smoothstep(-0.8, 0.15, frame.signedDistance));
@@ -88,7 +100,6 @@ export function getLowlandMaterialFrame(x, z) {
       : 0;
 
     lakeBedMask = Math.max(lakeBedMask, currentBedMask);
-    bedMask = Math.max(bedMask, currentBedMask);
     wetMask = Math.max(wetMask, innerWet * 0.72, outerWet);
   }
 
@@ -96,6 +107,7 @@ export function getLowlandMaterialFrame(x, z) {
     bedMask: THREE.MathUtils.clamp(bedMask, 0, 1),
     wetMask: THREE.MathUtils.clamp(wetMask, 0, 1),
     lakeBedMask: THREE.MathUtils.clamp(lakeBedMask, 0, 1),
+    riverWetMask: THREE.MathUtils.clamp(riverWetMask, 0, 1),
   };
 }
 
@@ -105,7 +117,7 @@ export function isInLowlandVegetationExclusion(x, z, buffer = 0) {
   }
 
   for (const lake of LOWLAND_LAKES) {
-    const frame = getLakeFrame(lake, x, z);
+    const frame = getLakeBoundaryFrame(lake, x, z);
 
     if (frame.signedDistance <= lake.shoreWidth + buffer) return true;
   }
@@ -115,7 +127,7 @@ export function isInLowlandVegetationExclusion(x, z, buffer = 0) {
 
 export function getLowlandStreamGrassAcceptance(x, z) {
   for (const lake of streamTransitionLakes) {
-    if (getLakeFrame(lake, x, z).signedDistance <= lake.shoreWidth + 4) return 0;
+    if (getLakeBoundaryFrame(lake, x, z).signedDistance <= lake.shoreWidth + 4) return 0;
   }
 
   let acceptance = 1;
@@ -146,19 +158,11 @@ export function getLowlandTerminalInletFade(x, z) {
 }
 
 export function getLowlandLakeOutletFade(x, z) {
-  const frame = getLakeFrame(LOWLAND_LAKES[0], x, z);
-
-  return smoothstep(-4, 2, frame.signedDistance);
+  return getLakeOutsideFade(LOWLAND_LAKES[0], x, z);
 }
 
 export function getLowlandStreamLakeFade(x, z) {
-  let fade = getLowlandTerminalInletFade(x, z);
-
-  for (const lake of streamTransitionLakes) {
-    fade = Math.min(fade, smoothstep(-4, 2, getLakeFrame(lake, x, z).signedDistance));
-  }
-
-  return fade;
+  return getLakesOutsideFade(streamTransitionLakes, x, z);
 }
 
 export function createLowlandLakeGeometry(lake, terrain) {
@@ -189,10 +193,17 @@ export function createLowlandLakeGeometry(lake, terrain) {
 
     for (let segment = 0; segment < LAKE_ANGLE_SEGMENTS; segment += 1) {
       const angle = segment / LAKE_ANGLE_SEGMENTS * Math.PI * 2;
-      const shapeScale = getLakeShapeScale(lake, angle);
-      const localX = Math.cos(angle) * lake.radiusX * shapeScale * radiusT;
-      const localZ = Math.sin(angle) * lake.radiusZ * shapeScale * radiusT;
-      const world = rotateLocalPoint(lake, localX, localZ);
+      const radialPoint = rotateLocalPoint(
+        lake,
+        Math.cos(angle) * lake.radiusX,
+        Math.sin(angle) * lake.radiusZ,
+      );
+      const worldAngle = Math.atan2(radialPoint.z - lake.cz, radialPoint.x - lake.cx);
+      const boundaryRadius = getLakeBoundaryRadius(lake, worldAngle) * radiusT;
+      const world = {
+        x: lake.cx + Math.cos(worldAngle) * boundaryRadius,
+        z: lake.cz + Math.sin(worldAngle) * boundaryRadius,
+      };
       const vertex = 1 + (ring - 1) * LAKE_ANGLE_SEGMENTS + segment;
 
       writeLakeVertex(
@@ -245,35 +256,6 @@ export function createLowlandLakeGeometry(lake, terrain) {
   geometry.userData.lowlandLakeId = lake.id;
 
   return geometry;
-}
-
-function getLakeFrame(lake, x, z) {
-  const local = toLocalPoint(lake, x, z);
-  const radiusX = lake.radiusX ?? lake.radius;
-  const radiusZ = lake.radiusZ ?? lake.radius;
-  const normalizedX = local.x / radiusX;
-  const normalizedZ = local.z / radiusZ;
-  const angle = Math.atan2(normalizedZ, normalizedX);
-  const normalizedDistance = Math.hypot(normalizedX, normalizedZ)
-    / getLakeShapeScale(lake, angle);
-  const meanRadius = (radiusX + radiusZ) * 0.5;
-
-  return {
-    normalizedDistance,
-    signedDistance: (normalizedDistance - 1) * meanRadius,
-  };
-}
-
-function getLakeShapeScale(lake, angle) {
-  return getShapeScale(lake.shapeAmp ?? 0, lake.phase ?? 0, angle);
-}
-
-function getShapeScale(amplitude, phase, angle) {
-  return 1 + amplitude * (
-    Math.sin(angle * 3 + phase) * 0.5
-    + Math.sin(angle * 5 - phase * 0.7) * 0.3
-    + Math.sin(angle * 7 + phase * 1.3) * 0.2
-  );
 }
 
 function toLocalPoint(feature, x, z) {
