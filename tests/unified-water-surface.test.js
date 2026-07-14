@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { TERMINAL_LOWLAND_LAKE } from '../src/lowlandHeightPlan.js';
 import {
   RIVER_LAKE_INTERFACE_REGISTRY,
   UNIFIED_WATER_ATTRIBUTE_SCHEMA,
@@ -242,6 +243,39 @@ test('river influence is full outside, half at shore, and zero one transition le
     () => getRiverLakeTransitionInfluence(0, 0),
     /greater than zero/,
   );
+});
+
+test('terminal lake flow coordinates return to lake-local space at the inner transition row', () => {
+  const system = createUnifiedWaterSystem(terrain);
+  const batch = system.batches.find(
+    (entry) => entry.userData.basinId === 'hero-east-basin',
+  );
+  const positions = batch.geometry.getAttribute('position');
+  const flowUv = batch.geometry.getAttribute('flowUv');
+  const flowDirection = batch.geometry.getAttribute('flowDirection');
+  const flowSpeed = batch.geometry.getAttribute('flowSpeed');
+  const riverInfluence = batch.geometry.getAttribute('riverInfluence');
+  const terminalPatches = batch.userData.transitionPatches.filter(
+    (patch) => patch.lakeId === TERMINAL_LOWLAND_LAKE.id,
+  );
+
+  assert.equal(terminalPatches.length, 2);
+  for (const patch of terminalPatches) {
+    for (const vertex of patch.rows[4]) {
+      assert.ok(Math.abs(
+        flowUv.getX(vertex) - (positions.getX(vertex) - TERMINAL_LOWLAND_LAKE.cx)
+      ) < 5e-5);
+      assert.ok(Math.abs(
+        flowUv.getY(vertex) - (positions.getZ(vertex) - TERMINAL_LOWLAND_LAKE.cz)
+      ) < 5e-5);
+      assert.equal(flowDirection.getX(vertex), 0);
+      assert.equal(flowDirection.getY(vertex), 0);
+      assert.equal(flowSpeed.getX(vertex), 0);
+      assert.equal(riverInfluence.getX(vertex), 0);
+    }
+  }
+
+  disposeSystem(system);
 });
 
 test('basin batches contain no duplicate, degenerate, or non-manifold triangles', () => {

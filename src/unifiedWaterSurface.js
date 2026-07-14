@@ -772,7 +772,10 @@ function appendLakeVertex(builder, {
 }) {
   const maxRadius = Math.max(lake.radiusX ?? lake.radius, lake.radiusZ ?? lake.radius);
   const sourceVertex = sample?.vertex;
-  const insideTransition = sample?.attachment && ring < LAKE_TRANSITION_RING_COUNT;
+  const insideTransition = Boolean(
+    sample?.attachment && ring < LAKE_TRANSITION_RING_COUNT,
+  );
+  const hasRiverSource = insideTransition && sourceVertex !== undefined;
   const lateralWeight = sourceVertex !== undefined
     ? THREE.MathUtils.clamp(
       builder.getScalar('riverInfluence', sourceVertex) * 2,
@@ -780,22 +783,28 @@ function appendLakeVertex(builder, {
       1,
     )
     : 0;
-  const influence = insideTransition
+  const rawInfluence = insideTransition
     ? getRiverLakeTransitionInfluence(-inset, transitionLength) * lateralWeight
     : 0;
+  const influence = rawInfluence < 1e-6 ? 0 : rawInfluence;
   const influenceScale = THREE.MathUtils.clamp(influence * 2, 0, 1);
-  const flowUv = sourceVertex !== undefined
+  const lakeFlowUv = [x - center.x, z - center.z];
+  const sourceFlowUv = hasRiverSource
     ? builder.getVector('flowUv', sourceVertex)
-    : [x - center.x, z - center.z];
-  const flowDirection = sourceVertex !== undefined
+    : lakeFlowUv;
+  const flowDirection = hasRiverSource && influenceScale > 0
     ? builder.getVector('flowDirection', sourceVertex)
     : [0, 0];
-  const junctionFlowDirection = sourceVertex !== undefined
+  const junctionFlowDirection = hasRiverSource && influenceScale > 0
     ? builder.getVector('junctionFlowDirection', sourceVertex)
     : [0, 0];
   const flowSign = sample?.attachment?.endpoint === 'start' ? -1 : 1;
 
-  if (sourceVertex !== undefined) flowUv[0] += flowSign * inset;
+  if (hasRiverSource) sourceFlowUv[0] += flowSign * inset;
+  const flowUv = [
+    THREE.MathUtils.lerp(lakeFlowUv[0], sourceFlowUv[0], influenceScale),
+    THREE.MathUtils.lerp(lakeFlowUv[1], sourceFlowUv[1], influenceScale),
+  ];
 
   return builder.pushVertex({
     position: [x, y, z],
@@ -808,17 +817,17 @@ function appendLakeVertex(builder, {
     flowUv,
     flowDirection,
     junctionFlowDirection,
-    flowSpeed: sourceVertex !== undefined
+    flowSpeed: hasRiverSource
       ? builder.getScalar('flowSpeed', sourceVertex) * influenceScale
       : 0,
     riverInfluence: influence,
-    rapidMask: sourceVertex !== undefined
+    rapidMask: hasRiverSource
       ? builder.getScalar('rapidMask', sourceVertex) * influenceScale
       : 0,
-    junctionMask: sourceVertex !== undefined
+    junctionMask: hasRiverSource
       ? builder.getScalar('junctionMask', sourceVertex) * influenceScale
       : 0,
-    disturbanceMask: sourceVertex !== undefined
+    disturbanceMask: hasRiverSource
       ? builder.getScalar('disturbanceMask', sourceVertex) * influenceScale
       : 0,
     reflectionTier,
