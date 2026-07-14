@@ -36,6 +36,7 @@ const TWO_PI = Math.PI * 2;
 export const UNIFIED_WATER_ATTRIBUTE_SCHEMA = Object.freeze({
   waterDepth: 1,
   shoreDistanceMeters: 1,
+  shoreFoamMask: 1,
   flowUv: 2,
   flowDirection: 2,
   junctionFlowDirection: 2,
@@ -435,6 +436,7 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
       shoreDistanceMeters: interfaceCoverage
         ? Math.max(authoredShoreDistance, 0.5)
         : authoredShoreDistance,
+      shoreFoamMask: 1,
       flowUv: flowUv ? [flowUv.getX(vertex), flowUv.getY(vertex)] : [0, 0],
       flowDirection: flowDirection
         ? [flowDirection.getX(vertex), flowDirection.getY(vertex)]
@@ -496,6 +498,11 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
       0,
       reach.rowCount - 1,
     );
+    const outerSourceRowIndex = THREE.MathUtils.clamp(
+      shoreRowIndex + outsideDirection * 3,
+      0,
+      reach.rowCount - 1,
+    );
     const getRowVertices = (rowIndex) => Array.from(
       { length: reach.rowSize },
       (_, lateral) => vertexOffset + reach.startVertex + rowIndex * reach.rowSize + lateral,
@@ -508,6 +515,7 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
         getRowVertices(fullRowIndex),
         getRowVertices(halfRowIndex),
       ],
+      outerSourceRow: getRowVertices(outerSourceRowIndex),
     };
 
     alignRiverLakeTransitionRows(builder, attachment, terrain);
@@ -546,6 +554,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
     lakeId: entry.lakeId,
     transitionLength: entry.transitionLength,
     coverage: 1,
+    outerSourceRow: [],
     signedDistances: Object.freeze([
       entry.transitionLength,
       entry.transitionLength * 0.5,
@@ -614,6 +623,9 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
         const patch = patchById.get(sample.attachment.id);
 
         if (ring === 0) {
+          patch.outerSourceRow.push(
+            sample.attachment.outerSourceRow[sample.lateral],
+          );
           patch.rows[0].push(sample.attachment.outsideRows[0][sample.lateral]);
           patch.rows[1].push(sample.attachment.outsideRows[1][sample.lateral]);
         }
@@ -664,6 +676,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
     }
     patch.rowCount = patch.rows.length;
     patch.vertexCount = patch.rows.reduce((total, row) => total + row.length, 0);
+    Object.freeze(patch.outerSourceRow);
     Object.freeze(patch.rows);
     Object.freeze(patch);
   }
@@ -685,9 +698,17 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
 }
 
 function alignRiverLakeTransitionRows(builder, attachment, terrain) {
-  const { lake, rowVertices, outsideRows, transitionLength } = attachment;
+  const {
+    lake,
+    rowVertices,
+    outsideRows,
+    outerSourceRow,
+    transitionLength,
+    endpoint,
+  } = attachment;
   const surfaceY = lake.waterLevel + (lake.surfaceOffset ?? WATER_SURFACE_OFFSET);
   const [fullRow, halfRow] = outsideRows;
+  const flowSign = endpoint === 'start' ? -1 : 1;
 
   for (let lateral = 0; lateral < rowVertices.length; lateral += 1) {
     const shoreVertex = rowVertices[lateral];
@@ -754,6 +775,47 @@ function alignRiverLakeTransitionRows(builder, attachment, terrain) {
       );
     }
   }
+
+  const outerSourceCenter = [0, 0];
+  const fullCenter = [0, 0];
+  let outerSourceU = 0;
+
+  for (let lateral = 0; lateral < rowVertices.length; lateral += 1) {
+    const outerSourcePosition = builder.getPosition(outerSourceRow[lateral]);
+    const fullPosition = builder.getPosition(fullRow[lateral]);
+
+    outerSourceCenter[0] += outerSourcePosition[0];
+    outerSourceCenter[1] += outerSourcePosition[2];
+    fullCenter[0] += fullPosition[0];
+    fullCenter[1] += fullPosition[2];
+    outerSourceU += builder.getVector('flowUv', outerSourceRow[lateral])[0];
+  }
+  outerSourceCenter[0] /= rowVertices.length;
+  outerSourceCenter[1] /= rowVertices.length;
+  fullCenter[0] /= rowVertices.length;
+  fullCenter[1] /= rowVertices.length;
+  outerSourceU /= rowVertices.length;
+  const sourceDistance = Math.hypot(
+    fullCenter[0] - outerSourceCenter[0],
+    fullCenter[1] - outerSourceCenter[1],
+  );
+  const fullFlowU = outerSourceU + flowSign * sourceDistance;
+
+  for (let lateral = 0; lateral < rowVertices.length; lateral += 1) {
+    const flowV = builder.getVector('flowUv', outerSourceRow[lateral])[1];
+    const rows = [fullRow[lateral], halfRow[lateral], rowVertices[lateral]];
+
+    builder.setVector('flowUv', rows[0], [fullFlowU, flowV]);
+    builder.setVector('flowUv', rows[1], [
+      fullFlowU + flowSign * transitionLength * 0.5,
+      flowV,
+    ]);
+    builder.setVector('flowUv', rows[2], [
+      fullFlowU + flowSign * transitionLength,
+      flowV,
+    ]);
+    for (const vertex of rows) builder.setScalar('shoreFoamMask', vertex, 0);
+  }
 }
 
 function appendLakeVertex(builder, {
@@ -801,10 +863,7 @@ function appendLakeVertex(builder, {
   const flowSign = sample?.attachment?.endpoint === 'start' ? -1 : 1;
 
   if (hasRiverSource) sourceFlowUv[0] += flowSign * inset;
-  const flowUv = [
-    THREE.MathUtils.lerp(lakeFlowUv[0], sourceFlowUv[0], influenceScale),
-    THREE.MathUtils.lerp(lakeFlowUv[1], sourceFlowUv[1], influenceScale),
-  ];
+  const flowUv = hasRiverSource ? sourceFlowUv : lakeFlowUv;
 
   return builder.pushVertex({
     position: [x, y, z],
@@ -814,6 +873,7 @@ function appendLakeVertex(builder, {
     ],
     waterDepth: Math.max(y - terrain.getHeightAt(x, z), 0),
     shoreDistanceMeters: Math.max(inset, insideTransition ? 0.5 : 0),
+    shoreFoamMask: insideTransition ? 0 : 1,
     flowUv,
     flowDirection,
     junctionFlowDirection,
@@ -1114,6 +1174,12 @@ function createGeometryBuilder() {
       const offset = vertex * size;
 
       return data[name].slice(offset, offset + size);
+    },
+    setVector(name, vertex, value) {
+      const size = vectorSizes[name];
+      const offset = vertex * size;
+
+      data[name].splice(offset, size, ...value);
     },
     pushUpwardTriangle(a, b, c) {
       const pa = this.getPosition(a);

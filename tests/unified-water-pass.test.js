@@ -104,6 +104,7 @@ test('water attribute material writes the documented MRT contract', () => {
     /layout\(location = 1\) out vec4 waterMaterialOutput/,
   );
   assert.match(material.vertexShader, /in float shoreDistanceMeters;/);
+  assert.match(material.vertexShader, /in float shoreFoamMask;/);
   assert.match(material.vertexShader, /in float riverInfluence;/);
   assert.match(material.vertexShader, /vFlowUv = flowUv;/);
   assert.doesNotMatch(material.vertexShader, /vFlowUv = flowUv \+/);
@@ -125,6 +126,7 @@ test('water attribute material writes the documented MRT contract', () => {
     [
       'waterDepth',
       'shoreDistanceMeters',
+      'shoreFoamMask',
       'flowUv',
       'flowDirection',
       'junctionFlowDirection',
@@ -136,10 +138,27 @@ test('water attribute material writes the documented MRT contract', () => {
       'reflectionTier',
     ],
   );
+  assert.deepEqual(material.defaultAttributeValues.shoreFoamMask, [1]);
   assert.match(material.fragmentShader, /encodeOctahedron/);
   assert.match(material.fragmentShader, /float getNaturalWaterHeight/);
   assert.match(material.fragmentShader, /vec2 getNaturalWaterSlope/);
   assert.match(material.fragmentShader, /float riverTravel = uTime/);
+  assert.match(material.vertexShader, /vWorldPositionXZ = worldPosition\.xz/);
+  assert.match(
+    material.fragmentShader,
+    /float lakeSurfaceHeight = getNaturalWaterHeight\(lakeFlowDomain\)/,
+  );
+  assert.match(
+    material.fragmentShader,
+    /float riverSurfaceHeight = getNaturalWaterHeight\(riverFlowDomain\)/,
+  );
+  assert.doesNotMatch(material.fragmentShader, /surfaceFlowDomain = mix/);
+  assert.match(material.fragmentShader, /getLakeDualWaveNormal\(\s*vWorldPositionXZ/);
+  assert.match(
+    material.fragmentShader,
+    /\? normalize\(vFlowDirection\)\s*:\s*lakeAxis/,
+  );
+  assert.match(material.fragmentShader, /shoreFoam \*= vShoreFoamMask/);
   assert.doesNotMatch(material.fragmentShader, /float riverPhase/);
   assert.match(
     material.fragmentShader,

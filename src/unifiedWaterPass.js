@@ -23,6 +23,7 @@ let didWarnAboutPackedFallback = false;
 const ATTRIBUTE_VERTEX_SHADER = `
   in float waterDepth;
   in float shoreDistanceMeters;
+  in float shoreFoamMask;
   in vec2 flowUv;
   in vec2 flowDirection;
   in vec2 junctionFlowDirection;
@@ -38,6 +39,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
   out vec3 vWorldNormal;
   out float vWaterDepth;
   out float vShoreDistanceMeters;
+  out float vShoreFoamMask;
   out float vRiverInfluence;
   out float vReflectionTier;
   out vec2 vFlowUv;
@@ -46,6 +48,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
   out float vRapidMask;
   out float vJunctionMask;
   out float vDisturbanceMask;
+  out vec2 vWorldPositionXZ;
 
   void main() {
     vec3 worldNormal = normalize(mat3(modelMatrix) * normal);
@@ -58,6 +61,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
     vWorldNormal = worldNormal;
     vWaterDepth = max(waterDepth, 0.0);
     vShoreDistanceMeters = max(shoreDistanceMeters, 0.0);
+    vShoreFoamMask = clamp(shoreFoamMask, 0.0, 1.0);
     vRiverInfluence = clamp(riverInfluence, 0.0, 1.0);
     vReflectionTier = clamp(reflectionTier, 0.0, 1.0);
     vFlowUv = flowUv;
@@ -79,7 +83,9 @@ const ATTRIBUTE_VERTEX_SHADER = `
       * lakeWaveWeight
       * mouthWaveSuppression;
 
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 1.0);
+    vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
+    vWorldPositionXZ = worldPosition.xz;
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
   }
 `;
 
@@ -91,6 +97,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   in vec3 vWorldNormal;
   in float vWaterDepth;
   in float vShoreDistanceMeters;
+  in float vShoreFoamMask;
   in float vRiverInfluence;
   in float vReflectionTier;
   in vec2 vFlowUv;
@@ -99,6 +106,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   in float vRapidMask;
   in float vJunctionMask;
   in float vDisturbanceMask;
+  in vec2 vWorldPositionXZ;
 
   layout(location = 0) out vec4 waterOpticsOutput;
   layout(location = 1) out vec4 waterMaterialOutput;
@@ -233,15 +241,17 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
       1.0,
       smoothstep(0.35, 1.8, vFlowSpeed)
     );
-    vec2 lakeFlowDomain = vFlowUv + vec2(-uTime * 0.08, uTime * 0.055);
+    vec2 lakeFlowDomain = vWorldPositionXZ
+      + vec2(-uTime * 0.08, uTime * 0.055);
     vec2 riverFlowDomain = vec2(vFlowUv.x - riverTravel, vFlowUv.y);
-    vec2 surfaceFlowDomain = mix(
-      lakeFlowDomain,
-      riverFlowDomain,
-      riverBlend
-    );
-    float surfaceHeight = getNaturalWaterHeight(surfaceFlowDomain);
-    vec2 localSlope = getNaturalWaterSlope(surfaceFlowDomain);
+    float lakeSurfaceHeight = getNaturalWaterHeight(lakeFlowDomain);
+    float surfaceHeight = lakeSurfaceHeight;
+
+    if (riverBlend > 0.001) {
+      float riverSurfaceHeight = getNaturalWaterHeight(riverFlowDomain);
+      surfaceHeight = mix(lakeSurfaceHeight, riverSurfaceHeight, riverBlend);
+    }
+    vec2 localSlope = getNaturalWaterSlope(riverFlowDomain);
     float junctionNormal = clamp(vJunctionMask * 0.35, 0.0, 1.0);
     float riverMotion = mix(0.45, 1.0, vRiverInfluence);
     float detailStrength = mix(0.10, 0.18, riverMotion)
@@ -259,7 +269,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     );
     vec2 lakeAxis = normalize(vec2(0.72, 0.69));
     vec2 riverAxis = length(vFlowDirection) > 0.0001
-      ? vFlowDirection
+      ? normalize(vFlowDirection)
       : lakeAxis;
     vec2 riverAcross = vec2(-riverAxis.y, riverAxis.x);
     vec2 riverWorldSlope = riverAxis * localSlope.x
@@ -270,7 +280,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
       smoothstep(2.0, 8.0, vWaterDepth)
     ) * uNormalDetail;
     vec3 lakeDetailNormal = getLakeDualWaveNormal(
-      vFlowUv,
+      vWorldPositionXZ,
       lakeWaveStrength
     );
     vec3 riverDetailNormal = normalize(vec3(
@@ -298,6 +308,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
       1.0,
       smoothstep(0.25, 0.78, calmWave * 0.5 + 0.5)
     );
+    shoreFoam *= vShoreFoamMask;
     shoreFoam *= (1.0 - riverBlend);
     shoreFoam *= (1.0 - mouthBlend) * brokenShore;
     float riverFoamWeight = vRiverInfluence * vRiverInfluence;
@@ -821,6 +832,7 @@ export function createUnifiedWaterAttributeMaterial({
     ...material.defaultAttributeValues,
     waterDepth: [1],
     shoreDistanceMeters: [100],
+    shoreFoamMask: [1],
     flowUv: [0, 0],
     flowDirection: [1, 0],
     junctionFlowDirection: [1, 0],

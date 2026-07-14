@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { TERMINAL_LOWLAND_LAKE } from '../src/lowlandHeightPlan.js';
 import {
   RIVER_LAKE_INTERFACE_REGISTRY,
   UNIFIED_WATER_ATTRIBUTE_SCHEMA,
@@ -49,14 +48,15 @@ test('the scene water topology is represented by four indexed basin batches', ()
   disposeSystem(system);
 });
 
-test('every basin batch exposes the fixed eleven-attribute water info contract', () => {
+test('every basin batch exposes the fixed twelve-attribute water info contract', () => {
   const system = createUnifiedWaterSystem(terrain);
   const schemaEntries = Object.entries(UNIFIED_WATER_ATTRIBUTE_SCHEMA);
 
-  assert.equal(schemaEntries.length, 11);
+  assert.equal(schemaEntries.length, 12);
   assert.deepEqual(schemaEntries, [
     ['waterDepth', 1],
     ['shoreDistanceMeters', 1],
+    ['shoreFoamMask', 1],
     ['flowUv', 2],
     ['flowDirection', 2],
     ['junctionFlowDirection', 2],
@@ -97,6 +97,10 @@ test('all fifteen river-lake interfaces own five continuous transition rows', ()
   assert.equal(system.stats.transitionRowCount, 75);
   assert.equal(patches.length, 15);
   assert.deepEqual(
+    patches.map((patch) => patch.id).sort(),
+    RIVER_LAKE_INTERFACE_REGISTRY.map((entry) => entry.id).sort(),
+  );
+  assert.deepEqual(
     RIVER_LAKE_INTERFACE_REGISTRY.reduce((counts, entry) => {
       counts[entry.basinId] = (counts[entry.basinId] ?? 0) + 1;
       return counts;
@@ -114,7 +118,11 @@ test('all fifteen river-lake interfaces own five continuous transition rows', ()
 
   for (const batch of system.batches) {
     const shoreDistance = batch.geometry.getAttribute('shoreDistanceMeters');
+    const shoreFoamMask = batch.geometry.getAttribute('shoreFoamMask');
     const riverInfluence = batch.geometry.getAttribute('riverInfluence');
+    const transitionVertices = new Set(
+      batch.userData.transitionPatches.flatMap((patch) => patch.rows.flat()),
+    );
 
     for (const patch of batch.userData.transitionPatches) {
       assert.equal(patch.coverage, 1);
@@ -144,6 +152,9 @@ test('all fifteen river-lake interfaces own five continuous transition rows', ()
       assert.ok(patch.rows.slice(2).flat().every(
         (vertex) => shoreDistance.getX(vertex) >= 0.5,
       ));
+      assert.ok(patch.rows.flat().every(
+        (vertex) => shoreFoamMask.getX(vertex) === 0,
+      ));
 
       const positions = batch.geometry.getAttribute('position');
 
@@ -169,6 +180,20 @@ test('all fifteen river-lake interfaces own five continuous transition rows', ()
         ) < 1e-3);
       }
     }
+    let trueWaterLandShoreVertexCount = 0;
+    for (let vertex = 0; vertex < shoreDistance.count; vertex += 1) {
+      assert.equal(
+        shoreFoamMask.getX(vertex),
+        transitionVertices.has(vertex) ? 0 : 1,
+      );
+      if (
+        !transitionVertices.has(vertex)
+        && shoreDistance.getX(vertex) === 0
+      ) {
+        trueWaterLandShoreVertexCount += 1;
+      }
+    }
+    assert.ok(trueWaterLandShoreVertexCount > 0);
   }
 
   disposeSystem(system);
@@ -245,33 +270,141 @@ test('river influence is full outside, half at shore, and zero one transition le
   );
 });
 
-test('terminal lake flow coordinates return to lake-local space at the inner transition row', () => {
+test('river flow coordinates keep one metric centerline through every lake transition', () => {
   const system = createUnifiedWaterSystem(terrain);
-  const batch = system.batches.find(
-    (entry) => entry.userData.basinId === 'hero-east-basin',
-  );
-  const positions = batch.geometry.getAttribute('position');
-  const flowUv = batch.geometry.getAttribute('flowUv');
-  const flowDirection = batch.geometry.getAttribute('flowDirection');
-  const flowSpeed = batch.geometry.getAttribute('flowSpeed');
-  const riverInfluence = batch.geometry.getAttribute('riverInfluence');
-  const terminalPatches = batch.userData.transitionPatches.filter(
-    (patch) => patch.lakeId === TERMINAL_LOWLAND_LAKE.id,
-  );
 
-  assert.equal(terminalPatches.length, 2);
-  for (const patch of terminalPatches) {
-    for (const vertex of patch.rows[4]) {
-      assert.ok(Math.abs(
-        flowUv.getX(vertex) - (positions.getX(vertex) - TERMINAL_LOWLAND_LAKE.cx)
-      ) < 5e-5);
-      assert.ok(Math.abs(
-        flowUv.getY(vertex) - (positions.getZ(vertex) - TERMINAL_LOWLAND_LAKE.cz)
-      ) < 5e-5);
-      assert.equal(flowDirection.getX(vertex), 0);
-      assert.equal(flowDirection.getY(vertex), 0);
-      assert.equal(flowSpeed.getX(vertex), 0);
-      assert.equal(riverInfluence.getX(vertex), 0);
+  for (const batch of system.batches) {
+    const positions = batch.geometry.getAttribute('position');
+    const flowUv = batch.geometry.getAttribute('flowUv');
+    const flowDirection = batch.geometry.getAttribute('flowDirection');
+    const junctionFlowDirection = batch.geometry.getAttribute('junctionFlowDirection');
+    const flowSpeed = batch.geometry.getAttribute('flowSpeed');
+    const riverInfluence = batch.geometry.getAttribute('riverInfluence');
+    const rapidMask = batch.geometry.getAttribute('rapidMask');
+    const junctionMask = batch.geometry.getAttribute('junctionMask');
+    const disturbanceMask = batch.geometry.getAttribute('disturbanceMask');
+    const indices = batch.geometry.index.array;
+
+    for (const patch of batch.userData.transitionPatches) {
+      const flowSign = patch.endpoint === 'start' ? -1 : 1;
+      const rowSize = patch.rows[0].length;
+      const outerSourceCenter = patch.outerSourceRow.reduce((center, vertex) => [
+        center[0] + positions.getX(vertex) / rowSize,
+        center[1] + positions.getZ(vertex) / rowSize,
+      ], [0, 0]);
+      const fullCenter = patch.rows[0].reduce((center, vertex) => [
+        center[0] + positions.getX(vertex) / rowSize,
+        center[1] + positions.getZ(vertex) / rowSize,
+      ], [0, 0]);
+      const outerSourceU = patch.outerSourceRow.reduce(
+        (sum, vertex) => sum + flowUv.getX(vertex) / rowSize,
+        0,
+      );
+      const sourceWorldDistance = Math.hypot(
+        fullCenter[0] - outerSourceCenter[0],
+        fullCenter[1] - outerSourceCenter[1],
+      );
+      const sourceFlowDistance = Math.abs(
+        flowUv.getX(patch.rows[0][0]) - outerSourceU,
+      );
+
+      assert.equal(patch.outerSourceRow.length, patch.rows[0].length);
+      assert.ok(
+        Math.abs(sourceFlowDistance - sourceWorldDistance) < 1e-3,
+        `${patch.id} source-to-transition centerline distance`,
+      );
+
+      for (let row = 0; row < patch.rows.length; row += 1) {
+        const rowUs = patch.rows[row].map((vertex) => flowUv.getX(vertex));
+        const rowVs = patch.rows[row].map((vertex) => flowUv.getY(vertex));
+        const vDeltas = rowVs.slice(1).map((value, index) => value - rowVs[index]);
+        const vDirection = Math.sign(vDeltas.find((value) => Math.abs(value) > 1e-6) ?? 1);
+
+        assert.ok(
+          Math.max(...rowUs) - Math.min(...rowUs) < 5e-4,
+          `${patch.id} row ${row} shares one longitudinal coordinate`,
+        );
+        assert.ok(
+          vDeltas.every((value) => Math.abs(value) < 1e-6 || Math.sign(value) === vDirection),
+          `${patch.id} row ${row} lateral coordinates remain monotonic`,
+        );
+      }
+
+      for (let lateral = 0; lateral < patch.rows[0].length; lateral += 1) {
+        const outerSourceVertex = patch.outerSourceRow[lateral];
+        const shoreVertex = patch.rows[2][lateral];
+        const shoreU = flowUv.getX(shoreVertex);
+        const shoreV = flowUv.getY(shoreVertex);
+
+        for (let row = 0; row < patch.rows.length; row += 1) {
+          const vertex = patch.rows[row][lateral];
+
+          assert.ok(Math.abs(
+            flowUv.getX(vertex)
+              - (shoreU - flowSign * patch.signedDistances[row])
+          ) < 5e-5, `${patch.id} row ${row} longitudinal flow coordinate`);
+          assert.ok(
+            Math.abs(flowUv.getY(vertex) - shoreV) < 5e-5,
+            `${patch.id} row ${row} lateral flow coordinate`,
+          );
+        }
+        assert.ok(
+          Math.abs(flowUv.getY(outerSourceVertex) - shoreV) < 5e-5,
+          `${patch.id} preserves source lateral flow coordinate`,
+        );
+
+        for (let row = 0; row < patch.rows.length - 1; row += 1) {
+          const a = patch.rows[row][lateral];
+          const b = patch.rows[row + 1][lateral];
+          const worldDistance = Math.hypot(
+            positions.getX(b) - positions.getX(a),
+            positions.getZ(b) - positions.getZ(a),
+          );
+          const flowDistance = Math.hypot(
+            flowUv.getX(b) - flowUv.getX(a),
+            flowUv.getY(b) - flowUv.getY(a),
+          );
+
+          assert.ok(
+            Math.abs(flowDistance - worldDistance) < 1e-3,
+            `${patch.id} row ${row}-${row + 1} metric flow distance`,
+          );
+        }
+      }
+
+      const patchVertices = new Set(patch.rows.flat());
+      const uvOrientationSigns = [];
+
+      for (let offset = 0; offset < indices.length; offset += 3) {
+        const triangle = [indices[offset], indices[offset + 1], indices[offset + 2]];
+
+        if (!triangle.every((vertex) => patchVertices.has(vertex))) continue;
+        const [a, b, c] = triangle;
+        const determinant = (
+          (flowUv.getX(b) - flowUv.getX(a))
+            * (flowUv.getY(c) - flowUv.getY(a))
+          - (flowUv.getY(b) - flowUv.getY(a))
+            * (flowUv.getX(c) - flowUv.getX(a))
+        );
+
+        if (Math.abs(determinant) > 1e-6) {
+          uvOrientationSigns.push(Math.sign(determinant));
+        }
+      }
+      assert.ok(uvOrientationSigns.length > 0);
+      assert.equal(new Set(uvOrientationSigns).size, 1, `${patch.id} UV orientation`);
+
+      for (const vertex of patch.rows[4]) {
+        assert.equal(flowDirection.getX(vertex), 0);
+        assert.equal(flowDirection.getY(vertex), 0);
+        assert.equal(junctionFlowDirection.getX(vertex), 0);
+        assert.equal(junctionFlowDirection.getY(vertex), 0);
+        assert.equal(flowSpeed.getX(vertex), 0);
+        assert.equal(riverInfluence.getX(vertex), 0);
+        assert.equal(rapidMask.getX(vertex), 0);
+        assert.equal(junctionMask.getX(vertex), 0);
+        assert.equal(disturbanceMask.getX(vertex), 0);
+      }
     }
   }
 
