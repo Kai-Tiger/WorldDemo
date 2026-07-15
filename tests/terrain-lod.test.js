@@ -3,7 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { getLowlandMinimumSegmentsForBounds } from '../src/lowlandLandforms.js';
 import { Terrain } from '../src/terrain.js';
-import { CENTRAL_PEAK_MAX_HEIGHT } from '../src/terrainExpansion.js';
+import { CENTRAL_PEAK_MAX_HEIGHT, upliftCentralHeight } from '../src/terrainExpansion.js';
 
 function createTerrain(options = {}, size = 32) {
   const heightData = new Uint8ClampedArray(size * size * 4);
@@ -88,15 +88,69 @@ test('mountain smoothing removes narrow needles while preserving broad summits',
     }
   }
 
+  terrain.rebuildMountainHeightField();
   terrain.sampledHeightCache.fill(Number.NaN);
   const narrowPeak = terrain.getSampledPixelHeight(center, center);
+  let previousPeak = -Infinity;
+
+  for (let peakCode = baseCode; peakCode <= 255; peakCode += 5) {
+    for (let y = center - 2; y <= center + 2; y += 1) {
+      for (let x = center - 2; x <= center + 2; x += 1) {
+        const index = (y * size + x) * 4;
+        terrain.heightData[index] = peakCode;
+        terrain.heightData[index + 1] = peakCode;
+        terrain.heightData[index + 2] = peakCode;
+      }
+    }
+
+    terrain.rebuildMountainHeightField();
+    terrain.sampledHeightCache.fill(Number.NaN);
+    const currentPeak = terrain.getSampledPixelHeight(center, center);
+    assert.ok(currentPeak >= previousPeak, `local height inversion at code ${peakCode}`);
+    previousPeak = currentPeak;
+  }
 
   terrain.heightData.fill(255);
+  terrain.rebuildMountainHeightField();
   terrain.sampledHeightCache.fill(Number.NaN);
   const broadSummit = terrain.getSampledPixelHeight(center, center);
 
   assert.ok(narrowPeak < 230);
   assert.ok(Math.abs(broadSummit - 300) < 1e-9);
+});
+
+test('mountain smoothing turns a vertical source wall into a broad slope', () => {
+  const size = 512;
+  const terrain = createTerrain({}, size);
+  const center = Math.floor(size / 2);
+
+  for (let index = 0; index < terrain.heightData.length; index += 4) {
+    terrain.heightData[index] = 170;
+    terrain.heightData[index + 1] = 170;
+    terrain.heightData[index + 2] = 170;
+  }
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = center; x < size; x += 1) {
+      const index = (y * size + x) * 4;
+      terrain.heightData[index] = 255;
+      terrain.heightData[index + 1] = 255;
+      terrain.heightData[index + 2] = 255;
+    }
+  }
+
+  terrain.rebuildMountainHeightField();
+  terrain.sampledHeightCache.fill(Number.NaN);
+
+  let maximumStep = 0;
+
+  for (let x = center - 40; x <= center + 40; x += 1) {
+    const current = upliftCentralHeight(terrain.getSampledPixelHeight(x, center));
+    const next = upliftCentralHeight(terrain.getSampledPixelHeight(x + 1, center));
+    maximumStep = Math.max(maximumStep, next - current);
+  }
+
+  assert.ok(maximumStep < 4, `vertical mountain step remained ${maximumStep.toFixed(2)}m`);
 });
 
 test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () => {
@@ -124,6 +178,7 @@ test('source lowlands remain exact while sharp source summits compress to 350 me
     terrain.heightData[index + 1] = 255;
     terrain.heightData[index + 2] = 255;
   }
+  terrain.rebuildMountainHeightField();
   terrain.sampledHeightCache.fill(Number.NaN);
 
   assert.ok(terrain.getSourceHeightAt(0, 0) >= 299);
@@ -514,10 +569,10 @@ test('brush refresh bounds include the mountain smoothing halo', () => {
     dirtyPixels.minY + dirtyPixels.height - 1,
   );
 
-  assert.equal(refreshedBounds.minX, Math.min(topLeft.x, bottomRight.x) - 25);
-  assert.equal(refreshedBounds.maxX, Math.max(topLeft.x, bottomRight.x) + 25);
-  assert.equal(refreshedBounds.minZ, Math.min(topLeft.z, bottomRight.z) - 25);
-  assert.equal(refreshedBounds.maxZ, Math.max(topLeft.z, bottomRight.z) + 25);
+  assert.equal(refreshedBounds.minX, Math.min(topLeft.x, bottomRight.x) - 97);
+  assert.equal(refreshedBounds.maxX, Math.max(topLeft.x, bottomRight.x) + 97);
+  assert.equal(refreshedBounds.minZ, Math.min(topLeft.z, bottomRight.z) - 97);
+  assert.equal(refreshedBounds.maxZ, Math.max(topLeft.z, bottomRight.z) + 97);
 });
 
 test('an edit stroke patches live and queues one forced rebuild per dirty chunk', () => {

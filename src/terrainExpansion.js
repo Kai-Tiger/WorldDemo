@@ -32,12 +32,8 @@ export function upliftCentralHeight(height) {
     0,
     1,
   );
-  const summitCompression = smootherstep(progress);
-  const upliftedHeight = lerp(
-    height,
-    CENTRAL_PEAK_MAX_HEIGHT,
-    summitCompression * summitCompression * summitCompression,
-  );
+  const upliftRange = CENTRAL_PEAK_MAX_HEIGHT - HEIGHTMAP_SOURCE_MAX_HEIGHT;
+  const upliftedHeight = height + upliftRange * smoothstep(progress);
 
   return Math.min(upliftedHeight, CENTRAL_PEAK_MAX_HEIGHT);
 }
@@ -261,6 +257,10 @@ function hashCoordinate(x, z, seed) {
 
 function smootherstep(value) {
   return value * value * value * (value * (value * 6 - 15) + 10);
+}
+
+function smoothstep(value) {
+  return value * value * (3 - 2 * value);
 }
 
 function clamp(value, minimum, maximum) {

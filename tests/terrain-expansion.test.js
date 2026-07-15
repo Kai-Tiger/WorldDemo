@@ -43,7 +43,7 @@ test('terrain expansion keeps source and world dimensions distinct', () => {
   assert.deepEqual(OUTER_TERRAIN_NOISE_WAVELENGTHS, [512, 256, 128, 64]);
 });
 
-test('central uplift preserves lowlands and softly compresses sharp summits', () => {
+test('central uplift preserves lowlands and limits highland slope amplification', () => {
   assert.equal(upliftCentralHeight(0), 0);
   assert.equal(upliftCentralHeight(CENTRAL_UPLIFT_START_HEIGHT), 185);
   assert.equal(upliftCentralHeight(300), CENTRAL_PEAK_MAX_HEIGHT);
@@ -52,17 +52,18 @@ test('central uplift preserves lowlands and softly compresses sharp summits', ()
   const justBelow = upliftCentralHeight(185 - 1e-3);
   const justAbove = upliftCentralHeight(185 + 1e-3);
   assert.ok(Math.abs(justAbove - justBelow - 2e-3) < 1e-6);
-  assert.ok(upliftCentralHeight(240) > 240);
-  assert.ok(upliftCentralHeight(240) < 260);
-  assert.ok(upliftCentralHeight(280) > 340);
+  assert.ok(upliftCentralHeight(240) > 260);
+  assert.ok(upliftCentralHeight(240) < 270);
+  assert.ok(upliftCentralHeight(280) > 320);
+  assert.ok(upliftCentralHeight(280) < 330);
   assert.ok(upliftCentralHeight(280) < CENTRAL_PEAK_MAX_HEIGHT);
-  assert.ok(CENTRAL_PEAK_MAX_HEIGHT - upliftCentralHeight(295) < 1);
 
   let previousHeight = upliftCentralHeight(CENTRAL_UPLIFT_START_HEIGHT);
 
   for (let sourceHeight = CENTRAL_UPLIFT_START_HEIGHT + 1; sourceHeight <= 300; sourceHeight += 1) {
     const currentHeight = upliftCentralHeight(sourceHeight);
     assert.ok(currentHeight >= previousHeight, `height inversion at ${sourceHeight}m`);
+    assert.ok(currentHeight - previousHeight < 1.66, `slope amplification at ${sourceHeight}m`);
     previousHeight = currentHeight;
   }
 });

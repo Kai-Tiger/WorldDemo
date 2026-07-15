@@ -14,11 +14,11 @@ Expand the playable map edge length from 2,048 meters to 4,096 meters without mo
 
 **中文**
 
-保留现有 2048 米中央高度图和 300 米源编码标尺。中央 185 米及以下地形保持原高程，高山区先以宽尺度采样去除孤立针峰，再通过顶部压缩曲线映射，300 米源高程映射到 350 米世界高程；水系与低地结果保持不变。用户提供的第二张灰度高度图将被确定性处理为仓库内的派生高度资产，并以连续环向映射真实驱动旧地图边界外的树状支脉、深谷和弧形主脊；旧边界处仍通过平滑接缝连接中央地形。原始附件不提交，现有中央高度图不被替换或改写。
+保留现有 2048 米中央高度图和 300 米源编码标尺。中央 185 米及以下地形保持原高程，高山区以约 4 米间距的坡度约束场消除高度断层，再通过斜率受限的平滑曲线映射，300 米源高程映射到 350 米世界高程；水系与低地结果保持不变。用户提供的第二张灰度高度图将被确定性处理为仓库内的派生高度资产，并以连续环向映射真实驱动旧地图边界外的树状支脉、深谷和弧形主脊；旧边界处仍通过平滑接缝连接中央地形。原始附件不提交，现有中央高度图不被替换或改写。
 
 **English**
 
-Keep the existing 2,048-meter central heightmap and its 300-meter source encoding scale. Terrain at or below 185 meters retains its original elevation. In the highlands, broad sampling removes isolated needles before a summit-compressing curve maps a 300-meter source elevation to 350 world meters; water systems and lowlands remain unchanged. The second user-supplied grayscale heightmap is deterministically processed into a derived repository asset and continuously wrapped around the old map to genuinely drive the branching spurs, deep valleys, and curved primary ridgelines of the outer ring. A smooth seam still joins the ring to the central terrain. The raw attachment is not committed, and the existing central heightmap is neither replaced nor rewritten.
+Keep the existing 2,048-meter central heightmap and its 300-meter source encoding scale. Terrain at or below 185 meters retains its original elevation. In the highlands, a slope-constrained field sampled at approximately four-meter spacing removes height walls before a slope-limited smooth curve maps a 300-meter source elevation to 350 world meters; water systems and lowlands remain unchanged. The second user-supplied grayscale heightmap is deterministically processed into a derived repository asset and continuously wrapped around the old map to genuinely drive the branching spurs, deep valleys, and curved primary ridgelines of the outer ring. A smooth seam still joins the ring to the central terrain. The raw attachment is not committed, and the existing central heightmap is neither replaced nor rewritten.
 
 ## User Request / 用户需求
 
@@ -35,7 +35,7 @@ The user found the current map and mountains too small and requested doubling bo
 **中文**
 
 - 将 `MAP_SIZE` 从 2048 改为 4096，使活动边界扩展到 X/Z 各 ±2048 米；现有中央内容的 X/Z 坐标不缩放、不平移。
-- 明确区分 300 米的高度图源编码上限、350 米的中央峰顶上限与 600 米的外围运行时地形上限。中央高山区先进行约 24 米半径的宽尺度平滑，再采用 `t = clamp((h - 185) / 115)`、`s = smootherstep(t)`，计算 `H = lerp(h, 350, s³)`；`h <= 185` 保持不变。
+- 明确区分 300 米的高度图源编码上限、350 米的中央峰顶上限与 600 米的外围运行时地形上限。中央高山区以约 4 米间距的约束场将源高程坡度限制为 0.55 米/米，再采用 `t = clamp((h - 185) / 115)` 与 `H = h + 50 × smoothstep(t)`；`h <= 185` 保持不变，映射局部斜率放大不超过约 1.66 倍。
 - 高度合成顺序为：中央源高度图解码、中央高山增幅、外围派生高度融合、山路塑形、水系最后覆盖。现有水位编码、低地烘焙配置、河湖定义和水位保持不变。
 - 外围融合源为用户第二张附件 `codex-clipboard-2178b92d-ed80-448e-bc62-8ee574032040.png`（原始临时路径 `/var/folders/89/j0tqf35x0534p7_yx9d__ddh0000gn/T/codex-clipboard-2178b92d-ed80-448e-bc62-8ee574032040.png`），尺寸为 1772×836，SHA-256 为 `6659c309365de99978a483051a39faf3cf9a49388860d74a095f8aa6fd2b7cda`。
 - 原始附件不提交到仓库，也不作为运行时路径依赖；仅提交由 `tools/build-outer-mountain-height.mjs` 确定性生成的 512×242 外围派生高度资产 `public/assets/terrain/outer-mountain-height.png`（SHA-256 `44992b27a04209d6fb242dcb42fcc80fc31ce6c19c1b6c5ccc41e866205e255a`）。派生过程保留原图长宽比和灰度高度结构，并将水平方向处理为数值及一阶变化连续的周期边界，避免环向接缝。
@@ -51,7 +51,7 @@ The user found the current map and mountains too small and requested doubling bo
 **English**
 
 - Change `MAP_SIZE` from 2,048 to 4,096 so the playable X/Z limits become ±2,048 meters; do not scale or translate existing central content coordinates.
-- Separate the 300-meter heightmap source encoding maximum, the 350-meter central summit cap, and the 600-meter outer runtime terrain maximum. Broadly smooth the central highlands over an approximately 24-meter radius, then use `t = clamp((h - 185) / 115)`, `s = smootherstep(t)`, and `H = lerp(h, 350, s³)`; keep `h <= 185` unchanged.
+- Separate the 300-meter heightmap source encoding maximum, the 350-meter central summit cap, and the 600-meter outer runtime terrain maximum. Use a constraint field sampled at approximately four-meter spacing to limit source-elevation slope to 0.55 meters per meter, then use `t = clamp((h - 185) / 115)` and `H = h + 50 × smoothstep(t)`; keep `h <= 185` unchanged and limit local slope amplification to approximately 1.66×.
 - Compose terrain in this order: decode the central source heightmap, amplify central mountains, fuse the derived outer height data, shape mountain trails, then apply water systems last. Preserve exact water-level encoding, lowland bake settings, river and lake definitions, and water elevations.
 - Use the user's second attachment, `codex-clipboard-2178b92d-ed80-448e-bc62-8ee574032040.png` (original temporary path `/var/folders/89/j0tqf35x0534p7_yx9d__ddh0000gn/T/codex-clipboard-2178b92d-ed80-448e-bc62-8ee574032040.png`), as the outer-ring fusion source. Its dimensions are 1772×836 and its SHA-256 is `6659c309365de99978a483051a39faf3cf9a49388860d74a095f8aa6fd2b7cda`.
 - Do not commit the raw attachment or depend on its temporary path at runtime. Commit only the 512×242 outer derived-height asset generated deterministically by `tools/build-outer-mountain-height.mjs`, `public/assets/terrain/outer-mountain-height.png` (SHA-256 `44992b27a04209d6fb242dcb42fcc80fc31ce6c19c1b6c5ccc41e866205e255a`). Preserve the source aspect ratio and grayscale elevation structure during derivation, and make the horizontal boundary periodic with continuous values and first-order change so the angular wrap has no seam.
@@ -70,7 +70,7 @@ The user found the current map and mountains too small and requested doubling bo
 
 - 地图活动边界为 X/Z 各 ±2048 米，地形由 16×16 共 256 个 256 米分块覆盖，末分块键为 `15,15`，最远 LOD 使用 32 段。
 - 中央所有源高程不高于 185 米的采样值保持不变，现有水系控制点、低地、水位和水面编码与修改前一致。
-- 中央最高峰不超过 350 米，约 24 米尺度内的孤立针峰显著降低，宽阔主脊保持连续；山路连接完整且完整塑形后的中心线坡度不超过 35°。
+- 中央自然地形最高峰不超过 350 米，垂直高度断层和孤立针峰被展开为连续坡面，宽阔主脊保持连续；山路填高不超过自然地表 4 米，连接完整且完整塑形后的中心线坡度不超过 35°。
 - 旧地图边界四边和四角的高度及法线连续，没有可见裂缝、台阶或方向复制接缝。
 - 外围运行时采样可追溯到上述第二张附件的派生资产：启用与禁用该资产时外围高程结果不同，而中央旧地图范围内的采样结果完全相同。
 - 派生高度图的环向首尾数值和一阶变化连续；实际地形跨越角度回绕点时高度与法线连续，四个方向的山体形态指纹不同，不出现四向复制或镜像。
@@ -84,7 +84,7 @@ The user found the current map and mountains too small and requested doubling bo
 
 - The playable X/Z limits are ±2,048 meters, covered by a 16×16 grid of 256 terrain chunks measuring 256 meters each; the last chunk key is `15,15`, and the farthest LOD uses 32 segments.
 - All central samples with source elevations at or below 185 meters remain unchanged, and existing water control points, lowlands, water levels, and water-surface encoding match the pre-change results.
-- Central peaks do not exceed 350 meters, isolated needles within the approximately 24-meter smoothing scale are substantially reduced, and broad primary ridges remain continuous. Trail connectivity remains intact, and centerline slopes stay at or below 35° after the full shaping pipeline.
+- Natural central peaks do not exceed 350 meters, vertical height walls and isolated needles become continuous slopes, and broad primary ridges remain continuous. Trail fill stays within four meters above the natural surface, connectivity remains intact, and centerline slopes stay at or below 35° after the full shaping pipeline.
 - Height and normals are continuous along all four sides and corners of the old map boundary, with no visible cracks, steps, or directional repetition seams.
 - Runtime outer-ring samples are traceable to the derived asset from the specified second attachment: enabling and disabling that asset changes outer elevations while all samples inside the old central map remain identical.
 - The first and last circumferential values and first-order changes of the derived heightmap are continuous. Terrain height and normals remain continuous across the angular wrap, and the four cardinal regions have distinct terrain fingerprints rather than copied or mirrored patterns.

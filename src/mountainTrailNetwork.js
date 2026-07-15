@@ -12,6 +12,7 @@ const TREE_EXCLUSION_HALF_WIDTH = 4;
 const SUMMIT_INNER_RADIUS = 3;
 const SUMMIT_OUTER_RADIUS = 14;
 const SUMMIT_ROUTE_PLATEAU_LENGTH = 3;
+const MAX_TRAIL_FILL_HEIGHT = 4;
 const STANDARD_TRAIL_SEGMENTS = 128;
 const HIGH_DETAIL_TRAIL_SEGMENTS = 256;
 
@@ -355,7 +356,12 @@ export function applyMountainTrailTerrain(baseHeight, x, z) {
       : 1;
     const blend = Math.max(coreBlend, radialBlend * trailSuppression);
 
-    height = THREE.MathUtils.lerp(height, summit.summit.height, blend);
+    const summitHeight = Math.min(
+      summit.summit.height,
+      baseHeight + MAX_TRAIL_FILL_HEIGHT,
+    );
+
+    height = THREE.MathUtils.lerp(height, summitHeight, blend);
   }
 
   return height;
@@ -393,7 +399,12 @@ function getMountainTrailTerrainDeformation(baseHeight, x, z) {
     const proximityWeight = 1 / (1 + candidateFrame.distanceSq);
     const weight = blend * proximityWeight;
 
-    weightedCorrection += (candidateFrame.targetHeight - baseHeight) * weight;
+    const targetHeight = Math.min(
+      candidateFrame.targetHeight,
+      baseHeight + MAX_TRAIL_FILL_HEIGHT,
+    );
+
+    weightedCorrection += (targetHeight - baseHeight) * weight;
     totalWeight += weight;
     maximumBlend = Math.max(maximumBlend, blend);
   }
@@ -403,7 +414,10 @@ function getMountainTrailTerrainDeformation(baseHeight, x, z) {
   if (nearestFrame.distance <= nearestFrame.route.innerHalfWidth) {
     return {
       frame: nearestFrame,
-      height: nearestFrame.targetHeight,
+      height: Math.min(
+        nearestFrame.targetHeight,
+        baseHeight + MAX_TRAIL_FILL_HEIGHT,
+      ),
     };
   }
 
