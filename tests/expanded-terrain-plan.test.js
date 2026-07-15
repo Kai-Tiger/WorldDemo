@@ -34,7 +34,7 @@ test('outer cells use low plains with broad rolling hill groups', () => {
   assert.ok(Math.max(...hillPeaks) < 70);
 });
 
-test('each outer cell connects the center mountains to two carved lakes', () => {
+test('each outer cell contains one headwater network and two carved lakes', () => {
   assert.equal(EXPANDED_RIVER_NETWORKS.length, 8);
   assert.equal(EXPANDED_LAKES.length, 16);
   assert.equal(
@@ -45,14 +45,13 @@ test('each outer cell connects the center mountains to two carved lakes', () => 
   for (let index = 0; index < EXPANDED_RIVER_NETWORKS.length; index += 1) {
     const network = EXPANDED_RIVER_NETWORKS[index];
     const cell = EXPANDED_TERRAIN_CELLS[index];
-    const source = network.nodeById.get(`${cell.id}-mountain-source`);
+    const source = network.nodeById.get(`${cell.id}-outer-source`);
     const sink = network.nodeById.get(cell.lake.id);
 
     assert.equal(network.reaches.length, 6);
     assert.equal(network.lakeFeatures.length, 2);
-    assert.ok(Math.abs(source.position[0]) <= 1024);
-    assert.ok(Math.abs(source.position[1]) <= 1024);
-    assert.ok(source.waterLevel >= 180);
+    assert.ok(Math.max(Math.abs(source.position[0]), Math.abs(source.position[1])) > 1024);
+    assert.equal(source.waterLevel, 14);
     assert.equal(sink.type, 'lake');
     assert.deepEqual(
       network.lakeFeatures.map((node) => node.id).sort(),
@@ -68,6 +67,25 @@ test('each outer cell connects the center mountains to two carved lakes', () => 
       assert.ok(reach.waterLevels.every((level, levelIndex) => (
         levelIndex === 0 || level <= reach.waterLevels[levelIndex - 1]
       )), reach.id);
+    }
+  }
+});
+
+test('expanded water never enters or carves the original center terrain', () => {
+  assert.equal(applyExpandedWaterTerrain(73, 0, 0), 73);
+  assert.equal(applyExpandedWaterTerrain(73, 1024, 0), 73);
+  assert.equal(applyExpandedWaterTerrain(73, 0, -1024), 73);
+
+  for (const network of EXPANDED_RIVER_NETWORKS) {
+    for (const reach of network.reaches) {
+      for (const sample of reach.samples) {
+        const outsideDistance = Math.max(
+          Math.abs(sample.point.x),
+          Math.abs(sample.point.z),
+        ) - 1024;
+
+        assert.ok(outsideDistance >= sample.influence - 1e-6, reach.id);
+      }
     }
   }
 });

@@ -21,16 +21,17 @@ const WORLD_EDGE_BLEND_WIDTH = 256;
 const OUTER_BASE_HEIGHT = 14;
 const OUTER_EDGE_HEIGHT = 12;
 const WATER_FEATURE_SEGMENTS = 128;
+const OUTER_HEADWATER_COORDINATE = CENTER_HALF_SIZE + 32;
 
 const CELL_PLANS = [
-  createCellPlan('northwest', [-2048, 2048], [-2780, 2720], [-1450, 2680], [-2130, 2180], [-1650, 1450], 0.18, [-296, -312, 182.8]),
-  createCellPlan('north', [0, 2048], [-720, 2780], [690, 2700], [-80, 2200], [360, 1450], -0.22, [24, -192, 181.6]),
-  createCellPlan('northeast', [2048, 2048], [1450, 2720], [2780, 2600], [2070, 2170], [1550, 1450], 0.28, [24, -192, 181.6]),
-  createCellPlan('west', [-2048, 0], [-2800, 720], [-2750, -650], [-2200, 80], [-1450, -360], -0.16, [-296, -312, 182.8]),
-  createCellPlan('east', [2048, 0], [2800, 680], [2740, -700], [2200, -40], [1450, 380], 0.2, [152, -652, 182.8]),
-  createCellPlan('southwest', [-2048, -2048], [-2780, -1500], [-1550, -2780], [-2200, -2160], [-1450, -1600], -0.24, [-208, -556, 181.6]),
-  createCellPlan('south', [0, -2048], [-700, -2780], [720, -2700], [80, -2200], [-360, -1450], 0.16, [40, -680, 182.8]),
-  createCellPlan('southeast', [2048, -2048], [1500, -2780], [2780, -1580], [2180, -2180], [1500, -1500], -0.3, [152, -652, 182.8]),
+  createCellPlan('northwest', [-2048, 2048], [-2780, 2720], [-1450, 2680], [-2130, 2180], [-1650, 1450], 0.18),
+  createCellPlan('north', [0, 2048], [-720, 2780], [690, 2700], [-80, 2200], [360, 1450], -0.22),
+  createCellPlan('northeast', [2048, 2048], [1450, 2720], [2780, 2600], [2070, 2170], [1550, 1450], 0.28),
+  createCellPlan('west', [-2048, 0], [-2800, 720], [-2750, -650], [-2200, 80], [-1450, -360], -0.16),
+  createCellPlan('east', [2048, 0], [2800, 680], [2740, -700], [2200, -40], [1450, 380], 0.2),
+  createCellPlan('southwest', [-2048, -2048], [-2780, -1500], [-1550, -2780], [-2200, -2160], [-1450, -1600], -0.24),
+  createCellPlan('south', [0, -2048], [-700, -2780], [720, -2700], [80, -2200], [-360, -1450], 0.16),
+  createCellPlan('southeast', [2048, -2048], [1500, -2780], [2780, -1580], [2180, -2180], [1500, -1500], -0.3),
 ];
 
 const ROLLING_HILLS = [
@@ -71,7 +72,7 @@ export const EXPANDED_WATER_BASINS = Object.freeze(CELL_PLANS.map((cell, index) 
   interfaces: Object.freeze([
     Object.freeze({
       id: `${cell.id}-foothill-inlet`,
-      reachId: `${cell.id}-mountain-cascade`,
+      reachId: `${cell.id}-outer-headwater`,
       endpoint: 'end',
       lakeId: cell.foothillLake.id,
     }),
@@ -215,7 +216,6 @@ function createCellPlan(
   junction,
   lakeCenter,
   rotation,
-  mountainSource,
 ) {
   const lake = {
     id: `${id}-outer-lake`,
@@ -263,15 +263,11 @@ function createCellPlan(
     angularSegments: 48,
     ringCount: 8,
   };
-  const mountainSourcePosition = mountainSource.slice(0, 2);
-  const mountainSourceLevel = mountainSource[2];
-  const mountainApproachOffset = id === 'southwest' ? 240 : 90;
-  const mountainCascadePoints = createMountainCascadePoints(
-    id,
-    mountainSourcePosition,
+  const outerSourcePosition = createOuterHeadwaterSource(center);
+  const outerHeadwaterPoints = createOuterHeadwaterPoints(
+    outerSourcePosition,
     foothillLakeCenter,
     bendSign,
-    mountainApproachOffset,
   );
   const upperJunction = midpoint(foothillLakeCenter, junction, 0.68, 55 * bendSign);
   const trunkMidpoint = midpoint(junction, lakeCenter, 0.48, 90 * Math.sign(center[0] || 1));
@@ -279,10 +275,10 @@ function createCellPlan(
     id: `${id}-outer-network`,
     nodes: Object.freeze([
       {
-        id: `${id}-mountain-source`,
+        id: `${id}-outer-source`,
         type: 'source',
-        position: mountainSourcePosition,
-        waterLevel: mountainSourceLevel,
+        position: outerSourcePosition,
+        waterLevel: 14,
       },
       {
         id: foothillLake.id,
@@ -311,11 +307,11 @@ function createCellPlan(
     ]),
     reaches: Object.freeze([
       createReach(
-        `${id}-mountain-cascade`,
-        `${id}-mountain-source`,
+        `${id}-outer-headwater`,
+        `${id}-outer-source`,
         foothillLake.id,
-        mountainCascadePoints,
-        mountainSourceLevel,
+        outerHeadwaterPoints,
+        14,
         foothillLake.waterLevel,
         [2.5, 6],
         [8, 16],
@@ -395,74 +391,17 @@ function createReach(id, from, to, points, startLevel, endLevel, width, influenc
   });
 }
 
-function createMountainCascadePoints(
-  id,
-  mountainSource,
-  foothillLakeCenter,
-  bendSign,
-  approachOffset,
-) {
-  if (id === 'north') {
-    return [
-      mountainSource,
-      [330, -188],
-      [350, 240],
-      midpoint(mountainSource, foothillLakeCenter, 0.7, 90),
-      foothillLakeCenter,
-    ];
-  }
-  if (id === 'northeast') {
-    return [
-      mountainSource,
-      [330, -188],
-      [440, 260],
-      midpoint(mountainSource, foothillLakeCenter, 0.7, -90),
-      foothillLakeCenter,
-    ];
-  }
-  if (id === 'northwest') {
-    return [
-      mountainSource,
-      [268, -100],
-      [300, -20],
-      foothillLakeCenter,
-    ];
-  }
-  if (id === 'west') {
-    return [
-      mountainSource,
-      [-180, -312],
-      [-116, -376],
-      [12, -600],
-      [44, -728],
-      [-20, -792],
-      [-84, -776],
-      [-196, -728],
-      foothillLakeCenter,
-    ];
-  }
-  if (id === 'southwest') {
-    return [
-      mountainSource,
-      [-192, -544],
-      [-32, -544],
-      [0, -576],
-      [32, -704],
-      [32, -736],
-      [-16, -784],
-      foothillLakeCenter,
-    ];
-  }
-
+function createOuterHeadwaterSource(center) {
   return [
-    mountainSource,
-    midpoint(mountainSource, foothillLakeCenter, 0.34, 140 * bendSign),
-    midpoint(
-      mountainSource,
-      foothillLakeCenter,
-      0.7,
-      -approachOffset * bendSign,
-    ),
+    Math.sign(center[0]) * OUTER_HEADWATER_COORDINATE,
+    Math.sign(center[1]) * OUTER_HEADWATER_COORDINATE,
+  ];
+}
+
+function createOuterHeadwaterPoints(source, foothillLakeCenter, bendSign) {
+  return [
+    source,
+    midpoint(source, foothillLakeCenter, 0.48, 36 * bendSign),
     foothillLakeCenter,
   ];
 }
