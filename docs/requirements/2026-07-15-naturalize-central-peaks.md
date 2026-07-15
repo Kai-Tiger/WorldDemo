@@ -14,11 +14,11 @@ Reduce the overly tall, dense sharp peaks in the central mountains and make the 
 
 **中文**
 
-保留 185 米及以下中央地形原高程。高山区先由约 4 米采样间距的约束场限制高度断层和窄峰坡度，再通过斜率受限的平滑曲线映射，最高为 350 米；山路和峰顶平台最多填高 4 米。这样可保留宽主脊，同时避免高度反转、竖直岩板和绝对高度平台形成的石柱。
+保留 185 米及以下中央地形原高程。高山区先以约 24 米半径的宽尺度采样压掉孤立针峰，再通过带顶部压缩的平滑曲线映射，最高为 350 米。宽尺度采样保留大于该尺度的主山脊并平滑高频沟壑，顶部压缩进一步削弱极端高值，从而形成更宽的峰顶和更清晰的山脊—沟谷层级。
 
 **English**
 
-Preserve original central elevations at or below 185 meters. First constrain highland height walls and narrow-peak slopes with a field sampled at approximately four-meter spacing, then apply a slope-limited smooth uplift capped at 350 meters. Trail and summit platforms may fill at most four meters. This preserves broad primary ridges while preventing height inversions, vertical rock fins, and pillars created by absolute-height platforms.
+Preserve original central elevations at or below 185 meters. First apply a broad sample over an approximately 24-meter radius in the highlands to remove isolated needles, then map the result through a smooth summit-compressing curve capped at 350 meters. The broad sample preserves primary ridges larger than that scale while smoothing high-frequency gullies, and the summit curve further compresses extreme values to create broader summits and a clearer ridge-to-valley hierarchy.
 
 ## User Request / 用户需求
 
@@ -34,20 +34,18 @@ The user found the sharp peaks too tall and requested cutting back some spikes w
 
 **中文**
 
-- 修改中央高度映射、山路填高限制及其测试，不修改中央高度图资产。
+- 仅修改中央高度映射函数及其测试，不修改中央高度图资产。
 - `h <= 185` 时保持 `H = h`。
-- 对 185 米以上区域使用约 4 米间距的低分辨率山体场，将源高程最大坡度限制为 0.55 米/米，并以双线性结果约束全分辨率高度。
-- `h > 185` 时采用 `t = clamp((h - 185) / 115)` 和 `H = h + 50 × smoothstep(t)`，局部斜率放大不超过约 1.66 倍。
-- 山路和峰顶平台最多填高到自然地表以上 4 米，仍允许向下切削以保持路线可用。
+- 对 185 米以上区域使用 12 米间距的 5×5 高斯权重采样（约 24 米半径），从 185–240 米平滑混入，压低孤立尖峰并保留宽主脊。
+- `h > 185` 时采用 `t = clamp((h - 185) / 115)`、`s = smootherstep(t)` 和 `H = lerp(h, 350, s³)`。
 - 保持外围山环 600 米运行时上限以及现有河湖、低地、水位和 X/Z 坐标不变。
 
 **English**
 
-- Change the central height mapping, trail-fill limit, and their tests; do not modify the central heightmap asset.
+- Change only the central height-mapping function and its tests; do not modify the central heightmap asset.
 - Preserve `H = h` when `h <= 185`.
-- Above 185 meters, use a low-resolution mountain field sampled at approximately four-meter spacing, limit source-elevation slope to 0.55 meters per meter, and constrain full-resolution height with the bilinear field result.
-- When `h > 185`, use `t = clamp((h - 185) / 115)` and `H = h + 50 × smoothstep(t)`, limiting local slope amplification to approximately 1.66×.
-- Allow trails and summit platforms to cut downward to keep routes usable, but limit fill to four meters above the natural surface.
+- Above 185 meters, smoothly blend in a 5×5 Gaussian-weighted sample at 12-meter spacing (approximately a 24-meter radius) over the 185–240-meter band, suppressing isolated needles while retaining broad primary ridges.
+- When `h > 185`, use `t = clamp((h - 185) / 115)`, `s = smootherstep(t)`, and `H = lerp(h, 350, s³)`.
 - Keep the outer-ring 600-meter runtime limit and all existing rivers, lakes, lowlands, water levels, and X/Z coordinates unchanged.
 
 ## Acceptance Criteria / 验收标准
@@ -55,17 +53,17 @@ The user found the sharp peaks too tall and requested cutting back some spikes w
 **中文**
 
 - 中央源高程不高于 185 米的结果完全不变。
-- 窄峰和垂直源高度断层被展开为连续坡面，而宽阔峰体保持原源高程。
+- 约 24 米尺度内的孤立高值显著降低，而同高度的宽阔峰体保持原源高程。
 - 中央峰顶不超过 350 米，300 米源高程映射到 350 米。
-- 280–300 米的源峰顶连续映射到约 326–350 米，不出现硬截顶或高度反转。
-- 240 米源高程映射到约 263 米，整段映射的局部斜率放大低于 1.66 倍。
+- 280–300 米的极端源峰顶被连续压缩到约 343–350 米，不出现硬截顶或高度反转。
+- 240 米源高程保持在 240–260 米之间，避免整片高山区被整体抬成高墙。
 - 地形扩展测试、完整测试、低地一致性检查和生产构建通过。
 
 **English**
 
 - Central source elevations at or below 185 meters remain exactly unchanged.
-- Narrow peaks and vertical source-height walls become continuous slopes, while broad summits preserve their source height.
+- Isolated high values within the approximately 24-meter smoothing scale are substantially reduced, while broad summits at the same elevation preserve their source height.
 - Central summits do not exceed 350 meters, and a 300-meter source elevation maps to 350 meters.
-- Source summits from 280–300 meters map continuously to approximately 326–350 meters without a hard cap or height inversion.
-- A 240-meter source elevation maps to approximately 263 meters, and local slope amplification remains below 1.66× across the curve.
+- Extreme source summits from 280–300 meters are continuously compressed to approximately 343–350 meters without a hard cap or height inversion.
+- A 240-meter source elevation remains between 240 and 260 meters so the entire highland region is not lifted into a wall.
 - Terrain-expansion tests, the complete test suite, the lowland consistency check, and the production build pass.

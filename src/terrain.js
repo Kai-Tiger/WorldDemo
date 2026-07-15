@@ -56,6 +56,7 @@ const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
 const CHUNK_BUILD_SKIRT_BATCH_SIZE = 64;
 const CHUNK_SKIRT_BOTTOM_MARGIN = 2;
+const HEIGHT_BRUSH_DIRTY_PADDING = 25;
 const PRIORITY_MISSING_CENTER = 0;
 const PRIORITY_CENTER_UPGRADE = 10;
 const PRIORITY_NEW_VISIBLE = 20;
@@ -70,10 +71,8 @@ const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
 const RIVER_GRAVEL_TEXTURE_WORLD_SIZE = 5.5;
 const HEIGHT_SMOOTHING_ENABLED = true;
-const MOUNTAIN_SMOOTHING_RADIUS = 96;
-const MOUNTAIN_SMOOTHING_GRID_SPACING = 4;
-const MOUNTAIN_MAX_SOURCE_SLOPE = 0.55;
-const HEIGHT_BRUSH_DIRTY_PADDING = MOUNTAIN_SMOOTHING_RADIUS + 1;
+const MOUNTAIN_SMOOTHING_SAMPLE_SPACING = 12;
+const MOUNTAIN_SMOOTHING_BLEND_END_HEIGHT = 240;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
 const HEIGHT_SMOOTHING_KERNEL = [
@@ -97,18 +96,10 @@ export class Terrain {
       ? new Float32Array(width * height)
       : null;
     this.sampledHeightCache?.fill(Number.NaN);
-    this.mountainHeightFieldWidth = Math.min(
-      width,
-      Math.ceil(HEIGHTMAP_SOURCE_WORLD_SIZE / MOUNTAIN_SMOOTHING_GRID_SPACING) + 1,
-    );
-    this.mountainHeightFieldHeight = Math.min(
-      height,
-      Math.ceil(HEIGHTMAP_SOURCE_WORLD_SIZE / MOUNTAIN_SMOOTHING_GRID_SPACING) + 1,
-    );
-    this.mountainHeightField = HEIGHT_SMOOTHING_ENABLED
-      ? new Float32Array(this.mountainHeightFieldWidth * this.mountainHeightFieldHeight)
-      : null;
-    this.rebuildMountainHeightField();
+    this.mountainSmoothingSampleStride = Math.max(Math.round(
+      MOUNTAIN_SMOOTHING_SAMPLE_SPACING
+        / (HEIGHTMAP_SOURCE_WORLD_SIZE / (width - 1)),
+    ), 1);
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
     this.materials = createTerrainMaterials(textures, {
@@ -853,7 +844,6 @@ export class Terrain {
       }
     }
 
-    this.rebuildMountainHeightField();
     this.invalidateSampledHeightCache(minX, minY, maxX, maxY);
     const topLeft = this.heightMapPixelToWorld(minX, minY);
     const bottomRight = this.heightMapPixelToWorld(maxX, maxY);
@@ -874,102 +864,11 @@ export class Terrain {
     };
   }
 
-  rebuildMountainHeightField() {
-    if (!this.mountainHeightField) return;
-
-    for (let y = 0; y < this.mountainHeightFieldHeight; y += 1) {
-      const sourceY = Math.round(
-        y / (this.mountainHeightFieldHeight - 1) * (this.height - 1),
-      );
-
-      for (let x = 0; x < this.mountainHeightFieldWidth; x += 1) {
-        const sourceX = Math.round(
-          x / (this.mountainHeightFieldWidth - 1) * (this.width - 1),
-        );
-
-        this.mountainHeightField[y * this.mountainHeightFieldWidth + x]
-          = this.getKernelSmoothedPixelHeight(sourceX, sourceY, 1);
-      }
-    }
-
-    const worldStepX = HEIGHTMAP_SOURCE_WORLD_SIZE / (this.mountainHeightFieldWidth - 1);
-    const worldStepY = HEIGHTMAP_SOURCE_WORLD_SIZE / (this.mountainHeightFieldHeight - 1);
-    const riseX = worldStepX * MOUNTAIN_MAX_SOURCE_SLOPE;
-    const riseY = worldStepY * MOUNTAIN_MAX_SOURCE_SLOPE;
-    const diagonalRise = Math.hypot(worldStepX, worldStepY) * MOUNTAIN_MAX_SOURCE_SLOPE;
-    const forwardNeighbors = [
-      [-1, 0, riseX],
-      [0, -1, riseY],
-      [-1, -1, diagonalRise],
-      [1, -1, diagonalRise],
-    ];
-    const backwardNeighbors = [
-      [1, 0, riseX],
-      [0, 1, riseY],
-      [1, 1, diagonalRise],
-      [-1, 1, diagonalRise],
-    ];
-
-    for (let pass = 0; pass < 2; pass += 1) {
-      for (let y = 0; y < this.mountainHeightFieldHeight; y += 1) {
-        for (let x = 0; x < this.mountainHeightFieldWidth; x += 1) {
-          this.limitMountainSlopeAt(
-            x,
-            y,
-            this.mountainHeightFieldWidth,
-            this.mountainHeightFieldHeight,
-            forwardNeighbors,
-          );
-        }
-      }
-
-      for (let y = this.mountainHeightFieldHeight - 1; y >= 0; y -= 1) {
-        for (let x = this.mountainHeightFieldWidth - 1; x >= 0; x -= 1) {
-          this.limitMountainSlopeAt(
-            x,
-            y,
-            this.mountainHeightFieldWidth,
-            this.mountainHeightFieldHeight,
-            backwardNeighbors,
-          );
-        }
-      }
-    }
-  }
-
-  limitMountainSlopeAt(x, y, width, height, neighbors) {
-    const index = y * width + x;
-    const sourceHeight = this.mountainHeightField[index];
-
-    if (sourceHeight <= CENTRAL_UPLIFT_START_HEIGHT) return;
-
-    let limitedHeight = sourceHeight;
-
-    for (const [offsetX, offsetY, maximumRise] of neighbors) {
-      const neighborX = x + offsetX;
-      const neighborY = y + offsetY;
-
-      if (neighborX < 0 || neighborX >= width || neighborY < 0 || neighborY >= height) {
-        continue;
-      }
-
-      limitedHeight = Math.min(
-        limitedHeight,
-        this.mountainHeightField[neighborY * width + neighborX] + maximumRise,
-      );
-    }
-
-    this.mountainHeightField[index] = Math.max(
-      CENTRAL_UPLIFT_START_HEIGHT,
-      limitedHeight,
-    );
-  }
-
   invalidateSampledHeightCache(minX, minY, maxX, maxY) {
     if (!this.sampledHeightCache) return;
 
-    const worldPixelSize = HEIGHTMAP_SOURCE_WORLD_SIZE / (this.width - 1);
-    const cacheRadius = Math.ceil(MOUNTAIN_SMOOTHING_RADIUS / worldPixelSize);
+    const cacheRadius = HEIGHT_SMOOTHING_KERNEL_RADIUS
+      * this.mountainSmoothingSampleStride;
     const startX = Math.max(minX - cacheRadius, 0);
     const endX = Math.min(maxX + cacheRadius, this.width - 1);
     const startY = Math.max(minY - cacheRadius, 0);
@@ -1331,42 +1230,30 @@ export class Terrain {
     const cacheIndex = y * this.width + x;
     const cachedHeight = this.sampledHeightCache[cacheIndex];
 
-    if (!Number.isNaN(cachedHeight)) return cachedHeight;
+    if (!Number.isNaN(cachedHeight)) {
+      return cachedHeight;
+    }
 
     const fineHeight = this.getKernelSmoothedPixelHeight(x, y, 1);
-    const mountainHeight = this.sampleMountainHeightField(x, y);
-    const height = fineHeight <= CENTRAL_UPLIFT_START_HEIGHT
-      ? fineHeight
-      : Math.min(
-        fineHeight,
-        Math.max(CENTRAL_UPLIFT_START_HEIGHT, mountainHeight),
+    let height = fineHeight;
+
+    if (fineHeight > CENTRAL_UPLIFT_START_HEIGHT) {
+      const mountainHeight = this.getKernelSmoothedPixelHeight(
+        x,
+        y,
+        this.mountainSmoothingSampleStride,
       );
+      const mountainBlend = smoothstepRange(
+        CENTRAL_UPLIFT_START_HEIGHT,
+        MOUNTAIN_SMOOTHING_BLEND_END_HEIGHT,
+        fineHeight,
+      );
+
+      height = THREE.MathUtils.lerp(fineHeight, mountainHeight, mountainBlend);
+    }
 
     this.sampledHeightCache[cacheIndex] = height;
     return height;
-  }
-
-  sampleMountainHeightField(x, y) {
-    const fieldX = x / (this.width - 1) * (this.mountainHeightFieldWidth - 1);
-    const fieldY = y / (this.height - 1) * (this.mountainHeightFieldHeight - 1);
-    const x0 = Math.floor(fieldX);
-    const y0 = Math.floor(fieldY);
-    const x1 = Math.min(x0 + 1, this.mountainHeightFieldWidth - 1);
-    const y1 = Math.min(y0 + 1, this.mountainHeightFieldHeight - 1);
-    const tx = fieldX - x0;
-    const ty = fieldY - y0;
-    const top = THREE.MathUtils.lerp(
-      this.mountainHeightField[y0 * this.mountainHeightFieldWidth + x0],
-      this.mountainHeightField[y0 * this.mountainHeightFieldWidth + x1],
-      tx,
-    );
-    const bottom = THREE.MathUtils.lerp(
-      this.mountainHeightField[y1 * this.mountainHeightFieldWidth + x0],
-      this.mountainHeightField[y1 * this.mountainHeightFieldWidth + x1],
-      tx,
-    );
-
-    return THREE.MathUtils.lerp(top, bottom, ty);
   }
 
   getKernelSmoothedPixelHeight(x, y, sampleStride) {
