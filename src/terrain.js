@@ -27,43 +27,34 @@ import {
   decodeTerrainHeightCode,
   isPreciseWaterHeightCode,
 } from './terrainHeightEncoding.js';
-import {
-  CENTRAL_UPLIFT_START_HEIGHT,
-  HEIGHTMAP_SOURCE_HALF_SIZE,
-  HEIGHTMAP_SOURCE_MAX_HEIGHT,
-  HEIGHTMAP_SOURCE_WORLD_SIZE,
-  TERRAIN_WORLD_MAX_HEIGHT,
-  createOuterTerrainRidgeSampler,
-  getOuterTerrainHeight,
-  isTerrainEditableAt as isSourceTerrainEditableAt,
-  upliftCentralHeight,
-} from './terrainExpansion.js';
 import { MAP_SIZE } from './vegetationConfig.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
-const OUTER_HEIGHT_MAP_PATH = '/assets/terrain/outer-mountain-height.png';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
 const ALPINE_ROCK_NORMAL_TEXTURE_PATH = '/assets/terrain/rock-alpine-normal.png';
 const ALPINE_SNOW_TEXTURE_PATH = '/assets/terrain/snow-alpine.webp';
 const RIVER_GRAVEL_TEXTURE_PATH = '/assets/terrain/scree-alpine.webp';
 const FOREST_FLOOR_OPTIMIZED_TEXTURE_PATH = '/assets/terrain/forest-floor/optimized';
+const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
-const SHADOW_PROXY_SEGMENTS = 128;
+const SHADOW_PROXY_SEGMENTS = 64;
 export const TERRAIN_SHADOW_PROXY_LAYER = 2;
-const DEFAULT_LOD_SEGMENTS = [256, 128, 64, 32];
+const DEFAULT_LOD_SEGMENTS = [256, 128, 64];
 const DEFAULT_CHUNK_BUILD_BUDGET_MS = 3;
 const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
 const CHUNK_BUILD_SKIRT_BATCH_SIZE = 64;
 const CHUNK_SKIRT_BOTTOM_MARGIN = 2;
-const HEIGHT_BRUSH_DIRTY_PADDING = 25;
+const HEIGHT_BRUSH_DIRTY_PADDING = 7;
 const PRIORITY_MISSING_CENTER = 0;
 const PRIORITY_CENTER_UPGRADE = 10;
 const PRIORITY_NEW_VISIBLE = 20;
 const PRIORITY_NEAR_UPGRADE = 40;
 const PRIORITY_EDITOR_REBUILD = 5;
 const PRIORITY_DOWNGRADE = 100;
+const MAX_HEIGHT = 300;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
+const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
 const NORMAL_SAMPLE_DISTANCE = 1;
 const GROUND_MASK_SAMPLE_DISTANCE = 5;
@@ -71,8 +62,6 @@ const ALPINE_TEXTURE_WORLD_SIZE = 20;
 const FOREST_FLOOR_TEXTURE_WORLD_SIZE = 2;
 const RIVER_GRAVEL_TEXTURE_WORLD_SIZE = 5.5;
 const HEIGHT_SMOOTHING_ENABLED = true;
-const MOUNTAIN_SMOOTHING_SAMPLE_SPACING = 12;
-const MOUNTAIN_SMOOTHING_BLEND_END_HEIGHT = 240;
 const HEIGHT_DITHER_AMPLITUDE = 0.35;
 const HEIGHT_DITHER_FREQUENCY = 0.65;
 const HEIGHT_SMOOTHING_KERNEL = [
@@ -96,10 +85,6 @@ export class Terrain {
       ? new Float32Array(width * height)
       : null;
     this.sampledHeightCache?.fill(Number.NaN);
-    this.mountainSmoothingSampleStride = Math.max(Math.round(
-      MOUNTAIN_SMOOTHING_SAMPLE_SPACING
-        / (HEIGHTMAP_SOURCE_WORLD_SIZE / (width - 1)),
-    ), 1);
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
     this.materials = createTerrainMaterials(textures, {
@@ -110,9 +95,6 @@ export class Terrain {
       riverGravelTextureWorldSize: RIVER_GRAVEL_TEXTURE_WORLD_SIZE,
     });
     this.skirtMaterial = createTerrainSkirtMaterial();
-    this.outerTerrainRidgeSampler = options.outerHeightMap
-      ? createOuterTerrainRidgeSampler(options.outerHeightMap)
-      : undefined;
     this.shadowProxy = createTerrainShadowProxy(this);
     this.shadowProxyLayer = TERRAIN_SHADOW_PROXY_LAYER;
     this.group.add(this.shadowProxy);
@@ -136,11 +118,9 @@ export class Terrain {
   static async create(options = {}) {
     const [
       { data, width, height },
-      outerHeightMap,
       textures,
     ] = await Promise.all([
       loadHeightMap(HEIGHT_MAP_PATH),
-      options.outerHeightMap ?? loadHeightMap(OUTER_HEIGHT_MAP_PATH),
       loadTerrainTextures(
         options.textureTier,
         options.textureAnisotropy,
@@ -148,10 +128,7 @@ export class Terrain {
       ),
     ]);
 
-    return new Terrain(data, width, height, textures, {
-      ...options,
-      outerHeightMap,
-    });
+    return new Terrain(data, width, height, textures, options);
   }
 
   async prepareInitialChunk(centerPosition) {
@@ -179,76 +156,9 @@ export class Terrain {
     });
   }
 
-  async prepareChunk(position) {
-    this.updateFocusPosition(position);
-    this.scheduleLoadedChunkLods();
-
-    const chunkX = this.getChunkCoord(position.x);
-    const chunkZ = this.getChunkCoord(position.z);
-    const key = this.getChunkKey(chunkX, chunkZ);
-
-    await new Promise((resolve) => {
-      const advance = () => {
-        this.processChunkBuilds();
-
-        const record = this.loadedChunks.get(key);
-        const desiredSegments = this.getDesiredChunkSegments(chunkX, chunkZ);
-
-        if (record?.segments === desiredSegments) {
-          resolve();
-          return;
-        }
-
-        requestAnimationFrame(advance);
-      };
-
-      requestAnimationFrame(advance);
-    });
-  }
-
-  async prepareAllChunks(buildBudgetMs = 100) {
-    const previousBuildBudgetMs = this.buildBudgetMs;
-
-    this.buildBudgetMs = Math.max(this.buildBudgetMs, buildBudgetMs);
-    await new Promise((resolve) => {
-      const advance = () => {
-        this.processChunkBuilds();
-
-        if (this.pendingChunks.size === 0) {
-          this.buildBudgetMs = previousBuildBudgetMs;
-          resolve();
-          return;
-        }
-
-        requestAnimationFrame(advance);
-      };
-
-      requestAnimationFrame(advance);
-    });
-  }
-
-  update(focusPosition) {
-    this.updateFocusPosition(focusPosition);
+  update() {
     this.scheduleLoadedChunkLods();
     this.processChunkBuilds();
-  }
-
-  updateFocusPosition(focusPosition) {
-    if (!Number.isFinite(focusPosition?.x) || !Number.isFinite(focusPosition?.z)) return;
-
-    const centerChunkX = this.getChunkCoord(focusPosition.x);
-    const centerChunkZ = this.getChunkCoord(focusPosition.z);
-
-    if (centerChunkX === this.centerChunkX && centerChunkZ === this.centerChunkZ) return;
-
-    this.centerChunkX = centerChunkX;
-    this.centerChunkZ = centerChunkZ;
-
-    this.reconcilePendingChunkLods();
-
-    for (const task of this.pendingChunks.values()) {
-      task.priority = this.getChunkBuildPriority(task.chunkX, task.chunkZ, task.segments);
-    }
   }
 
   setQualityPreset(preset) {
@@ -606,13 +516,15 @@ export class Terrain {
   }
 
   createChunkRecord(task) {
-    const geometry = createSurfaceGeometry(task.arrays);
+    const geometry = createSurfaceGeometry(task.arrays, task.minX, task.minZ);
     const material = getTerrainMaterialForSegments(this.materials, task.segments);
     const surface = new THREE.Mesh(geometry, material);
     const skirt = new THREE.Mesh(
       createSkirtGeometry(
         task.arrays.positions,
         task.segments,
+        task.minX,
+        task.minZ,
         task.edgeMinimums,
       ),
       this.skirtMaterial,
@@ -686,24 +598,9 @@ export class Terrain {
 
   getDesiredChunkSegments(chunkX, chunkZ) {
     const distance = this.getChunkDistance(chunkX, chunkZ);
-    let segments = this.editorMode && distance <= 1
+    const segments = this.editorMode && distance <= 1
       ? CHUNK_SIZE
       : this.lodSegments[Math.min(distance, this.lodSegments.length - 1)];
-
-    const inwardNeighbors = [];
-    if (chunkX === 0) inwardNeighbors.push([1, chunkZ]);
-    if (chunkX === CHUNKS_PER_SIDE - 1) inwardNeighbors.push([chunkX - 1, chunkZ]);
-    if (chunkZ === 0) inwardNeighbors.push([chunkX, 1]);
-    if (chunkZ === CHUNKS_PER_SIDE - 1) inwardNeighbors.push([chunkX, chunkZ - 1]);
-
-    for (const [neighborX, neighborZ] of inwardNeighbors) {
-      const neighborDistance = this.getChunkDistance(neighborX, neighborZ);
-      const neighborSegments = this.editorMode && neighborDistance <= 1
-        ? CHUNK_SIZE
-        : this.lodSegments[Math.min(neighborDistance, this.lodSegments.length - 1)];
-
-      segments = Math.max(segments, neighborSegments);
-    }
 
     return this.applyMinimumChunkSegments(chunkX, chunkZ, segments);
   }
@@ -790,40 +687,27 @@ export class Terrain {
       data: this.heightData,
       width: this.width,
       height: this.height,
-      worldSize: HEIGHTMAP_SOURCE_WORLD_SIZE,
-      maxHeight: HEIGHTMAP_SOURCE_MAX_HEIGHT,
+      worldSize: HEIGHT_MAP_WORLD_SIZE,
+      maxHeight: MAX_HEIGHT,
     };
   }
 
-  isHeightEditableAt(x, z) {
-    return isSourceTerrainEditableAt(x, z);
-  }
-
   heightMapPixelToWorld(imageX, imageY) {
-    const x = (imageX / (this.width - 1)) * HEIGHTMAP_SOURCE_WORLD_SIZE
-      - HEIGHTMAP_SOURCE_HALF_SIZE;
-    const z = ((this.height - 1 - imageY) / (this.height - 1))
-      * HEIGHTMAP_SOURCE_WORLD_SIZE - HEIGHTMAP_SOURCE_HALF_SIZE;
+    const x = (imageX / (this.width - 1)) * HEIGHT_MAP_WORLD_SIZE - HALF_HEIGHT_MAP_WORLD_SIZE;
+    const z = ((this.height - 1 - imageY) / (this.height - 1)) * HEIGHT_MAP_WORLD_SIZE - HALF_HEIGHT_MAP_WORLD_SIZE;
 
     return { x, z };
   }
 
   applyHeightBrush(worldX, worldZ, radius, strength) {
-    if (!this.isHeightEditableAt(worldX, worldZ)) return null;
-
-    const centerX = ((worldX + HEIGHTMAP_SOURCE_HALF_SIZE) / HEIGHTMAP_SOURCE_WORLD_SIZE)
-      * (this.width - 1);
-    const centerY = (1 - ((worldZ + HEIGHTMAP_SOURCE_HALF_SIZE)
-      / HEIGHTMAP_SOURCE_WORLD_SIZE)) * (this.height - 1);
-    const pixelRadius = Math.max(
-      (radius / HEIGHTMAP_SOURCE_WORLD_SIZE) * (this.width - 1),
-      1,
-    );
+    const centerX = ((worldX + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1);
+    const centerY = (1 - ((worldZ + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE)) * (this.height - 1);
+    const pixelRadius = Math.max((radius / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1), 1);
     const minX = Math.max(Math.floor(centerX - pixelRadius), 0);
     const maxX = Math.min(Math.ceil(centerX + pixelRadius), this.width - 1);
     const minY = Math.max(Math.floor(centerY - pixelRadius), 0);
     const maxY = Math.min(Math.ceil(centerY + pixelRadius), this.height - 1);
-    const delta = (strength / HEIGHTMAP_SOURCE_MAX_HEIGHT) * 255;
+    const delta = (strength / MAX_HEIGHT) * 255;
 
     for (let y = minY; y <= maxY; y += 1) {
       for (let x = minX; x <= maxX; x += 1) {
@@ -867,12 +751,10 @@ export class Terrain {
   invalidateSampledHeightCache(minX, minY, maxX, maxY) {
     if (!this.sampledHeightCache) return;
 
-    const cacheRadius = HEIGHT_SMOOTHING_KERNEL_RADIUS
-      * this.mountainSmoothingSampleStride;
-    const startX = Math.max(minX - cacheRadius, 0);
-    const endX = Math.min(maxX + cacheRadius, this.width - 1);
-    const startY = Math.max(minY - cacheRadius, 0);
-    const endY = Math.min(maxY + cacheRadius, this.height - 1);
+    const startX = Math.max(minX - HEIGHT_SMOOTHING_KERNEL_RADIUS, 0);
+    const endX = Math.min(maxX + HEIGHT_SMOOTHING_KERNEL_RADIUS, this.width - 1);
+    const startY = Math.max(minY - HEIGHT_SMOOTHING_KERNEL_RADIUS, 0);
+    const endY = Math.min(maxY + HEIGHT_SMOOTHING_KERNEL_RADIUS, this.height - 1);
 
     for (let y = startY; y <= endY; y += 1) {
       const rowStart = y * this.width + startX;
@@ -989,7 +871,6 @@ export class Terrain {
     for (const attribute of Object.values(record.surface.geometry.attributes)) {
       attribute.needsUpdate = true;
     }
-    record.surface.geometry.computeBoundingSphere();
 
     const dirtyEdges = [];
     if (startZ === 0) dirtyEdges.push(0);
@@ -1003,6 +884,8 @@ export class Terrain {
       record.skirt.geometry = createSkirtGeometry(
         record.arrays.positions,
         record.segments,
+        record.minX,
+        record.minZ,
         record.edgeMinimums,
       );
       previousGeometry.dispose();
@@ -1148,48 +1031,8 @@ export class Terrain {
   }
 
   getBaseHeightAt(x, z) {
-    if (isSourceTerrainEditableAt(x, z)) {
-      return upliftCentralHeight(this.getSourceHeightAt(x, z));
-    }
-
-    const edgeX = THREE.MathUtils.clamp(
-      x,
-      -HEIGHTMAP_SOURCE_HALF_SIZE,
-      HEIGHTMAP_SOURCE_HALF_SIZE,
-    );
-    const edgeZ = THREE.MathUtils.clamp(
-      z,
-      -HEIGHTMAP_SOURCE_HALF_SIZE,
-      HEIGHTMAP_SOURCE_HALF_SIZE,
-    );
-    const deltaX = x - edgeX;
-    const deltaZ = z - edgeZ;
-    const deltaScale = Math.hypot(deltaX, deltaZ) || 1;
-    const inwardX = edgeX - deltaX / deltaScale;
-    const inwardZ = edgeZ - deltaZ / deltaScale;
-    const edgeHeight = upliftCentralHeight(this.getSourceHeightAt(edgeX, edgeZ));
-    const inwardHeight = upliftCentralHeight(this.getSourceHeightAt(inwardX, inwardZ));
-
-    return getOuterTerrainHeight(
-      edgeHeight,
-      edgeHeight - inwardHeight,
-      x,
-      z,
-      this.outerTerrainRidgeSampler,
-    );
-  }
-
-  getSourceHeightAt(x, z) {
-    const u = THREE.MathUtils.clamp(
-      (x + HEIGHTMAP_SOURCE_HALF_SIZE) / HEIGHTMAP_SOURCE_WORLD_SIZE,
-      0,
-      1,
-    );
-    const v = THREE.MathUtils.clamp(
-      (z + HEIGHTMAP_SOURCE_HALF_SIZE) / HEIGHTMAP_SOURCE_WORLD_SIZE,
-      0,
-      1,
-    );
+    const u = THREE.MathUtils.clamp((x + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE, 0, 1);
+    const v = THREE.MathUtils.clamp((z + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE, 0, 1);
     const imageX = u * (this.width - 1);
     const imageY = (1 - v) * (this.height - 1);
     const x0 = Math.floor(imageX);
@@ -1219,7 +1062,7 @@ export class Terrain {
     const height = THREE.MathUtils.lerp(top, bottom, ty)
       + getHeightDither(x, z) * (1 - preciseWaterMask);
 
-    return THREE.MathUtils.clamp(height, 0, HEIGHTMAP_SOURCE_MAX_HEIGHT);
+    return THREE.MathUtils.clamp(height, 0, MAX_HEIGHT);
   }
 
   getSampledPixelHeight(x, y) {
@@ -1234,43 +1077,12 @@ export class Terrain {
       return cachedHeight;
     }
 
-    const fineHeight = this.getKernelSmoothedPixelHeight(x, y, 1);
-    let height = fineHeight;
-
-    if (fineHeight > CENTRAL_UPLIFT_START_HEIGHT) {
-      const mountainHeight = this.getKernelSmoothedPixelHeight(
-        x,
-        y,
-        this.mountainSmoothingSampleStride,
-      );
-      const mountainBlend = smoothstepRange(
-        CENTRAL_UPLIFT_START_HEIGHT,
-        MOUNTAIN_SMOOTHING_BLEND_END_HEIGHT,
-        fineHeight,
-      );
-
-      height = THREE.MathUtils.lerp(fineHeight, mountainHeight, mountainBlend);
-    }
-
-    this.sampledHeightCache[cacheIndex] = height;
-    return height;
-  }
-
-  getKernelSmoothedPixelHeight(x, y, sampleStride) {
     let weightedHeight = 0;
 
     for (let offsetY = -HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetY <= HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetY += 1) {
       for (let offsetX = -HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetX <= HEIGHT_SMOOTHING_KERNEL_RADIUS; offsetX += 1) {
-        const sampleX = THREE.MathUtils.clamp(
-          x + offsetX * sampleStride,
-          0,
-          this.width - 1,
-        );
-        const sampleY = THREE.MathUtils.clamp(
-          y + offsetY * sampleStride,
-          0,
-          this.height - 1,
-        );
+        const sampleX = THREE.MathUtils.clamp(x + offsetX, 0, this.width - 1);
+        const sampleY = THREE.MathUtils.clamp(y + offsetY, 0, this.height - 1);
         const weight = HEIGHT_SMOOTHING_KERNEL[offsetY + HEIGHT_SMOOTHING_KERNEL_RADIUS]
           [offsetX + HEIGHT_SMOOTHING_KERNEL_RADIUS];
 
@@ -1278,7 +1090,9 @@ export class Terrain {
       }
     }
 
-    return weightedHeight / HEIGHT_SMOOTHING_KERNEL_WEIGHT;
+    const height = weightedHeight / HEIGHT_SMOOTHING_KERNEL_WEIGHT;
+    this.sampledHeightCache[cacheIndex] = height;
+    return height;
   }
 
   getNormalAt(x, z) {
@@ -1340,7 +1154,7 @@ export class Terrain {
     const index = (y * this.width + x) * 4;
     const luminance = this.getPixelLuminance(index) / 255;
 
-    return luminance * HEIGHTMAP_SOURCE_MAX_HEIGHT;
+    return luminance * MAX_HEIGHT;
   }
 
   getPreciseWaterPixelMask(x, y) {
@@ -1546,7 +1360,7 @@ function writeSurfaceCellIndices(indices, cellIndex, segments, verticesPerSide) 
   indices[offset + 5] = bottomRight;
 }
 
-function createSurfaceGeometry(arrays) {
+function createSurfaceGeometry(arrays, minX, minZ) {
   const geometry = new THREE.BufferGeometry();
 
   geometry.setAttribute('position', new THREE.BufferAttribute(arrays.positions, 3));
@@ -1562,11 +1376,11 @@ function createSurfaceGeometry(arrays) {
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
   geometry.setAttribute('mountainTrailMask', new THREE.BufferAttribute(arrays.mountainTrailMasks, 1));
   geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
-  geometry.computeBoundingSphere();
+  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
   return geometry;
 }
 
-function createSkirtGeometry(surfacePositions, segments, edgeMinimums) {
+function createSkirtGeometry(surfacePositions, segments, minX, minZ, edgeMinimums) {
   const verticesPerSide = segments + 1;
   const positions = new Float32Array(4 * verticesPerSide * 2 * 3);
   const indices = new Uint32Array(4 * segments * 6);
@@ -1611,7 +1425,7 @@ function createSkirtGeometry(surfacePositions, segments, edgeMinimums) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeBoundingSphere();
+  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, true);
   return geometry;
 }
 
@@ -1620,6 +1434,15 @@ function getEdgeSurfaceVertexIndex(edge, index, segments, verticesPerSide) {
   if (edge === 1) return segments * verticesPerSide + index;
   if (edge === 2) return index * verticesPerSide;
   return index * verticesPerSide + segments;
+}
+
+function createChunkBoundingSphere(minX, minZ, includeSkirt) {
+  const verticalRadius = MAX_HEIGHT / 2 + (includeSkirt ? 32 : 24);
+
+  return new THREE.Sphere(
+    new THREE.Vector3(minX + CHUNK_SIZE / 2, MAX_HEIGHT / 2, minZ + CHUNK_SIZE / 2),
+    Math.hypot(CHUNK_SIZE / 2, CHUNK_SIZE / 2, verticalRadius),
+  );
 }
 
 function createTerrainSkirtMaterial() {
@@ -1671,8 +1494,8 @@ function createTerrainShadowProxy(terrain) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.boundingSphere = new THREE.Sphere(
-    new THREE.Vector3(0, TERRAIN_WORLD_MAX_HEIGHT / 2, 0),
-    Math.hypot(HALF_MAP_SIZE, HALF_MAP_SIZE, TERRAIN_WORLD_MAX_HEIGHT / 2),
+    new THREE.Vector3(0, MAX_HEIGHT / 2, 0),
+    Math.hypot(HALF_MAP_SIZE, HALF_MAP_SIZE, MAX_HEIGHT / 2),
   );
   const material = new THREE.MeshBasicMaterial({
     colorWrite: false,

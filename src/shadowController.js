@@ -3,12 +3,12 @@ import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { getShadowCameraFit } from './renderQuality.js';
 
 const SHADOW_WORLD_MIN_Y = -40;
-const SHADOW_WORLD_MAX_Y = 640;
+const SHADOW_WORLD_MAX_Y = 340;
 const SHADOW_BOUNDS_MARGIN = 0.5;
 const SHADOW_DEPTH_MARGIN = 8;
 const QUALITY_NEAR_CASCADE_DISTANCE = 90;
 const CSM_LIGHT_MARGIN = 100;
-const CSM_LIGHT_FAR = 1200;
+const CSM_LIGHT_FAR = 850;
 const MATERIAL_SCAN_FRAMES = 2;
 const MATERIAL_RESCAN_INTERVAL = 120;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);

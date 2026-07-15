@@ -3,9 +3,9 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { getLowlandMinimumSegmentsForBounds } from '../src/lowlandLandforms.js';
 import { Terrain } from '../src/terrain.js';
-import { CENTRAL_PEAK_MAX_HEIGHT } from '../src/terrainExpansion.js';
 
-function createTerrain(options = {}, size = 32) {
+function createTerrain(options = {}) {
+  const size = 32;
   const heightData = new Uint8ClampedArray(size * size * 4);
   const texture = new THREE.Texture();
 
@@ -67,38 +67,6 @@ test('smoothed pixel samples are cached and a brush invalidates the local cache'
   assert.ok(pixelReads > initialReads);
 });
 
-test('mountain smoothing removes narrow needles while preserving broad summits', () => {
-  const size = 512;
-  const terrain = createTerrain({}, size);
-  const baseCode = 170;
-  const center = Math.floor(size / 2);
-
-  for (let index = 0; index < terrain.heightData.length; index += 4) {
-    terrain.heightData[index] = baseCode;
-    terrain.heightData[index + 1] = baseCode;
-    terrain.heightData[index + 2] = baseCode;
-  }
-
-  for (let y = center - 2; y <= center + 2; y += 1) {
-    for (let x = center - 2; x <= center + 2; x += 1) {
-      const index = (y * size + x) * 4;
-      terrain.heightData[index] = 255;
-      terrain.heightData[index + 1] = 255;
-      terrain.heightData[index + 2] = 255;
-    }
-  }
-
-  terrain.sampledHeightCache.fill(Number.NaN);
-  const narrowPeak = terrain.getSampledPixelHeight(center, center);
-
-  terrain.heightData.fill(255);
-  terrain.sampledHeightCache.fill(Number.NaN);
-  const broadSummit = terrain.getSampledPixelHeight(center, center);
-
-  assert.ok(narrowPeak < 230);
-  assert.ok(Math.abs(broadSummit - 300) < 1e-9);
-});
-
 test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () => {
   const terrain = createTerrain();
   const baseAtJunction = terrain.getBaseHeightAt(16, -352);
@@ -112,72 +80,10 @@ test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () =>
   assert.ok(proxyLake < lakeBase - 20);
 });
 
-test('source lowlands remain exact while sharp source summits compress to 350 meters', () => {
-  const terrain = createTerrain();
-  const sourceLowland = terrain.getSourceHeightAt(0, 0);
-
-  assert.ok(sourceLowland <= 185);
-  assert.equal(terrain.getBaseHeightAt(0, 0), sourceLowland);
-
-  for (let index = 0; index < terrain.heightData.length; index += 4) {
-    terrain.heightData[index] = 255;
-    terrain.heightData[index + 1] = 255;
-    terrain.heightData[index + 2] = 255;
-  }
-  terrain.sampledHeightCache.fill(Number.NaN);
-
-  assert.ok(terrain.getSourceHeightAt(0, 0) >= 299);
-  assert.ok(terrain.getBaseHeightAt(0, 0) > CENTRAL_PEAK_MAX_HEIGHT - 1);
-  assert.ok(terrain.getBaseHeightAt(0, 0) <= CENTRAL_PEAK_MAX_HEIGHT);
-});
-
-test('outer terrain joins all old-map sides and corners with matching first derivatives', () => {
-  const terrain = createTerrain();
-  const epsilon = 1e-3;
-  const directions = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-    [1, 1],
-    [1, -1],
-    [-1, 1],
-    [-1, -1],
-  ];
-
-  for (const [directionX, directionZ] of directions) {
-    const directionLength = Math.hypot(directionX, directionZ);
-    const normalX = directionX / directionLength;
-    const normalZ = directionZ / directionLength;
-    const edgeX = directionX === 0 ? 137 : directionX * 1024;
-    const edgeZ = directionZ === 0 ? -211 : directionZ * 1024;
-    const insideX = edgeX - normalX;
-    const insideZ = edgeZ - normalZ;
-    const outsideX = edgeX + normalX * epsilon;
-    const outsideZ = edgeZ + normalZ * epsilon;
-    const edgeHeight = terrain.getBaseHeightAt(edgeX, edgeZ);
-    const inwardSlope = edgeHeight - terrain.getBaseHeightAt(insideX, insideZ);
-    const outwardSlope = (
-      terrain.getBaseHeightAt(outsideX, outsideZ) - edgeHeight
-    ) / epsilon;
-
-    assert.ok(Math.abs(outwardSlope - inwardSlope) < 1e-4);
-  }
-});
-
-test('shadow proxy covers the expanded 600 meter terrain envelope at 128 segments', () => {
-  const terrain = createTerrain();
-  const bounds = terrain.shadowProxy.geometry.boundingSphere;
-
-  assert.equal(terrain.shadowProxy.userData.terrainSegments, 128);
-  assert.equal(bounds.center.y, 300);
-  assert.equal(bounds.radius, Math.hypot(2048, 2048, 300));
-});
-
-test('quality presets keep the center at 256 and use preset values down to 32', () => {
+test('quality presets keep the center at 256 and use preset values for rings', () => {
   const terrain = createTerrain();
 
-  terrain.setQualityPreset({ lodSegments: [128, 64, 32], buildBudgetMs: 5 });
+  terrain.setQualityPreset({ lodSegments: [128, 64], buildBudgetMs: 5 });
   terrain.centerChunkX = 3;
   terrain.centerChunkZ = 3;
 
@@ -185,29 +91,10 @@ test('quality presets keep the center at 256 and use preset values down to 32', 
   terrain.loadedChunks.set('3,3', { segments: 64 });
   terrain.loadedChunks.set('4,3', { segments: 64 });
   terrain.loadedChunks.set('5,3', { segments: 64 });
-  terrain.loadedChunks.set('6,3', { segments: 32 });
   assert.equal(terrain.getDesiredChunkSegments(3, 3), 256);
   assert.equal(terrain.getDesiredChunkSegments(4, 3), 128);
   assert.equal(terrain.getDesiredChunkSegments(5, 3), 64);
-  assert.equal(terrain.getDesiredChunkSegments(6, 3), 32);
   assert.equal(terrain.buildBudgetMs, 5);
-});
-
-test('the outermost ring follows its inward neighbor LOD only when approached', () => {
-  const terrain = createTerrain();
-
-  terrain.setQualityPreset({ lodSegments: [256, 128, 64, 32] });
-  terrain.centerChunkX = 12;
-  terrain.centerChunkZ = 8;
-
-  assert.equal(terrain.getDesiredChunkSegments(14, 8), 64);
-  assert.equal(terrain.getDesiredChunkSegments(15, 8), 64);
-
-  terrain.centerChunkX = 8;
-  terrain.centerChunkZ = 8;
-
-  assert.equal(terrain.getDesiredChunkSegments(14, 8), 32);
-  assert.equal(terrain.getDesiredChunkSegments(15, 8), 32);
 });
 
 test('initial readiness waits for the spawn chunk while the full map keeps loading', async () => {
@@ -225,21 +112,23 @@ test('initial readiness waits for the spawn chunk while the full map keeps loadi
     const ready = terrain.prepareInitialChunk({ x: 335, z: -358 });
 
     assert.equal(terrain.loadedChunks.size, 0);
-    assert.equal(terrain.pendingChunks.size, 256);
+    assert.equal(terrain.pendingChunks.size, 64);
     assert.equal(animationFrames.length, 1);
 
     animationFrames.shift()();
     await ready;
 
-    assert.equal(terrain.loadedChunks.has('9,6'), true);
+    assert.equal(terrain.loadedChunks.has('5,2'), true);
     assert.equal(terrain.loadedChunks.size, 1);
-    assert.equal(terrain.pendingChunks.size, 255);
+    assert.equal(terrain.pendingChunks.size, 63);
 
-    while (terrain.pendingChunks.size > 0) terrain.update();
+    while (terrain.pendingChunks.size > 0) {
+      terrain.update({ x: -900, z: 900 });
+    }
 
-    assert.equal(terrain.loadedChunks.size, 256);
+    assert.equal(terrain.loadedChunks.size, 64);
     assert.equal(terrain.pendingChunks.size, 0);
-    assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [9, 6]);
+    assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [5, 2]);
     assert.equal(
       terrain.getAllChunkKeys().every((key) => terrain.loadedChunks.has(key)),
       true,
@@ -269,28 +158,26 @@ test('quality changes replace unfinished terrain tasks with the new LOD', () => 
   terrain.setQualityPreset({ lodSegments: [256, 64] });
 
   const replacementTask = terrain.pendingChunks.get('4,3');
-  assert.equal(terrain.pendingChunks.size, 256);
+  assert.equal(terrain.pendingChunks.size, 64);
   assert.notEqual(replacementTask, oldTask);
   assert.equal(replacementTask.segments, 64);
   assert.equal(replacementTask.phase, 'allocate');
   assert.equal(terrain.pendingChunks.get('3,3').segments, 256);
 });
 
-test('full terrain coverage stays fixed while LOD priority follows player movement', () => {
+test('full terrain coverage is fixed and does not recenter around player movement', () => {
   const terrain = createTerrain();
   const keys = terrain.getAllChunkKeys();
 
   terrain.centerChunkX = terrain.getChunkCoord(335);
   terrain.centerChunkZ = terrain.getChunkCoord(-358);
-  terrain.scheduleChunks(keys);
+  const initialCenter = [terrain.centerChunkX, terrain.centerChunkZ];
   terrain.update({ x: -900, z: 900 });
 
-  assert.equal(keys.length, 256);
+  assert.equal(keys.length, 64);
   assert.equal(keys[0], '0,0');
-  assert.equal(keys.at(-1), '15,15');
-  assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [4, 11]);
-  assert.equal(terrain.pendingChunks.get('4,11').priority, 0);
-  assert.ok(terrain.pendingChunks.get('9,6').priority > 0);
+  assert.equal(keys.at(-1), '7,7');
+  assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], initialCenter);
 });
 
 test('feature floors keep the existing water and the tree river network at full detail', () => {
@@ -378,8 +265,8 @@ test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
 
   terrain.centerChunkX = 3;
   terrain.centerChunkZ = 3;
-  terrain.requestChunkBuild(4, 4, 128, 0);
-  const staleTask = terrain.pendingChunks.get('4,4');
+  terrain.requestChunkBuild(0, 0, 64, 0);
+  const staleTask = terrain.pendingChunks.get('0,0');
 
   terrain.refreshChunksInBounds({
     minX: -1000,
@@ -388,10 +275,10 @@ test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
     maxZ: -990,
   });
 
-  const replacementTask = terrain.pendingChunks.get('4,4');
+  const replacementTask = terrain.pendingChunks.get('0,0');
   assert.notEqual(replacementTask, staleTask);
   assert.equal(replacementTask.revision, 1);
-  assert.equal(replacementTask.segments, 128);
+  assert.equal(replacementTask.segments, 64);
 });
 
 test('LOD replacement retains the old surface until an atomic swap and disposes both geometries', () => {
@@ -422,19 +309,6 @@ test('LOD replacement retains the old surface until an atomic swap and disposes 
   assert.equal(replacement.surface.userData.isTerrainSurface, true);
   assert.equal(replacement.skirt.userData.isTerrainSkirt, true);
   assert.equal(replacement.skirt.raycast.name, 'disableRaycast');
-
-  const surfacePositions = replacement.surface.geometry.getAttribute('position').array;
-  let minimumHeight = Infinity;
-  let maximumHeight = -Infinity;
-
-  for (let offset = 1; offset < surfacePositions.length; offset += 3) {
-    minimumHeight = Math.min(minimumHeight, surfacePositions[offset]);
-    maximumHeight = Math.max(maximumHeight, surfacePositions[offset]);
-  }
-  assert.ok(Math.abs(
-    replacement.surface.geometry.boundingSphere.center.y
-      - (minimumHeight + maximumHeight) / 2,
-  ) < 1e-6);
 
   const skirtPositions = replacement.skirt.geometry.getAttribute('position').array;
   const verticesPerEdge = (replacement.segments + 1) * 2;
@@ -499,7 +373,7 @@ test('a completed stale task cannot replace the currently loaded chunk', () => {
   assert.equal(staleTask.result.disposed, true);
 });
 
-test('brush refresh bounds include the mountain smoothing halo', () => {
+test('brush refresh bounds include the locked seven meter halo', () => {
   const terrain = createTerrain();
   let refreshedBounds = null;
 
@@ -514,20 +388,20 @@ test('brush refresh bounds include the mountain smoothing halo', () => {
     dirtyPixels.minY + dirtyPixels.height - 1,
   );
 
-  assert.equal(refreshedBounds.minX, Math.min(topLeft.x, bottomRight.x) - 25);
-  assert.equal(refreshedBounds.maxX, Math.max(topLeft.x, bottomRight.x) + 25);
-  assert.equal(refreshedBounds.minZ, Math.min(topLeft.z, bottomRight.z) - 25);
-  assert.equal(refreshedBounds.maxZ, Math.max(topLeft.z, bottomRight.z) + 25);
+  assert.equal(refreshedBounds.minX, Math.min(topLeft.x, bottomRight.x) - 7);
+  assert.equal(refreshedBounds.maxX, Math.max(topLeft.x, bottomRight.x) + 7);
+  assert.equal(refreshedBounds.minZ, Math.min(topLeft.z, bottomRight.z) - 7);
+  assert.equal(refreshedBounds.maxZ, Math.max(topLeft.z, bottomRight.z) + 7);
 });
 
 test('an edit stroke patches live and queues one forced rebuild per dirty chunk', () => {
   const terrain = createTerrain({ now: () => 0 });
 
-  terrain.requestChunkBuild(5, 5, 64, 0);
+  terrain.requestChunkBuild(0, 0, 64, 0);
   terrain.processChunkBuilds();
-  const surface = terrain.loadedChunks.get('5,5').surface;
-  terrain.centerChunkX = 5;
-  terrain.centerChunkZ = 5;
+  const surface = terrain.loadedChunks.get('0,0').surface;
+  terrain.centerChunkX = 0;
+  terrain.centerChunkZ = 0;
   terrain.setEditorMode(true);
   terrain.beginTerrainEditStroke();
 
@@ -540,22 +414,12 @@ test('an edit stroke patches live and queues one forced rebuild per dirty chunk'
 
   terrain.applyHeightBrush(-700, -700, 8, 1);
   terrain.applyHeightBrush(-698, -700, 8, 1);
-  assert.equal(terrain.loadedChunks.get('5,5').surface, surface);
+  assert.equal(terrain.loadedChunks.get('0,0').surface, surface);
   assert.equal(rebuildRequests, 0);
 
   terrain.endTerrainEditStroke();
   assert.equal(rebuildRequests, 1);
-  assert.equal(terrain.pendingChunks.get('5,5').segments, 256);
-});
-
-test('the heightmap editor rejects the procedural outer terrain', () => {
-  const terrain = createTerrain();
-  const before = terrain.heightData.slice();
-
-  assert.equal(terrain.isHeightEditableAt(1024, -1024), true);
-  assert.equal(terrain.isHeightEditableAt(1024.01, 0), false);
-  assert.equal(terrain.applyHeightBrush(1500, 0, 12, 1), null);
-  assert.deepEqual(terrain.heightData, before);
+  assert.equal(terrain.pendingChunks.get('0,0').segments, 256);
 });
 
 test('a dirty edge refresh recomputes its full-resolution skirt minimum synchronously', () => {

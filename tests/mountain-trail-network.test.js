@@ -29,12 +29,12 @@ test('mountain trail definitions retain one pass, three routes, and six frozen s
     'mountain-south-loop',
   ]);
   assert.deepEqual(MOUNTAIN_TRAIL_SUMMITS.map(({ x, z, height }) => [x, z, height]), [
-    [-337, -412, 326.4],
-    [-153, -665, 446.5],
-    [-575, -359, 552.3],
-    [163, -78, 258],
-    [-311, 130, 306.1],
-    [-7, -175, 265.1],
+    [-337, -412, 297],
+    [-153, -665, 295],
+    [-575, -359, 281],
+    [163, -78, 240],
+    [-311, 130, 237],
+    [-7, -175, 232],
   ]);
 
   for (const route of MOUNTAIN_TRAIL_ROUTES) {
@@ -80,46 +80,6 @@ test('the static elevation profiles keep every trail lane at or below 35 degrees
   assert.ok(
     Math.cos(Math.atan(maximumSlope)) >= MAX_DESIGN_SLOPE_NORMAL_Y - 0.000001,
     `Trail slope exceeded 35 degrees at ${JSON.stringify(worstSample)}`,
-  );
-});
-
-test('the complete terrain deformation keeps every trail centerline at or below 35 degrees', () => {
-  let maximumSlope = 0;
-  let worstSample = null;
-
-  for (const route of MOUNTAIN_TRAIL_ROUTES) {
-    for (let index = 1; index < route.points.length; index += 1) {
-      const start = route.points[index - 1];
-      const end = route.points[index];
-      const deltaX = end.x - start.x;
-      const deltaZ = end.z - start.z;
-      const length = Math.hypot(deltaX, deltaZ);
-      let previousAlong = 0;
-      let previousHeight = applyMountainTrailTerrain(1000, start.x, start.z);
-
-      for (let along = 0.25; along <= length + 0.000001; along += 0.25) {
-        const sampledAlong = Math.min(along, length);
-        const amount = sampledAlong / length;
-        const x = THREE.MathUtils.lerp(start.x, end.x, amount);
-        const z = THREE.MathUtils.lerp(start.z, end.z, amount);
-        const height = applyMountainTrailTerrain(1000, x, z);
-        const slope = Math.abs(height - previousHeight)
-          / (sampledAlong - previousAlong);
-
-        if (slope > maximumSlope) {
-          maximumSlope = slope;
-          worstSample = { route: route.id, index, along: sampledAlong };
-        }
-
-        previousAlong = sampledAlong;
-        previousHeight = height;
-      }
-    }
-  }
-
-  assert.ok(
-    Math.cos(Math.atan(maximumSlope)) >= MAX_DESIGN_SLOPE_NORMAL_Y - 0.000001,
-    `Deformed trail slope exceeded 35 degrees at ${JSON.stringify(worstSample)}`,
   );
 });
 
@@ -256,30 +216,6 @@ test('deterministic visual checks expose the three mountain routes and retain th
     assert.equal(shotNames.includes(shotName), true);
   }
 
-  for (const shotName of expectedShots.filter((name) => name.startsWith('mountain-'))) {
-    const shot = getGoldenShotFromLocation({ search: `?shot=${shotName}` });
-
-    assert.equal(Number.isFinite(shot.camera.heightOffset), true);
-    assert.equal(Number.isFinite(shot.target.heightOffset), true);
-  }
-
   assert.equal(getGoldenShotFromLocation({ search: '?shot=carriage-road' }), null);
   assert.equal(getGoldenShotFromLocation({ search: '?shot=mountain-access' }), null);
-});
-
-test('four terrain-relative golden shots cover the outer mountain ring', () => {
-  const outerShots = [
-    'outer-ring-east',
-    'outer-ring-west',
-    'outer-ring-north',
-    'outer-ring-south',
-  ];
-
-  for (const shotName of outerShots) {
-    const shot = getGoldenShotFromLocation({ search: `?shot=${shotName}` });
-
-    assert.equal(Number.isFinite(shot.camera.heightOffset), true);
-    assert.equal(Number.isFinite(shot.target.heightOffset), true);
-    assert.ok(Math.max(Math.abs(shot.target.x), Math.abs(shot.target.z)) >= 1888);
-  }
 });
