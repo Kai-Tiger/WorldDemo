@@ -227,7 +227,7 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
   }
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.terrain.lodSegments),
-    [[128, 64], [256, 128, 64], [256, 128, 64]],
+    [[128, 64, 32], [256, 128, 64, 32], [256, 128, 64, 32]],
   );
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.water.reflectionMode),

@@ -40,7 +40,7 @@ const HEIGHT_MAP_WORLD_SIZE = 2048;
 const CHUNK_SIZE = 256;
 const SHADOW_PROXY_SEGMENTS = 64;
 export const TERRAIN_SHADOW_PROXY_LAYER = 2;
-const DEFAULT_LOD_SEGMENTS = [256, 128, 64];
+const DEFAULT_LOD_SEGMENTS = [256, 128, 64, 32];
 const DEFAULT_CHUNK_BUILD_BUDGET_MS = 3;
 const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
@@ -157,7 +157,21 @@ export class Terrain {
     });
   }
 
-  update() {
+  update(focusPosition) {
+    if (focusPosition) {
+      const nextCenterChunkX = this.getChunkCoord(focusPosition.x);
+      const nextCenterChunkZ = this.getChunkCoord(focusPosition.z);
+
+      if (
+        nextCenterChunkX !== this.centerChunkX
+        || nextCenterChunkZ !== this.centerChunkZ
+      ) {
+        this.centerChunkX = nextCenterChunkX;
+        this.centerChunkZ = nextCenterChunkZ;
+        this.reconcilePendingChunkLods();
+      }
+    }
+
     this.scheduleLoadedChunkLods();
     this.processChunkBuilds();
   }

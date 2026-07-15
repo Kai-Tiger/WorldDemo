@@ -17,6 +17,7 @@ import {
 import { FrameBenchmark } from './performanceBenchmark.js';
 import { createWaterRenderController } from './waterContext.js';
 import { createShadowController } from './shadowController.js';
+import { WORLD_VIEW_DISTANCE } from './vegetationConfig.js';
 
 const RENDER_QUALITY_KEYS = Object.freeze({
   performance: true,
@@ -89,7 +90,12 @@ const {
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
 const { surfaceRoot, effectsRoot } = unifiedWaterSystem;
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 1800);
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.25,
+  WORLD_VIEW_DISTANCE,
+);
 const shadowController = createShadowController({
   scene,
   camera,
@@ -372,7 +378,7 @@ function animate(now) {
   } else {
     player.update(deltaTime, input, camera, terrain);
   }
-  terrain.update();
+  terrain.update(player.position);
   if (toggleTrees.checked) {
     if (treeManager.update(player.position, visualTime)) {
       shadowController.invalidate();

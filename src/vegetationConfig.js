@@ -5,6 +5,9 @@
 /** 地图总边长（米）  |  Total map side length in meters */
 export const MAP_SIZE = 6144;
 
+/** 覆盖地图对角线的全图观察距离（米）  |  Full-world view distance covering the map diagonal */
+export const WORLD_VIEW_DISTANCE = MAP_SIZE * 1.5;
+
 /** 植被管理方块边长（米），草和树共用  |  Vegetation chunk side length, shared by grass and trees */
 export const ZONE_SIZE = 64;
 

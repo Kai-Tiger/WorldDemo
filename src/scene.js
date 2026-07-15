@@ -11,6 +11,7 @@ import { createUnifiedWaterSystem } from './unifiedWaterSurface.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 import { createCompressedTextureLoader } from './compressedTextureLoader.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
+import { createFarTreeField } from './farTreeField.js';
 
 const SHADOW_CAMERA_SIZE = 120;
 
@@ -83,7 +84,12 @@ export async function createScene(renderer, quality) {
     loadLeafDecalTextures(),
   ]).then(([grassAsset, treeModels, leafTextures]) => {
     grassManager.attach(new GrassManager(terrain, createGrassVariants(grassAsset)));
-    treeManager.attach(new TreeManager(terrain, treeModels, leafTextures));
+    treeManager.attach(new TreeManager(
+      terrain,
+      treeModels,
+      leafTextures,
+      createFarTreeField(terrain),
+    ));
   }).finally(() => compressedTextureLoader.dispose());
   const heroRocksReady = createHeroRocks(terrain).then((heroRocks) => {
     scene.add(heroRocks);

@@ -123,7 +123,7 @@ test('initial readiness waits for the spawn chunk while the full map keeps loadi
     assert.equal(terrain.pendingChunks.size, 575);
 
     while (terrain.pendingChunks.size > 0) {
-      terrain.update({ x: -900, z: 900 });
+      terrain.update();
     }
 
     assert.equal(terrain.loadedChunks.size, 576);
@@ -165,19 +165,21 @@ test('quality changes replace unfinished terrain tasks with the new LOD', () => 
   assert.equal(terrain.pendingChunks.get('3,3').segments, 256);
 });
 
-test('full terrain coverage is fixed and does not recenter around player movement', () => {
+test('full terrain coverage stays fixed while LOD focus follows player movement', () => {
   const terrain = createTerrain();
   const keys = terrain.getAllChunkKeys();
 
+  terrain.setQualityPreset({ lodSegments: [256, 128, 64, 32] });
   terrain.centerChunkX = terrain.getChunkCoord(335);
   terrain.centerChunkZ = terrain.getChunkCoord(-358);
-  const initialCenter = [terrain.centerChunkX, terrain.centerChunkZ];
   terrain.update({ x: -900, z: 900 });
 
   assert.equal(keys.length, 576);
   assert.equal(keys[0], '0,0');
   assert.equal(keys.at(-1), '23,23');
-  assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], initialCenter);
+  assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [8, 15]);
+  assert.equal(terrain.getDesiredChunkSegments(8, 15), 256);
+  assert.equal(terrain.getDesiredChunkSegments(23, 0), 32);
 });
 
 test('feature floors keep the existing water and the tree river network at full detail', () => {
@@ -278,7 +280,7 @@ test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
   const replacementTask = terrain.pendingChunks.get('8,8');
   assert.notEqual(replacementTask, staleTask);
   assert.equal(replacementTask.revision, 1);
-  assert.equal(replacementTask.segments, 64);
+  assert.equal(replacementTask.segments, 32);
 });
 
 test('LOD replacement retains the old surface until an atomic swap and disposes both geometries', () => {

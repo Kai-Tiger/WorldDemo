@@ -13,7 +13,7 @@ const DEFAULT_UPDATE_BUDGET_MS = 1;
 const DEFAULT_TREE_DISTANCE = 380;
 
 export class TreeManager {
-  constructor(terrain, treeModels, leafTextures) {
+  constructor(terrain, treeModels, leafTextures, farTreeField = null) {
     this.terrain = terrain;
     this.treeModels = treeModels;
     this.leafTextures = leafTextures;
@@ -24,10 +24,13 @@ export class TreeManager {
     this.treeDistance = DEFAULT_TREE_DISTANCE;
     this.shadowNeedsUpdate = true;
     this.generationCursor = 0;
+    this.farTreeField = farTreeField;
+    if (farTreeField) this.group.add(farTreeField.mesh);
   }
 
   update(cameraPosition, elapsedTime = 0) {
     updateTreeSwayUniforms(this.treeModels, cameraPosition, elapsedTime);
+    this.farTreeField?.update(cameraPosition, this.treeDistance);
 
     const loadedChunks = this.terrain.getLoadedChunkBounds();
     const neededKeys = new Set(loadedChunks.map((chunk) => chunk.key));
