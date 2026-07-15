@@ -23,6 +23,8 @@ const FAR_TREE_MIN_HEIGHT = 10;
 const FAR_TREE_MAX_HEIGHT = 18;
 const FAR_TREE_MIN_WIDTH = 4;
 const FAR_TREE_MAX_WIDTH = 7;
+const FAR_TREE_GROVE_MACRO_SIZE = 420;
+const FAR_TREE_GROVE_DETAIL_SIZE = 170;
 const FAR_TREE_COLORS = [
   new THREE.Color('#1f4036'),
   new THREE.Color('#254843'),
@@ -71,11 +73,7 @@ export function createFarTreePlacements(terrain) {
 
       sampleTerrainSurface(terrain, x, z, surface);
       const densityRatio = getTreeDensity(surface.height) / (TREE_DENSITY_LOWLAND * 3);
-      const cluster = THREE.MathUtils.lerp(
-        0.45,
-        1,
-        hash2(Math.floor(gridX / 5) + 91, Math.floor(gridZ / 5) - 37),
-      );
+      const cluster = getFarTreeClusterFactor(x, z, gridX, gridZ, densityRatio);
 
       if (hash2(gridX + 401, gridZ - 233) >= FAR_TREE_DENSITY * densityRatio * cluster) {
         continue;
@@ -125,6 +123,45 @@ export function createFarTreePlacements(terrain) {
   }
 
   return placements;
+}
+
+function getFarTreeClusterFactor(x, z, gridX, gridZ, densityRatio) {
+  if (densityRatio < 0.95) {
+    return THREE.MathUtils.lerp(
+      0.45,
+      1,
+      hash2(Math.floor(gridX / 5) + 91, Math.floor(gridZ / 5) - 37),
+    );
+  }
+
+  const macro = sampleRotatedValueNoise(x, z, FAR_TREE_GROVE_MACRO_SIZE, 0.84, -0.54);
+  const detail = sampleRotatedValueNoise(x, z, FAR_TREE_GROVE_DETAIL_SIZE, 0.93, 0.37);
+  const grove = THREE.MathUtils.smoothstep(macro * 0.76 + detail * 0.24, 0.36, 0.68);
+
+  return THREE.MathUtils.lerp(0.07, 1.55, grove);
+}
+
+function sampleRotatedValueNoise(x, z, cellSize, cos, sin) {
+  const rotatedX = ((x * cos) - (z * sin)) / cellSize;
+  const rotatedZ = ((x * sin) + (z * cos)) / cellSize;
+  const x0 = Math.floor(rotatedX);
+  const z0 = Math.floor(rotatedZ);
+  const tx = rotatedX - x0;
+  const tz = rotatedZ - z0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sz = tz * tz * (3 - 2 * tz);
+  const top = THREE.MathUtils.lerp(
+    hash2(x0 + 117.3, z0 - 52.7),
+    hash2(x0 + 118.3, z0 - 52.7),
+    sx,
+  );
+  const bottom = THREE.MathUtils.lerp(
+    hash2(x0 + 117.3, z0 - 51.7),
+    hash2(x0 + 118.3, z0 - 51.7),
+    sx,
+  );
+
+  return THREE.MathUtils.lerp(top, bottom, sz);
 }
 
 function createFarTreeGeometry(placements) {

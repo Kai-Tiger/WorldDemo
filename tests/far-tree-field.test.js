@@ -43,6 +43,19 @@ test('one far-tree batch covers the full map with a bounded silhouette sample', 
   assert.ok(Math.max(...tintValues) < 0.09);
   assert.ok(new Set(tintValues).size > 20);
 
+  const cellCounts = new Map();
+  const positions = field.mesh.geometry.attributes.instancePosition.array;
+  for (let index = 0; index < positions.length; index += 3) {
+    const cellX = Math.floor((positions[index] + MAP_SIZE / 2) / 280);
+    const cellZ = Math.floor((positions[index + 2] + MAP_SIZE / 2) / 280);
+    const key = `${cellX},${cellZ}`;
+    cellCounts.set(key, (cellCounts.get(key) ?? 0) + 1);
+  }
+  const groveCounts = [...cellCounts.values()];
+  const meanCount = groveCounts.reduce((sum, count) => sum + count, 0) / groveCounts.length;
+  assert.ok(Math.max(...groveCounts) > meanCount * 1.8);
+  assert.ok(groveCounts.filter((count) => count < meanCount * 0.35).length > 20);
+
   field.dispose();
 });
 
