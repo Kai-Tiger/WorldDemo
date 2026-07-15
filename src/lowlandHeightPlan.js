@@ -509,26 +509,33 @@ const heroConfluenceMaterialMetadata = HERO_RIVER_NETWORK_DEFINITION.confluences
     const directionX = outgoing.points[1][0] - outgoing.points[0][0];
     const directionZ = outgoing.points[1][1] - outgoing.points[0][1];
     const directionLength = Math.hypot(directionX, directionZ) || 1;
+    const bankRun = Math.max(...mainBankRuns);
+    const wetBankWidth = Math.max(...connectedReaches
+      .filter((reach) => reach.role === 'main')
+      .map((reach) => interpolateRange(
+        reach.wetBankWidth,
+        reach.from === confluence.id ? 0 : 1,
+      )));
+    const terrainBlendWidth = Math.max(...connectedReaches.map((reach) => (
+      interpolateRange(reach.terrainBlendWidth, reach.from === confluence.id ? 0 : 1)
+    )));
 
     return {
       ...confluence,
       connectedReachIds: [...confluence.incoming, confluence.outgoing],
       junctionDepth: interpolateRange(outgoing.depth, 0),
       boundary: heroWaterFootprint.boundaries.get(confluence.id),
-      bankRun: Math.max(...mainBankRuns),
-      wetBankWidth: Math.max(...connectedReaches
-        .filter((reach) => reach.role === 'main')
-        .map((reach) => interpolateRange(
-          reach.wetBankWidth,
-          reach.from === confluence.id ? 0 : 1,
-        ))),
-      terrainBlendWidth: Math.max(...connectedReaches.map((reach) => (
-        interpolateRange(reach.terrainBlendWidth, reach.from === confluence.id ? 0 : 1)
-      ))),
+      bankRun,
+      wetBankWidth,
+      terrainBlendWidth,
       tangentX: directionX / directionLength,
       tangentZ: directionZ / directionLength,
       materialDistance: heroMaterialDistanceOffsets.get(outgoing.id),
-      materialBlendWidth: Math.min(4, confluence.poolRadius * 0.4),
+      materialBlendStart: confluence.poolRadius + bankRun + terrainBlendWidth * 0.5,
+      materialBlendWidth: Math.min(
+        36,
+        bankRun + terrainBlendWidth + confluence.poolRadius * 2,
+      ),
     };
   },
 );
@@ -666,16 +673,20 @@ export function getHeroRiverConfluenceMaterialFrame(x, z) {
     const blendWidth = confluence.materialBlendWidth;
     const shape = getHeroConfluenceYShape(confluence, x, z);
 
-    if (!shape || distance > confluence.poolRadius + blendWidth) continue;
+    if (distance > confluence.poolRadius + blendWidth) continue;
 
-    const mask = (1 - smoothstep(
-      confluence.poolRadius,
+    const mask = 1 - smoothstep(
+      confluence.materialBlendStart,
       confluence.poolRadius + blendWidth,
       distance,
-    )) * shape.terrainMask;
+    );
     const candidate = {
       mask: mask * terminalFade,
-      bedMaterialMask: shape.bedMaterialMask * terminalFade,
+      bedMaterialMask: (shape?.bedMaterialMask ?? 0) * terminalFade,
+      wetBankMask: (shape?.wetBankMask ?? 0) * terminalFade,
+      gravelBankMask: (shape?.gravelBankMask ?? 0)
+        * getHeroRiverGravelCoverage(x, z)
+        * terminalFade,
       riverDistance: confluence.materialDistance
         + dx * confluence.tangentX + dz * confluence.tangentZ,
       riverLateral: dx * -confluence.tangentZ + dz * confluence.tangentX,
@@ -703,9 +714,29 @@ function getHeroConfluenceYShape(confluence, x, z) {
 
   if (!sample.inside && sample.distance > outerDistance) return null;
   const signedBoundaryDistance = sample.inside ? sample.distance : -sample.distance;
+  const shoreOffset = sample.inside ? -sample.distance : sample.distance;
+  const gravelBankWidth = Math.max(confluence.bankRun - confluence.wetBankWidth, 0);
+  const wetGravelOverlap = clamp(gravelBankWidth * 0.08, 0.2, 0.55);
+  const wetBankMask = getBandMask(
+    shoreOffset,
+    -0.3,
+    confluence.wetBankWidth + wetGravelOverlap,
+    clamp(confluence.wetBankWidth * 0.45, 0.45, 1.1),
+  );
+  const gravelBankMask = gravelBankWidth > 0
+    ? getBandMask(
+      shoreOffset,
+      confluence.wetBankWidth + wetGravelOverlap * 0.35,
+      confluence.bankRun,
+      clamp(gravelBankWidth * 0.28, 0.8, 2.4),
+    )
+    : 0;
+
   return {
     bedMask: sample.inside ? 1 : 0,
     bedMaterialMask: smoothstep(-0.8, 0.8, signedBoundaryDistance),
+    wetBankMask,
+    gravelBankMask,
     terrainMask: sample.inside
       ? 1
       : 1 - smoothstep(confluence.bankRun, outerDistance, sample.distance),
@@ -1171,9 +1202,7 @@ function getHeroReachFrame(reach, x, z) {
       clamp(gravelBankWidth * 0.28, 0.8, 2.4),
     )
     : 0;
-  const gravelCoverage = 0.3
-    + valueNoise2D(x / 48, z / 48, 0x3571b2c9) * 0.32
-    + valueNoise2D(x / 19, z / 19, 0x71a23dc5) * 0.18;
+  const gravelCoverage = getHeroRiverGravelCoverage(x, z);
   const gravelMask = gravelBandMask * gravelCoverage * endpointCapFade;
   const vegetationMask = (1 - smoothstep(
     gravelOuter,
@@ -1477,6 +1506,12 @@ function getBandMask(distance, start, end, feather) {
 
   return smoothstep(start - feather, start + feather, distance)
     * (1 - smoothstep(end - feather, end + feather, distance));
+}
+
+function getHeroRiverGravelCoverage(x, z) {
+  return 0.3
+    + valueNoise2D(x / 48, z / 48, 0x3571b2c9) * 0.32
+    + valueNoise2D(x / 19, z / 19, 0x71a23dc5) * 0.18;
 }
 
 function getDeterministicBankNoise(id, distance, sideSign, amplitude) {

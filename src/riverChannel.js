@@ -60,7 +60,6 @@ export function getRiverMaterialFrame(baseHeight, x, z) {
   const confluenceMask = getHeroRiverConfluenceMask(x, z);
   const confluenceFrame = getHeroRiverConfluenceMaterialFrame(x, z);
   const confluenceBedMaterialMask = confluenceFrame?.bedMaterialMask ?? confluenceMask;
-  const coordinateBlend = confluenceFrame?.mask ?? 0;
   const reachBedMaterialMask = frame
     ? (
       1 - THREE.MathUtils.smoothstep(
@@ -79,6 +78,7 @@ export function getRiverMaterialFrame(baseHeight, x, z) {
     riverMask: THREE.MathUtils.clamp(Math.max(
       frame?.wetBankMask ?? 0,
       confluenceMask,
+      confluenceFrame?.wetBankMask ?? 0,
     ), 0, 1),
     riverBedMask: THREE.MathUtils.clamp(
       Math.max(reachBedMaterialMask, confluenceBedMaterialMask),
@@ -91,20 +91,20 @@ export function getRiverMaterialFrame(baseHeight, x, z) {
       1,
     ),
     riverGravelMask: THREE.MathUtils.clamp(
-      frame?.gravelBankMask ?? 0,
+      Math.max(
+        frame?.gravelBankMask ?? 0,
+        confluenceFrame?.gravelBankMask ?? 0,
+      ),
       0,
       1,
     ),
-    riverDistance: THREE.MathUtils.lerp(
-      frame?.networkDistance ?? confluenceFrame?.riverDistance ?? 0,
-      confluenceFrame?.riverDistance ?? frame?.networkDistance ?? 0,
-      coordinateBlend,
+    riverConfluenceMask: THREE.MathUtils.clamp(
+      confluenceFrame?.mask ?? 0,
+      0,
+      1,
     ),
-    riverLateral: THREE.MathUtils.lerp(
-      frame?.lateralM ?? confluenceFrame?.riverLateral ?? 0,
-      confluenceFrame?.riverLateral ?? frame?.lateralM ?? 0,
-      coordinateBlend,
-    ),
+    riverDistance: frame?.networkDistance ?? confluenceFrame?.riverDistance ?? 0,
+    riverLateral: frame?.lateralM ?? confluenceFrame?.riverLateral ?? 0,
   };
 }
 
@@ -249,6 +249,7 @@ function createEmptyRiverMaterialFrame() {
     riverBedMask: 0,
     riverUnderwaterMask: 0,
     riverGravelMask: 0,
+    riverConfluenceMask: 0,
     riverDistance: 0,
     riverLateral: 0,
   };

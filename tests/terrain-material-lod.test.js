@@ -67,6 +67,7 @@ function createChunkTask(segments) {
       riverBedMasks: new Float32Array(vertexCount),
       riverUnderwaterMasks: new Float32Array(vertexCount),
       riverGravelMasks: new Float32Array(vertexCount),
+      riverConfluenceMasks: new Float32Array(vertexCount),
       riverBedCoords: new Float32Array(vertexCount * 2),
       waterSystemMasks: new Float32Array(vertexCount * 4),
       smallLakeMasks: new Float32Array(vertexCount),

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   HERO_RIVER_NETWORK,
-  RIVER_BED_TEXTURE_WORLD_SIZE,
   RIVER_TERMINAL_LAKE,
   applyRiverChannel,
   createRiverWaterMesh,
@@ -15,6 +14,7 @@ import {
 import {
   HERO_RIVER_NETWORK_DEFINITION,
   getHeroRiverConfluenceMask,
+  getHeroRiverConfluenceMaterialFrame,
   getHeroRiverCorridorFrame,
   getHeroRiverTerrainTarget,
 } from '../src/lowlandHeightPlan.js';
@@ -343,29 +343,69 @@ test('hero Y confluence bed material feathers across the water boundary', () => 
   }
 });
 
-test('hero confluences keep river-local bed coordinates continuous across branch switches', () => {
+test('hero Y confluences keep one continuous wet and gravel shore around the shared footprint', () => {
+  for (const confluence of HERO_RIVER_NETWORK_DEFINITION.confluences) {
+    let boundaryTransitions = 0;
+
+    for (let x = confluence.position[0] - 24; x <= confluence.position[0] + 24; x += 0.5) {
+      for (let z = confluence.position[1] - 24; z <= confluence.position[1] + 24; z += 0.5) {
+        const current = getHeroRiverConfluenceMaterialFrame(x, z);
+
+        for (const [neighborX, neighborZ] of [[x + 0.5, z], [x, z + 0.5]]) {
+          const neighbor = getHeroRiverConfluenceMaterialFrame(neighborX, neighborZ);
+          const currentBed = current?.bedMaterialMask ?? 0;
+          const neighborBed = neighbor?.bedMaterialMask ?? 0;
+
+          if ((currentBed - 0.5) * (neighborBed - 0.5) > 0) continue;
+          if (Math.abs(currentBed - neighborBed) < 0.05) continue;
+
+          const outside = currentBed < neighborBed ? current : neighbor;
+          assert.ok(
+            Math.max(outside?.wetBankMask ?? 0, outside?.gravelBankMask ?? 0) > 0.15,
+            `${confluence.id} shoreline transition must retain a bank band`,
+          );
+          boundaryTransitions += 1;
+        }
+      }
+    }
+
+    assert.ok(boundaryTransitions > 20, `${confluence.id} must expose a sampled shoreline`);
+  }
+});
+
+test('hero confluences hide branch-local coordinate jumps under continuous bed texture', () => {
   const confluences = [[575, -336], [633, -349]];
 
   for (const [centerX, centerZ] of confluences) {
-    let maximumStep = 0;
+    let maximumVisibleDistanceStep = 0;
+    let maximumVisibleLateralStep = 0;
 
-    for (let x = centerX - 30; x <= centerX + 30; x += 1) {
-      for (let z = centerZ - 30; z <= centerZ + 30; z += 1) {
+    for (let x = centerX - 30; x <= centerX + 30; x += 0.5) {
+      for (let z = centerZ - 30; z <= centerZ + 30; z += 0.5) {
         const current = getRiverMaterialFrame(0, x, z);
 
         for (const neighbor of [
-          getRiverMaterialFrame(0, x + 1, z),
-          getRiverMaterialFrame(0, x, z + 1),
+          getRiverMaterialFrame(0, x + 0.5, z),
+          getRiverMaterialFrame(0, x, z + 0.5),
         ]) {
           if (current.riverBedMask <= 0.9 || neighbor.riverBedMask <= 0.9) continue;
-          maximumStep = Math.max(
-            maximumStep,
-            Math.abs(current.riverDistance - neighbor.riverDistance),
+          const reachTextureVisibility = 1 - Math.min(
+            current.riverConfluenceMask,
+            neighbor.riverConfluenceMask,
+          );
+          maximumVisibleDistanceStep = Math.max(
+            maximumVisibleDistanceStep,
+            Math.abs(current.riverDistance - neighbor.riverDistance) * reachTextureVisibility,
+          );
+          maximumVisibleLateralStep = Math.max(
+            maximumVisibleLateralStep,
+            Math.abs(current.riverLateral - neighbor.riverLateral) * reachTextureVisibility,
           );
         }
       }
     }
 
-    assert.ok(maximumStep < RIVER_BED_TEXTURE_WORLD_SIZE);
+    assert.ok(maximumVisibleDistanceStep < 2);
+    assert.ok(maximumVisibleLateralStep < 1);
   }
 });

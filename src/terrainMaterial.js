@@ -18,6 +18,7 @@ attribute float riverMask;
 attribute float riverBedMask;
 attribute float riverUnderwaterMask;
 attribute float riverGravelMask;
+attribute float riverConfluenceMask;
 attribute vec2 riverBedCoord;
 attribute vec4 waterSystemMask;
 attribute float smallLakesMask;
@@ -31,6 +32,7 @@ varying float vTerrainRiverMask;
 varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying float vTerrainRiverGravelMask;
+varying float vTerrainRiverConfluenceMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
 varying float vTerrainMountainTrailMask;
@@ -90,6 +92,7 @@ vTerrainRiverMask = riverMask;
 vTerrainRiverBedMask = riverBedMask;
 vTerrainRiverUnderwaterMask = riverUnderwaterMask;
 vTerrainRiverGravelMask = riverGravelMask;
+vTerrainRiverConfluenceMask = riverConfluenceMask;
 vTerrainWaterSystemMask = waterSystemMask;
 vTerrainSmallLakesMask = smallLakesMask;
 vTerrainMountainTrailMask = mountainTrailMask;
@@ -126,6 +129,7 @@ varying float vTerrainRiverMask;
 varying float vTerrainRiverBedMask;
 varying float vTerrainRiverUnderwaterMask;
 varying float vTerrainRiverGravelMask;
+varying float vTerrainRiverConfluenceMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
 varying float vTerrainMountainTrailMask;
@@ -669,8 +673,24 @@ if (max(terrainRiverGravelMask, max(terrainWaterBankMask, terrainWaterBedMask)) 
   }
   if (terrainWaterBedMask > 0.01) {
     float terrainSmallLakeBlend = smoothstep(0.05, 0.95, vTerrainSmallLakesMask);
-    vec2 terrainRiverBedUv = mix(
-      vec2(vTerrainRiverBedCoord.x / uRiverBedTextureWorldSize, vTerrainRiverBedCoord.y / 3.6),
+    vec2 terrainRiverBedUv = vec2(
+      vTerrainRiverBedCoord.x / uRiverBedTextureWorldSize,
+      vTerrainRiverBedCoord.y / 3.6
+    );
+    vec2 terrainConfluenceBedUv = terrainRotation(0.61)
+      * vTerrainWorldPosition.xz / uRiverBedTextureWorldSize;
+    float terrainConfluenceBedBlend = smoothstep(
+      0.05,
+      0.95,
+      clamp(vTerrainRiverConfluenceMask, 0.0, 1.0)
+    );
+    terrainRiverBedUv = mix(
+      terrainRiverBedUv,
+      terrainConfluenceBedUv,
+      terrainConfluenceBedBlend
+    );
+    terrainRiverBedUv = mix(
+      terrainRiverBedUv,
       vTerrainWorldPosition.xz / uRiverBedTextureWorldSize,
       terrainSmallLakeBlend
     );

@@ -965,6 +965,7 @@ export class Terrain {
     );
     arrays.riverUnderwaterMasks[vertexIndex] = riverFrame.riverUnderwaterMask;
     arrays.riverGravelMasks[vertexIndex] = riverFrame.riverGravelMask ?? 0;
+    arrays.riverConfluenceMasks[vertexIndex] = riverFrame.riverConfluenceMask ?? 0;
     arrays.riverBedCoords[uvOffset] = riverFrame.riverDistance;
     arrays.riverBedCoords[uvOffset + 1] = riverFrame.riverLateral;
     arrays.waterSystemMasks[waterMaskOffset] = waterSystemFrame.lakeBedMask;
@@ -1320,6 +1321,7 @@ function createChunkArrays(segments) {
     riverBedMasks: new Float32Array(vertexCount),
     riverUnderwaterMasks: new Float32Array(vertexCount),
     riverGravelMasks: new Float32Array(vertexCount),
+    riverConfluenceMasks: new Float32Array(vertexCount),
     riverBedCoords: new Float32Array(vertexCount * 2),
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
@@ -1390,6 +1392,10 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('riverBedMask', new THREE.BufferAttribute(arrays.riverBedMasks, 1));
   geometry.setAttribute('riverUnderwaterMask', new THREE.BufferAttribute(arrays.riverUnderwaterMasks, 1));
   geometry.setAttribute('riverGravelMask', new THREE.BufferAttribute(arrays.riverGravelMasks, 1));
+  geometry.setAttribute(
+    'riverConfluenceMask',
+    new THREE.BufferAttribute(arrays.riverConfluenceMasks, 1),
+  );
   geometry.setAttribute('riverBedCoord', new THREE.BufferAttribute(arrays.riverBedCoords, 2));
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
