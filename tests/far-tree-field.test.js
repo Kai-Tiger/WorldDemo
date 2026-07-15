@@ -27,9 +27,9 @@ function createFlatTerrain() {
 test('one far-tree batch covers the full map with a bounded silhouette sample', () => {
   const field = createFarTreeField(createFlatTerrain());
 
-  assert.equal(FAR_TREE_SPACING, 36);
+  assert.equal(FAR_TREE_SPACING, 28);
   assert.ok(WORLD_VIEW_DISTANCE > Math.SQRT2 * MAP_SIZE);
-  assert.ok(field.count > 8000 && field.count < 20000, field.count);
+  assert.ok(field.count > 20000 && field.count < 32000, field.count);
   assert.equal(field.mesh.name, 'FarTreeField');
   assert.equal(field.mesh.geometry.instanceCount, field.count);
   assert.equal(field.mesh.geometry.index.count, 6);
@@ -38,6 +38,10 @@ test('one far-tree batch covers the full map with a bounded silhouette sample', 
   assert.equal(field.mesh.material.fog, true);
   assert.ok(field.mesh.material.uniforms.fogColor.value.isColor);
   assert.equal(field.mesh.material.uniforms.fogFar.value, WORLD_VIEW_DISTANCE);
+
+  const tintValues = field.mesh.geometry.attributes.instanceTint.array;
+  assert.ok(Math.max(...tintValues) < 0.09);
+  assert.ok(new Set(tintValues).size > 20);
 
   field.dispose();
 });

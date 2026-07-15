@@ -12,10 +12,10 @@ import {
   WORLD_VIEW_DISTANCE,
 } from './vegetationConfig.js';
 
-export const FAR_TREE_SPACING = 36;
+export const FAR_TREE_SPACING = 28;
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
-const FAR_TREE_DENSITY = 0.62;
+const FAR_TREE_DENSITY = 0.70;
 const FAR_TREE_WATER_BUFFER = Math.max(TREE_RIVER_BUFFER, 10);
 const FAR_TREE_FADE_WIDTH = 80;
 const FAR_TREE_EDGE_FADE = 640;
@@ -23,6 +23,11 @@ const FAR_TREE_MIN_HEIGHT = 10;
 const FAR_TREE_MAX_HEIGHT = 18;
 const FAR_TREE_MIN_WIDTH = 4;
 const FAR_TREE_MAX_WIDTH = 7;
+const FAR_TREE_COLORS = [
+  new THREE.Color('#1f4036'),
+  new THREE.Color('#254843'),
+  new THREE.Color('#3f462c'),
+];
 
 export function createFarTreeField(terrain) {
   const placements = createFarTreePlacements(terrain);
@@ -86,10 +91,14 @@ export function createFarTreePlacements(terrain) {
         1.18,
         hash2(gridX - 55.4, gridZ + 72.8),
       );
-      const tint = THREE.MathUtils.lerp(
-        0.82,
-        1.08,
-        hash2(gridX + 14.6, gridZ + 28.2),
+      const colorRoll = hash2(gridX + 14.6, gridZ + 28.2);
+      const color = FAR_TREE_COLORS[
+        colorRoll < 0.68 ? 0 : colorRoll < 0.90 ? 1 : 2
+      ];
+      const brightness = THREE.MathUtils.lerp(
+        0.86,
+        1.06,
+        hash2(gridX - 79.3, gridZ + 51.7),
       );
 
       placements.push({
@@ -106,7 +115,11 @@ export function createFarTreePlacements(terrain) {
           FAR_TREE_MAX_HEIGHT,
           hash2(gridX - 31.5, gridZ + 44.9),
         ) * scale,
-        tint: [0.24 * tint, 0.34 * tint, 0.20 * tint],
+        tint: [
+          color.r * brightness,
+          color.g * brightness,
+          color.b * brightness,
+        ],
       });
     }
   }
