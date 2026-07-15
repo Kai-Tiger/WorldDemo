@@ -27,22 +27,46 @@ const GOLDEN_SHOTS = Object.freeze({
   'mountain-pass': {
     player: { x: 444, z: -380 },
     camera: { x: 454, z: -390, heightOffset: 6 },
-    target: { x: 414, z: -372, y: 14 },
+    target: { x: 414, z: -372, heightOffset: 1.25 },
   },
   'mountain-east': {
     player: { x: 245, z: -135 },
-    camera: { x: 286, z: -178, y: 181 },
-    target: { x: 163, z: -78, y: 218 },
+    camera: { x: 286, z: -178, heightOffset: 115 },
+    target: { x: 163, z: -78, heightOffset: 1.25 },
   },
   'mountain-west-loop': {
     player: { x: -460, z: -380 },
-    camera: { x: -405, z: -454, y: 278 },
-    target: { x: -555, z: -350, y: 263 },
+    camera: { x: -405, z: -454, heightOffset: 246 },
+    target: { x: -555, z: -350, heightOffset: 1.25 },
   },
   'mountain-south-loop': {
     player: { x: -105, z: -635 },
-    camera: { x: 40, z: -820, y: 360 },
-    target: { x: -153, z: -665, y: 250 },
+    camera: { x: 40, z: -820, heightOffset: 460 },
+    target: { x: -153, z: -665, heightOffset: 1.25 },
+  },
+  'outer-ring-east': {
+    player: { x: 800, z: 0 },
+    camera: { x: 650, z: -550, heightOffset: 520 },
+    target: { x: 1900, z: 250, heightOffset: 20 },
+    preload: { x: 1900, z: 250 },
+  },
+  'outer-ring-west': {
+    player: { x: -800, z: 0 },
+    camera: { x: -650, z: 550, heightOffset: 520 },
+    target: { x: -1900, z: -250, heightOffset: 20 },
+    preload: { x: -1900, z: -250 },
+  },
+  'outer-ring-north': {
+    player: { x: 0, z: 800 },
+    camera: { x: -550, z: 650, heightOffset: 520 },
+    target: { x: 250, z: 1900, heightOffset: 20 },
+    preload: { x: 250, z: 1900 },
+  },
+  'outer-ring-south': {
+    player: { x: 0, z: -800 },
+    camera: { x: 550, z: -650, heightOffset: 520 },
+    target: { x: -250, z: -1900, heightOffset: 20 },
+    preload: { x: -250, z: -1900 },
   },
   'river-tree-j1': {
     player: { x: 45, z: -370 },

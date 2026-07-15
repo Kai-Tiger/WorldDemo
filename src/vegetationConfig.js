@@ -3,7 +3,7 @@
 // ============================================================
 
 /** 地图总边长（米）  |  Total map side length in meters */
-export const MAP_SIZE = 2048;
+export const MAP_SIZE = 4096;
 
 /** 植被管理方块边长（米），草和树共用  |  Vegetation chunk side length, shared by grass and trees */
 export const ZONE_SIZE = 64;

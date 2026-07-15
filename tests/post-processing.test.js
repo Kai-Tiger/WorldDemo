@@ -213,21 +213,21 @@ test('quality presets lock resolution, AA, AO, streaming and shadow budgets', ()
   );
   const sunDirection = new THREE.Vector3(0.48, 0.48, 0.73).normalize();
   const shadowFits = Object.values(RENDER_QUALITY_PRESETS).map((preset) => (
-    getShadowCameraFit(preset.shadows, sunDirection, -40, 340, 0.5)
+    getShadowCameraFit(preset.shadows, sunDirection, -40, 640, 0.5)
   ));
 
   for (const fit of shadowFits) {
     const horizontalSunLength = Math.hypot(sunDirection.x, sunDirection.z);
-    const projectedHeight = 190.5 * horizontalSunLength;
+    const projectedHeight = 340.5 * horizontalSunLength;
 
-    assert.equal(fit.centerY, 150);
+    assert.equal(fit.centerY, 300);
     assert.ok(fit.halfWidth >= fit.cameraSize * 0.5 + 0.5);
     assert.ok(fit.halfHeight >= fit.halfWidth * Math.abs(sunDirection.y) + projectedHeight);
-    assert.ok(fit.halfDepth >= fit.halfWidth * horizontalSunLength + 190.5 * Math.abs(sunDirection.y));
+    assert.ok(fit.halfDepth >= fit.halfWidth * horizontalSunLength + 340.5 * Math.abs(sunDirection.y));
   }
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.terrain.lodSegments),
-    [[128, 64], [256, 128, 64], [256, 128, 64]],
+    [[128, 64, 32], [256, 128, 64, 32], [256, 128, 64, 32]],
   );
   assert.deepEqual(
     Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.water.reflectionMode),

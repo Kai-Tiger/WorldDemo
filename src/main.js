@@ -89,7 +89,7 @@ const {
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
 const { surfaceRoot, effectsRoot } = unifiedWaterSystem;
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 1800);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.25, 5000);
 const shadowController = createShadowController({
   scene,
   camera,
@@ -124,7 +124,7 @@ player.position.x = PLAYER_SPAWN_POSITION.x;
 player.position.z = PLAYER_SPAWN_POSITION.z;
 player.position.y = player.getGroundHeight(terrain, player.position.x, player.position.z);
 applyRenderQuality(renderQuality, false);
-terrain.update();
+terrain.update(player.position);
 scene.add(player.group);
 shadowController.refreshMaterials();
 const playerFillTarget = new THREE.Object3D();
@@ -372,7 +372,7 @@ function animate(now) {
   } else {
     player.update(deltaTime, input, camera, terrain);
   }
-  terrain.update();
+  terrain.update(player.position);
   if (toggleTrees.checked) {
     if (treeManager.update(player.position, visualTime)) {
       shadowController.invalidate();

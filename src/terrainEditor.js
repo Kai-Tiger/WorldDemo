@@ -153,7 +153,7 @@ export function createTerrainEditor(terrain, camera, scene, canvas, input) {
     const hits = raycaster.intersectObjects(terrainSurfaces, false);
     const hit = hits.find((item) => item.object?.userData?.isTerrainSurface);
 
-    if (!hit) {
+    if (!hit || !terrain.isHeightEditableAt(hit.point.x, hit.point.z)) {
       state.hasHit = false;
       brushCursor.visible = false;
       return;
