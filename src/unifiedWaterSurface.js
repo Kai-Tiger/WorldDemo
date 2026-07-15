@@ -23,6 +23,10 @@ import {
   projectPointToLakeBoundary,
 } from './lakeBoundary.js';
 import { createWaterEffects } from './waterSystem.js';
+import {
+  EXPANDED_LAKES,
+  EXPANDED_WATER_BASINS,
+} from './expandedTerrainPlan.js';
 
 const WATER_SURFACE_OFFSET = 0.045;
 const TRANSITION_ROW_COUNT = 5;
@@ -59,6 +63,7 @@ const LAKE_BY_ID = new Map([
   ...LOWLAND_LAKES.map((lake) => [lake.id, lake]),
   ...SOUTHERN_LOWLAND_LAKES.map((lake) => [lake.id, lake]),
   [TERMINAL_LOWLAND_LAKE.id, TERMINAL_LOWLAND_LAKE],
+  ...EXPANDED_LAKES.map((lake) => [lake.id, lake]),
 ]);
 
 export const RIVER_LAKE_INTERFACE_REGISTRY = Object.freeze([
@@ -77,6 +82,14 @@ export const RIVER_LAKE_INTERFACE_REGISTRY = Object.freeze([
   createInterface('south-east-central-inlet', 'south-lowland-basin', 'south-lowland-basin', 'south-east-tributary', 'end', 'south-central-lake'),
   createInterface('south-central-outlet', 'south-lowland-basin', 'south-lowland-basin', 'south-central-outlet', 'start', 'south-central-lake'),
   createInterface('south-terminal-inlet', 'south-lowland-basin', 'south-lowland-basin', 'south-central-outlet', 'end', 'south-terminal-lake'),
+  ...EXPANDED_WATER_BASINS.map((basin) => createInterface(
+    `${basin.id}-terminal-inlet`,
+    basin.id,
+    basin.sourceId,
+    basin.terminalReachId,
+    'end',
+    basin.lakeId,
+  )),
 ]);
 
 export const WATER_BASIN_DEFINITIONS = Object.freeze([
@@ -127,6 +140,17 @@ export const WATER_BASIN_DEFINITIONS = Object.freeze([
       }),
     ]),
   }),
+  ...EXPANDED_WATER_BASINS.map((basin) => Object.freeze({
+    id: basin.id,
+    lakeIds: Object.freeze([basin.lakeId]),
+    riverSources: Object.freeze([
+      Object.freeze({
+        id: basin.sourceId,
+        type: 'network',
+        network: basin.network,
+      }),
+    ]),
+  })),
 ]);
 
 export function createUnifiedWaterSystem(terrain, sources = {}) {

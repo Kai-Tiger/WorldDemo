@@ -112,23 +112,23 @@ test('initial readiness waits for the spawn chunk while the full map keeps loadi
     const ready = terrain.prepareInitialChunk({ x: 335, z: -358 });
 
     assert.equal(terrain.loadedChunks.size, 0);
-    assert.equal(terrain.pendingChunks.size, 64);
+    assert.equal(terrain.pendingChunks.size, 576);
     assert.equal(animationFrames.length, 1);
 
     animationFrames.shift()();
     await ready;
 
-    assert.equal(terrain.loadedChunks.has('5,2'), true);
+    assert.equal(terrain.loadedChunks.has('13,10'), true);
     assert.equal(terrain.loadedChunks.size, 1);
-    assert.equal(terrain.pendingChunks.size, 63);
+    assert.equal(terrain.pendingChunks.size, 575);
 
     while (terrain.pendingChunks.size > 0) {
       terrain.update({ x: -900, z: 900 });
     }
 
-    assert.equal(terrain.loadedChunks.size, 64);
+    assert.equal(terrain.loadedChunks.size, 576);
     assert.equal(terrain.pendingChunks.size, 0);
-    assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [5, 2]);
+    assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [13, 10]);
     assert.equal(
       terrain.getAllChunkKeys().every((key) => terrain.loadedChunks.has(key)),
       true,
@@ -158,7 +158,7 @@ test('quality changes replace unfinished terrain tasks with the new LOD', () => 
   terrain.setQualityPreset({ lodSegments: [256, 64] });
 
   const replacementTask = terrain.pendingChunks.get('4,3');
-  assert.equal(terrain.pendingChunks.size, 64);
+  assert.equal(terrain.pendingChunks.size, 576);
   assert.notEqual(replacementTask, oldTask);
   assert.equal(replacementTask.segments, 64);
   assert.equal(replacementTask.phase, 'allocate');
@@ -174,9 +174,9 @@ test('full terrain coverage is fixed and does not recenter around player movemen
   const initialCenter = [terrain.centerChunkX, terrain.centerChunkZ];
   terrain.update({ x: -900, z: 900 });
 
-  assert.equal(keys.length, 64);
+  assert.equal(keys.length, 576);
   assert.equal(keys[0], '0,0');
-  assert.equal(keys.at(-1), '7,7');
+  assert.equal(keys.at(-1), '23,23');
   assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], initialCenter);
 });
 
@@ -265,8 +265,8 @@ test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
 
   terrain.centerChunkX = 3;
   terrain.centerChunkZ = 3;
-  terrain.requestChunkBuild(0, 0, 64, 0);
-  const staleTask = terrain.pendingChunks.get('0,0');
+  terrain.requestChunkBuild(8, 8, 64, 0);
+  const staleTask = terrain.pendingChunks.get('8,8');
 
   terrain.refreshChunksInBounds({
     minX: -1000,
@@ -275,7 +275,7 @@ test('editing an unloaded chunk reschedules its cancelled terrain task', () => {
     maxZ: -990,
   });
 
-  const replacementTask = terrain.pendingChunks.get('0,0');
+  const replacementTask = terrain.pendingChunks.get('8,8');
   assert.notEqual(replacementTask, staleTask);
   assert.equal(replacementTask.revision, 1);
   assert.equal(replacementTask.segments, 64);
@@ -397,11 +397,11 @@ test('brush refresh bounds include the locked seven meter halo', () => {
 test('an edit stroke patches live and queues one forced rebuild per dirty chunk', () => {
   const terrain = createTerrain({ now: () => 0 });
 
-  terrain.requestChunkBuild(0, 0, 64, 0);
+  terrain.requestChunkBuild(9, 9, 64, 0);
   terrain.processChunkBuilds();
-  const surface = terrain.loadedChunks.get('0,0').surface;
-  terrain.centerChunkX = 0;
-  terrain.centerChunkZ = 0;
+  const surface = terrain.loadedChunks.get('9,9').surface;
+  terrain.centerChunkX = 9;
+  terrain.centerChunkZ = 9;
   terrain.setEditorMode(true);
   terrain.beginTerrainEditStroke();
 
@@ -414,12 +414,12 @@ test('an edit stroke patches live and queues one forced rebuild per dirty chunk'
 
   terrain.applyHeightBrush(-700, -700, 8, 1);
   terrain.applyHeightBrush(-698, -700, 8, 1);
-  assert.equal(terrain.loadedChunks.get('0,0').surface, surface);
+  assert.equal(terrain.loadedChunks.get('9,9').surface, surface);
   assert.equal(rebuildRequests, 0);
 
   terrain.endTerrainEditStroke();
   assert.equal(rebuildRequests, 1);
-  assert.equal(terrain.pendingChunks.get('0,0').segments, 256);
+  assert.equal(terrain.pendingChunks.get('9,9').segments, 256);
 });
 
 test('a dirty edge refresh recomputes its full-resolution skirt minimum synchronously', () => {

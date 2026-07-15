@@ -17,21 +17,21 @@ const terrain = {
   },
 };
 
-test('the scene water topology is represented by four indexed basin batches', () => {
+test('the scene water topology includes the eight expanded-cell basin batches', () => {
   const system = createUnifiedWaterSystem(terrain);
 
-  assert.equal(WATER_BASIN_DEFINITIONS.length, 4);
-  assert.equal(system.stats.basinCount, 4);
-  assert.equal(system.stats.batchCount, 4);
-  assert.equal(system.batches.length, 4);
-  assert.equal(system.group.children.length, 4);
+  assert.equal(WATER_BASIN_DEFINITIONS.length, 12);
+  assert.equal(system.stats.basinCount, 12);
+  assert.equal(system.stats.batchCount, 12);
+  assert.equal(system.batches.length, 12);
+  assert.equal(system.group.children.length, 12);
   assert.deepEqual(
     system.batches.map((batch) => batch.userData.stats.lakeCount),
-    [2, 2, 2, 4],
+    [2, 2, 2, 4, 1, 1, 1, 1, 1, 1, 1, 1],
   );
   assert.deepEqual(
     system.batches.map((batch) => batch.userData.stats.interfaceCount),
-    [4, 3, 2, 6],
+    [4, 3, 2, 6, 1, 1, 1, 1, 1, 1, 1, 1],
   );
 
   for (const batch of system.batches) {
@@ -86,16 +86,16 @@ test('every basin batch exposes the fixed twelve-attribute water info contract',
   disposeSystem(system);
 });
 
-test('all fifteen river-lake interfaces own five continuous transition rows', () => {
+test('all river-lake interfaces own five continuous transition rows', () => {
   const system = createUnifiedWaterSystem(terrain);
   const patches = system.batches.flatMap((batch) => batch.userData.transitionPatches);
   const influences = getFiveRowTransitionInfluences();
 
-  assert.equal(RIVER_LAKE_INTERFACE_REGISTRY.length, 15);
-  assert.equal(system.stats.interfaceCount, 15);
-  assert.equal(system.stats.transitionPatchCount, 15);
-  assert.equal(system.stats.transitionRowCount, 75);
-  assert.equal(patches.length, 15);
+  assert.equal(RIVER_LAKE_INTERFACE_REGISTRY.length, 23);
+  assert.equal(system.stats.interfaceCount, 23);
+  assert.equal(system.stats.transitionPatchCount, 23);
+  assert.equal(system.stats.transitionRowCount, 115);
+  assert.equal(patches.length, 23);
   assert.deepEqual(
     patches.map((patch) => patch.id).sort(),
     RIVER_LAKE_INTERFACE_REGISTRY.map((entry) => entry.id).sort(),
@@ -110,6 +110,14 @@ test('all fifteen river-lake interfaces own five continuous transition rows', ()
       'hero-east-basin': 3,
       'north-lowland-basin': 2,
       'south-lowland-basin': 6,
+      'northwest-outer-basin': 1,
+      'north-outer-basin': 1,
+      'northeast-outer-basin': 1,
+      'west-outer-basin': 1,
+      'east-outer-basin': 1,
+      'southwest-outer-basin': 1,
+      'south-outer-basin': 1,
+      'southeast-outer-basin': 1,
     },
   );
   assert.equal(influences.length, 5);
@@ -414,7 +422,7 @@ test('river flow coordinates keep one metric centerline through every lake trans
 test('basin batches contain no duplicate, degenerate, or non-manifold triangles', () => {
   const system = createUnifiedWaterSystem(terrain);
 
-  assert.ok(system.stats.triangleCount <= Math.floor(39368 * 1.1));
+  assert.ok(system.stats.triangleCount <= 150000);
 
   for (const batch of system.batches) {
     const positions = batch.geometry.getAttribute('position');

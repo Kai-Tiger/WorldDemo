@@ -41,6 +41,13 @@ import {
   isInLowlandVegetationExclusion,
 } from './lowlandLandforms.js';
 import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
+import {
+  applyExpandedWaterTerrain,
+  getExpandedWaterGrassAcceptance,
+  getExpandedWaterMaterialFrame,
+  getExpandedWaterMinimumSegmentsForBounds,
+  isInExpandedWaterVegetationExclusion,
+} from './expandedTerrainPlan.js';
 
 export const LAKE_CENTER = new THREE.Vector2(
   ALPINE_LAKE_BOUNDARY.cx,
@@ -122,6 +129,7 @@ export function applyWaterSystemTerrain(baseHeight, x, z) {
   let height = applyWaterSystemMacroTerrain(baseHeight, x, z);
 
   height = applyRiverNetworkTerrain(height, x, z);
+  height = applyExpandedWaterTerrain(height, x, z);
 
   return height;
 }
@@ -140,17 +148,23 @@ export function applyWaterSystemMacroTerrain(baseHeight, x, z) {
 export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   const riverNetwork = getRiverNetworkMaterialFrame(x, z);
   const lowland = getLowlandMaterialFrame(x, z);
-  const networkBedMask = Math.max(riverNetwork.bedMask, lowland.bedMask);
-  const networkWetMask = Math.max(riverNetwork.wetMask, lowland.wetMask);
+  const expanded = getExpandedWaterMaterialFrame(x, z);
+  const networkBedMask = Math.max(riverNetwork.bedMask, lowland.bedMask, expanded.bedMask);
+  const networkWetMask = Math.max(riverNetwork.wetMask, lowland.wetMask, expanded.wetMask);
   const networkRiverWetMask = Math.max(
     riverNetwork.riverWetMask,
     lowland.riverWetMask,
+    expanded.riverWetMask,
   );
 
   if (!isNearWaterSystem(x, z)) {
     return {
       ...createEmptyWaterSystemMaterialFrame(),
-      lakeBedMask: Math.max(riverNetwork.lakeBedMask, lowland.lakeBedMask),
+      lakeBedMask: Math.max(
+        riverNetwork.lakeBedMask,
+        lowland.lakeBedMask,
+        expanded.lakeBedMask,
+      ),
       wetShoreMask: networkWetMask,
       snowmeltWetMask: Math.max(networkRiverWetMask, networkBedMask),
       riverNetworkBedMask: networkBedMask,
@@ -185,6 +199,7 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
       lakeBedMask,
       riverNetwork.lakeBedMask,
       lowland.lakeBedMask,
+      expanded.lakeBedMask,
     ), 0, 1),
     wetShoreMask: THREE.MathUtils.clamp(wetShoreMask, 0, 1),
     snowmeltWetMask: Math.max(networkRiverWetMask, networkBedMask),
@@ -198,6 +213,7 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
 export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
   if (isInRiverNetworkVegetationExclusion(x, z, buffer)) return true;
   if (isInLowlandVegetationExclusion(x, z, buffer)) return true;
+  if (isInExpandedWaterVegetationExclusion(x, z, buffer)) return true;
   if (!isNearWaterSystem(x, z, buffer + 12)) return false;
 
   const lake = getLakeFrame(x, z);
@@ -224,6 +240,7 @@ export function getFlowingWaterGrassAcceptance(x, z) {
     getRiverGrassAcceptance(x, z),
     getRiverNetworkGrassAcceptance(x, z, RIVER_NETWORK),
     getLowlandStreamGrassAcceptance(x, z),
+    getExpandedWaterGrassAcceptance(x, z),
   );
   const outlet = x >= OUTLET_GRASS_BOUNDS.minX
     && x <= OUTLET_GRASS_BOUNDS.maxX
@@ -252,7 +269,7 @@ export function getFlowingWaterGrassAcceptance(x, z) {
 }
 
 export function getWaterSystemMinimumSegmentsForBounds(bounds) {
-  let minimum = 0;
+  let minimum = getExpandedWaterMinimumSegmentsForBounds(bounds);
 
   if (NARROW_WATER_FEATURE_BOUNDS.some((feature) => boundsIntersect(bounds, feature))) {
     minimum = 256;

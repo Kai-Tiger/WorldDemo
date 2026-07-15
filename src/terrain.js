@@ -28,6 +28,7 @@ import {
   isPreciseWaterHeightCode,
 } from './terrainHeightEncoding.js';
 import { MAP_SIZE } from './vegetationConfig.js';
+import { getExpandedTerrainBaseHeight } from './expandedTerrainPlan.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
@@ -1062,7 +1063,11 @@ export class Terrain {
     const height = THREE.MathUtils.lerp(top, bottom, ty)
       + getHeightDither(x, z) * (1 - preciseWaterMask);
 
-    return THREE.MathUtils.clamp(height, 0, MAX_HEIGHT);
+    return THREE.MathUtils.clamp(
+      getExpandedTerrainBaseHeight(height, x, z),
+      0,
+      MAX_HEIGHT,
+    );
   }
 
   getSampledPixelHeight(x, y) {
