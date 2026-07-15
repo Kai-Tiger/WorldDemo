@@ -43,6 +43,21 @@ test('one far-tree batch covers the full map with a bounded silhouette sample', 
   assert.ok(Math.max(...tintValues) < 0.09);
   assert.ok(new Set(tintValues).size > 20);
 
+  const sizeValues = field.mesh.geometry.attributes.instanceSize.array;
+  let minWidth = Infinity;
+  let maxWidth = -Infinity;
+  let minHeight = Infinity;
+  let maxHeight = -Infinity;
+  for (let index = 0; index < sizeValues.length; index += 2) {
+    minWidth = Math.min(minWidth, sizeValues[index]);
+    maxWidth = Math.max(maxWidth, sizeValues[index]);
+    minHeight = Math.min(minHeight, sizeValues[index + 1]);
+    maxHeight = Math.max(maxHeight, sizeValues[index + 1]);
+  }
+  assert.ok(minWidth >= 4.91 && maxWidth <= 11.81, [minWidth, maxWidth]);
+  assert.ok(minHeight >= 11.47 && maxHeight <= 28.33, [minHeight, maxHeight]);
+  assert.ok(maxWidth > 11.7 && maxHeight > 28.1, [maxWidth, maxHeight]);
+
   const cellCounts = new Map();
   const positions = field.mesh.geometry.attributes.instancePosition.array;
   for (let index = 0; index < positions.length; index += 3) {
