@@ -287,6 +287,80 @@ export function compileRiverNetwork(definition, options = {}) {
 
 export const RIVER_NETWORK = compileRiverNetwork(RIVER_NETWORK_DEFINITION);
 
+export function fitRiverNetworkWaterLevelsToTerrain(
+  network,
+  getBaseHeight,
+  options = {},
+) {
+  if (!network?.reaches?.length || !network.nodeById) {
+    throw new Error('Compiled river network is required to fit water levels.');
+  }
+  if (typeof getBaseHeight !== 'function') {
+    throw new Error('River terrain fitting requires a base-height sampler.');
+  }
+
+  const surfaceInset = options.surfaceInset ?? 0.2;
+  const fitNodes = options.fitNodes ?? false;
+
+  if (!(surfaceInset >= 0)) {
+    throw new Error('River terrain fitting surface inset must be non-negative.');
+  }
+
+  if (fitNodes) {
+    for (const nodeId of network.topologicalNodeIds) {
+      const node = network.nodeById.get(nodeId);
+      let fittedLevel = Math.min(
+        node.waterLevel,
+        getBaseHeight(node.position[0], node.position[1]) - surfaceInset,
+      );
+
+      for (const authoredReach of network.incomingByNode.get(nodeId)) {
+        const reach = network.reachById.get(authoredReach.id);
+        const upstreamLevel = network.nodeById.get(reach.from).waterLevel;
+        const terrainCeiling = Math.min(...reach.samples.map((sample) => (
+          getBaseHeight(sample.point.x, sample.point.z) - surfaceInset
+        )));
+
+        fittedLevel = Math.min(fittedLevel, upstreamLevel, terrainCeiling);
+      }
+
+      if (!Number.isFinite(fittedLevel)) {
+        throw new Error(`River terrain sampler returned an invalid height for node ${node.id}.`);
+      }
+
+      node.waterLevel = fittedLevel;
+      if (node.lakeBoundary) node.lakeBoundary.waterLevel = fittedLevel;
+    }
+  }
+
+  for (const reach of network.reaches) {
+    const startLevel = network.nodeById.get(reach.from).waterLevel;
+    const endLevel = network.nodeById.get(reach.to).waterLevel;
+    let previousLevel = startLevel;
+
+    reach.samples[0].waterLevel = startLevel;
+
+    for (let index = 1; index < reach.samples.length - 1; index += 1) {
+      const sample = reach.samples[index];
+      const terrainCeiling = getBaseHeight(sample.point.x, sample.point.z) - surfaceInset;
+
+      if (!Number.isFinite(terrainCeiling)) {
+        throw new Error(`River terrain sampler returned an invalid height for ${reach.id}.`);
+      }
+
+      sample.waterLevel = Math.max(
+        endLevel,
+        Math.min(sample.waterLevel, terrainCeiling, previousLevel),
+      );
+      previousLevel = sample.waterLevel;
+    }
+
+    reach.samples.at(-1).waterLevel = endLevel;
+  }
+
+  return network;
+}
+
 export function getNearestRiverReach(
   x,
   z,

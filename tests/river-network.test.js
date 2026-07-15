@@ -5,6 +5,7 @@ import {
   RIVER_NETWORK_DEFINITION,
   applyRiverNetworkTerrain,
   compileRiverNetwork,
+  fitRiverNetworkWaterLevelsToTerrain,
   getNearestRiverReach,
   getRiverBankGrassAcceptance,
   getRiverNetworkFeatureBounds,
@@ -94,6 +95,62 @@ test('compiled curves run from authored upstream nodes to downstream nodes with 
 
   assert.equal(northwestValley.reachId, 's0-j1');
   assert.ok(northwestValley.waterLevel > 105 && northwestValley.waterLevel < 110);
+});
+
+test('terrain fitting lowers river surfaces into the ground before the bed is carved', () => {
+  const lake = {
+    id: 'sink',
+    cx: 20,
+    cz: 0,
+    radius: 3,
+    waterLevel: 4,
+    maxDepth: 2,
+    edgeDepth: 0.2,
+    shoreWidth: 2,
+  };
+  const network = compileRiverNetwork({
+    nodes: [
+      { id: 'source', type: 'source', position: [0, 0], waterLevel: 20 },
+      { id: 'sink', type: 'lake', position: [20, 0], waterLevel: 4, lakeBoundary: lake },
+    ],
+    reaches: [{
+      id: 'terrain-following-reach',
+      from: 'source',
+      to: 'sink',
+      points: [[0, 0], [20, 0]],
+      waterLevels: [20, 4],
+      width: 4,
+      depth: 1.5,
+      influence: 7,
+    }],
+  }, { sampleSpacing: 1 });
+  const baseHeightAt = (x) => (x >= 9 && x <= 11 ? 2 : 25 - x * 0.5);
+
+  fitRiverNetworkWaterLevelsToTerrain(network, baseHeightAt, {
+    surfaceInset: 0.5,
+    fitNodes: true,
+  });
+
+  const reach = network.reaches[0];
+
+  assert.equal(reach.samples[0].waterLevel, 20);
+  assert.equal(reach.samples.at(-1).waterLevel, 1.5);
+  assert.equal(network.nodeById.get('sink').waterLevel, 1.5);
+  assert.equal(lake.waterLevel, 1.5);
+  for (let index = 1; index < reach.samples.length - 1; index += 1) {
+    const sample = reach.samples[index];
+    const baseHeight = baseHeightAt(sample.point.x, sample.point.z);
+    const carvedHeight = applyRiverNetworkTerrain(
+      baseHeight,
+      sample.point.x,
+      sample.point.z,
+      network,
+    );
+
+    assert.ok(sample.waterLevel <= baseHeight - 0.5 + 1e-6);
+    assert.ok(sample.waterLevel <= reach.samples[index - 1].waterLevel);
+    assert.ok(carvedHeight < sample.waterLevel);
+  }
 });
 
 test('optional channel ranges, confluence pools, and smooth riffles survive compilation', () => {

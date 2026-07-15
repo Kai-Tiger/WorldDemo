@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   applyRiverNetworkTerrain,
   compileRiverNetwork,
+  fitRiverNetworkWaterLevelsToTerrain,
   getNearestRiverReach,
   getRiverNetworkFeatureBounds,
   getRiverNetworkGrassAcceptance,
@@ -88,6 +89,20 @@ export const EXPANDED_WATER_BASINS = Object.freeze(CELL_PLANS.map((cell, index) 
     }),
   ]),
 })));
+
+export function fitExpandedWaterToTerrain(terrain) {
+  if (!terrain || typeof terrain.getBaseHeightAt !== 'function') {
+    throw new Error('Expanded water fitting requires terrain.getBaseHeightAt(x, z).');
+  }
+
+  for (const network of EXPANDED_RIVER_NETWORKS) {
+    fitRiverNetworkWaterLevelsToTerrain(
+      network,
+      (x, z) => terrain.getBaseHeightAt(x, z),
+      { surfaceInset: 0.2, fitNodes: true },
+    );
+  }
+}
 
 const WATER_FEATURE_BOUNDS_BY_NETWORK = EXPANDED_RIVER_NETWORKS.map(
   (network) => getRiverNetworkFeatureBounds(network),
@@ -202,7 +217,7 @@ function createCellPlan(
   rotation,
   mountainSource,
 ) {
-  const lake = Object.freeze({
+  const lake = {
     id: `${id}-outer-lake`,
     cx: lakeCenter[0],
     cz: lakeCenter[1],
@@ -218,7 +233,7 @@ function createCellPlan(
     surfaceOffset: 0.045,
     angularSegments: 48,
     ringCount: 8,
-  });
+  };
   const bendSign = rotation >= 0 ? 1 : -1;
   const centerXSign = Math.sign(center[0]);
   const centerZSign = Math.sign(center[1]);
@@ -231,7 +246,7 @@ function createCellPlan(
     centerZSign * 1180 + centerXSign * diagonalOffset
       + (center[1] === 0 ? rotation * 260 : 0),
   ];
-  const foothillLake = Object.freeze({
+  const foothillLake = {
     id: `${id}-foothill-lake`,
     cx: foothillLakeCenter[0],
     cz: foothillLakeCenter[1],
@@ -247,7 +262,7 @@ function createCellPlan(
     surfaceOffset: 0.045,
     angularSegments: 48,
     ringCount: 8,
-  });
+  };
   const mountainSourcePosition = mountainSource.slice(0, 2);
   const mountainSourceLevel = mountainSource[2];
   const mountainApproachOffset = id === 'southwest' ? 240 : 90;
@@ -263,36 +278,36 @@ function createCellPlan(
   const networkDefinition = Object.freeze({
     id: `${id}-outer-network`,
     nodes: Object.freeze([
-      Object.freeze({
+      {
         id: `${id}-mountain-source`,
         type: 'source',
         position: mountainSourcePosition,
         waterLevel: mountainSourceLevel,
-      }),
-      Object.freeze({
+      },
+      {
         id: foothillLake.id,
         type: 'lake',
         position: foothillLakeCenter,
         waterLevel: foothillLake.waterLevel,
         lakeBoundary: foothillLake,
-      }),
-      Object.freeze({ id: `${id}-source-a`, type: 'source', position: sourceA, waterLevel: 14 }),
-      Object.freeze({ id: `${id}-source-b`, type: 'source', position: sourceB, waterLevel: 13.5 }),
-      Object.freeze({
+      },
+      { id: `${id}-source-a`, type: 'source', position: sourceA, waterLevel: 14 },
+      { id: `${id}-source-b`, type: 'source', position: sourceB, waterLevel: 13.5 },
+      {
         id: `${id}-upper-junction`,
         type: 'confluence',
         position: upperJunction,
         waterLevel: 11.1,
         poolRadius: 13,
-      }),
-      Object.freeze({ id: `${id}-junction`, type: 'confluence', position: junction, waterLevel: 10.5, poolRadius: 15 }),
-      Object.freeze({
+      },
+      { id: `${id}-junction`, type: 'confluence', position: junction, waterLevel: 10.5, poolRadius: 15 },
+      {
         id: lake.id,
         type: 'lake',
         position: lakeCenter,
         waterLevel: lake.waterLevel,
         lakeBoundary: lake,
-      }),
+      },
     ]),
     reaches: Object.freeze([
       createReach(

@@ -7,6 +7,7 @@ import {
   EXPANDED_TERRAIN_CELLS,
   EXPANDED_TERRAIN_SIZE,
   applyExpandedWaterTerrain,
+  fitExpandedWaterToTerrain,
   getExpandedTerrainBaseHeight,
 } from '../src/expandedTerrainPlan.js';
 
@@ -67,6 +68,34 @@ test('each outer cell connects the center mountains to two carved lakes', () => 
       assert.ok(reach.waterLevels.every((level, levelIndex) => (
         levelIndex === 0 || level <= reach.waterLevels[levelIndex - 1]
       )), reach.id);
+    }
+  }
+});
+
+test('expanded river surfaces are fitted to terrain before terrain carving', () => {
+  const terrain = {
+    getBaseHeightAt(x, z) {
+      return Math.abs(x) <= 1024 && Math.abs(z) <= 1024 ? 200 : 15;
+    },
+  };
+
+  fitExpandedWaterToTerrain(terrain);
+
+  for (const network of EXPANDED_RIVER_NETWORKS) {
+    for (const reach of network.reaches) {
+      for (let index = 1; index < reach.samples.length - 1; index += 1) {
+        const sample = reach.samples[index];
+        const baseHeight = terrain.getBaseHeightAt(sample.point.x, sample.point.z);
+        const carvedHeight = applyExpandedWaterTerrain(
+          baseHeight,
+          sample.point.x,
+          sample.point.z,
+        );
+
+        assert.ok(sample.waterLevel <= baseHeight - 0.2 + 1e-6, reach.id);
+        assert.ok(sample.waterLevel <= reach.samples[index - 1].waterLevel, reach.id);
+        assert.ok(carvedHeight < sample.waterLevel, reach.id);
+      }
     }
   }
 });

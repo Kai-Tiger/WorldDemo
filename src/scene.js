@@ -12,6 +12,7 @@ import { VISUAL_ENVIRONMENT } from './visualEnvironment.js';
 import { createCompressedTextureLoader } from './compressedTextureLoader.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { createFarTreeField } from './farTreeField.js';
+import { fitExpandedWaterToTerrain } from './expandedTerrainPlan.js';
 
 const SHADOW_CAMERA_SIZE = 120;
 
@@ -32,6 +33,7 @@ export async function createScene(renderer, quality) {
       textureTier: quality.textureTier,
       textureAnisotropy: quality.textureAnisotropy,
     });
+    fitExpandedWaterToTerrain(terrain);
     terrain.setQualityPreset(quality.terrain);
     await terrain.prepareInitialChunk(PLAYER_SPAWN_POSITION);
   } catch (error) {
