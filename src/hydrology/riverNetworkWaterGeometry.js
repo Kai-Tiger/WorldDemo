@@ -17,6 +17,8 @@ const STYLE_TESSELLATION = {
   trunk: { spacing: 0.75, lateralSegments: 8 },
   headwater: { spacing: 2.5, lateralSegments: 3 },
   collector: { spacing: 2, lateralSegments: 4 },
+  continental: { spacing: 4, lateralSegments: 2 },
+  'continental-lake': { spacing: 8, lateralSegments: 4 },
   'lake-outlet': { spacing: 1.75, lateralSegments: 4 },
   'lake-inlet': { spacing: 1.5, lateralSegments: 5 },
 };
@@ -26,6 +28,8 @@ const STYLE_VIEW_DISTANCE = {
   trunk: 300,
   headwater: 180,
   collector: 260,
+  continental: 10000,
+  'continental-lake': 10000,
   'lake-outlet': 260,
   'lake-inlet': 300,
 };

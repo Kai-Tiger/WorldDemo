@@ -33,21 +33,40 @@ test('outer cells use low plains with broad rolling hill groups', () => {
   assert.ok(Math.max(...hillPeaks) < 70);
 });
 
-test('each outer cell owns two tributaries, one trunk, and one carved lake', () => {
+test('each outer cell connects the center mountains to two carved lakes', () => {
   assert.equal(EXPANDED_RIVER_NETWORKS.length, 8);
-  assert.equal(EXPANDED_LAKES.length, 8);
+  assert.equal(EXPANDED_LAKES.length, 16);
   assert.equal(
     EXPANDED_RIVER_NETWORKS.reduce((count, network) => count + network.reaches.length, 0),
-    24,
+    48,
   );
 
   for (let index = 0; index < EXPANDED_RIVER_NETWORKS.length; index += 1) {
     const network = EXPANDED_RIVER_NETWORKS[index];
-    const lake = EXPANDED_LAKES[index];
-    const sink = network.nodeById.get(lake.id);
+    const cell = EXPANDED_TERRAIN_CELLS[index];
+    const source = network.nodeById.get(`${cell.id}-mountain-source`);
+    const sink = network.nodeById.get(cell.lake.id);
 
-    assert.equal(network.reaches.length, 3);
+    assert.equal(network.reaches.length, 6);
+    assert.equal(network.lakeFeatures.length, 2);
+    assert.ok(Math.abs(source.position[0]) <= 1024);
+    assert.ok(Math.abs(source.position[1]) <= 1024);
+    assert.ok(source.waterLevel >= 180);
     assert.equal(sink.type, 'lake');
-    assert.ok(applyExpandedWaterTerrain(30, lake.cx, lake.cz) < lake.waterLevel);
+    assert.deepEqual(
+      network.lakeFeatures.map((node) => node.id).sort(),
+      cell.lakes.map((lake) => lake.id).sort(),
+    );
+
+    for (const lake of cell.lakes) {
+      assert.ok(applyExpandedWaterTerrain(80, lake.cx, lake.cz) < lake.waterLevel);
+      assert.equal(lake.angularSegments, 48);
+      assert.equal(lake.ringCount, 8);
+    }
+    for (const reach of network.definition.reaches) {
+      assert.ok(reach.waterLevels.every((level, levelIndex) => (
+        levelIndex === 0 || level <= reach.waterLevels[levelIndex - 1]
+      )), reach.id);
+    }
   }
 });

@@ -82,14 +82,16 @@ export const RIVER_LAKE_INTERFACE_REGISTRY = Object.freeze([
   createInterface('south-east-central-inlet', 'south-lowland-basin', 'south-lowland-basin', 'south-east-tributary', 'end', 'south-central-lake'),
   createInterface('south-central-outlet', 'south-lowland-basin', 'south-lowland-basin', 'south-central-outlet', 'start', 'south-central-lake'),
   createInterface('south-terminal-inlet', 'south-lowland-basin', 'south-lowland-basin', 'south-central-outlet', 'end', 'south-terminal-lake'),
-  ...EXPANDED_WATER_BASINS.map((basin) => createInterface(
-    `${basin.id}-terminal-inlet`,
-    basin.id,
-    basin.sourceId,
-    basin.terminalReachId,
-    'end',
-    basin.lakeId,
-  )),
+  ...EXPANDED_WATER_BASINS.flatMap((basin) => basin.interfaces.map((entry) => (
+    createInterface(
+      entry.id,
+      basin.id,
+      basin.sourceId,
+      entry.reachId,
+      entry.endpoint,
+      entry.lakeId,
+    )
+  ))),
 ]);
 
 export const WATER_BASIN_DEFINITIONS = Object.freeze([
@@ -142,7 +144,7 @@ export const WATER_BASIN_DEFINITIONS = Object.freeze([
   }),
   ...EXPANDED_WATER_BASINS.map((basin) => Object.freeze({
     id: basin.id,
-    lakeIds: Object.freeze([basin.lakeId]),
+    lakeIds: Object.freeze([...basin.lakeIds]),
     riverSources: Object.freeze([
       Object.freeze({
         id: basin.sourceId,
@@ -563,7 +565,14 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
 
 function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) {
   const center = getLakeCenter(lake);
-  const angularSamples = createLakeAngularSamples(builder, lake, attachments);
+  const ringCount = lake.ringCount ?? LAKE_RING_COUNT;
+  const angleSegments = lake.angularSegments ?? LAKE_ANGLE_SEGMENTS;
+  const angularSamples = createLakeAngularSamples(
+    builder,
+    lake,
+    attachments,
+    angleSegments,
+  );
   const maximumTransitionLength = Math.max(
     1,
     ...attachments.map((entry) => entry.transitionLength),
@@ -592,7 +601,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
   const startIndex = builder.indices.length;
   const surfaceY = lake.waterLevel + (lake.surfaceOffset ?? WATER_SURFACE_OFFSET);
 
-  for (let ring = 0; ring < LAKE_RING_COUNT; ring += 1) {
+  for (let ring = 0; ring < ringCount; ring += 1) {
     const row = [];
 
     for (const sample of angularSamples) {
@@ -603,6 +612,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
         boundaryRadius,
         ring,
         transitionLength,
+        ringCount,
       );
       const inset = Math.max(boundaryRadius - radius, 0);
       const x = center.x + Math.cos(sample.angle) * radius;
@@ -683,7 +693,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
     inset: getLakeBoundaryRadius(lake, 0),
     reflectionTier,
     sample: null,
-    ring: LAKE_RING_COUNT,
+    ring: ringCount,
     transitionLength: maximumTransitionLength,
   });
   const inner = rings.at(-1);
@@ -715,7 +725,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
       indexCount: triangleCount * 3,
       triangleCount,
       angularSegmentCount: angularSamples.length,
-      ringCount: LAKE_RING_COUNT,
+      ringCount,
       interfaceCount: attachments.length,
     },
   };
@@ -918,7 +928,7 @@ function appendLakeVertex(builder, {
   });
 }
 
-function createLakeAngularSamples(builder, lake, attachments) {
+function createLakeAngularSamples(builder, lake, attachments, angleSegments) {
   const center = getLakeCenter(lake);
   const attachmentFrames = attachments.map((attachment) => {
     const vertices = attachment.rowVertices.map((vertex, lateral) => {
@@ -948,8 +958,8 @@ function createLakeAngularSamples(builder, lake, attachments) {
   });
   const samples = [];
 
-  for (let segment = 0; segment < LAKE_ANGLE_SEGMENTS; segment += 1) {
-    const angle = segment / LAKE_ANGLE_SEGMENTS * TWO_PI;
+  for (let segment = 0; segment < angleSegments; segment += 1) {
+    const angle = segment / angleSegments * TWO_PI;
     const insideInterface = attachmentFrames.some((frame) => {
       const delta = signedAngle(angle - frame.centerAngle);
 
@@ -988,7 +998,7 @@ function createLakeAngularSamples(builder, lake, attachments) {
   return unique;
 }
 
-function getLakeRingRadius(boundaryRadius, ring, transitionLength) {
+function getLakeRingRadius(boundaryRadius, ring, transitionLength, ringCount) {
   if (ring < LAKE_TRANSITION_RING_COUNT) {
     return Math.max(
       boundaryRadius - transitionLength * ring / (LAKE_TRANSITION_RING_COUNT - 1),
@@ -996,7 +1006,7 @@ function getLakeRingRadius(boundaryRadius, ring, transitionLength) {
     );
   }
 
-  const remainingRings = LAKE_RING_COUNT - LAKE_TRANSITION_RING_COUNT + 1;
+  const remainingRings = ringCount - LAKE_TRANSITION_RING_COUNT + 1;
   const innerT = (ring - (LAKE_TRANSITION_RING_COUNT - 1)) / remainingRings;
 
   return Math.max((boundaryRadius - transitionLength) * (1 - innerT), 0);
