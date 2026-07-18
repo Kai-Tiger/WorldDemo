@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   EXPANDED_LAKES,
+  EXPANDED_OUTER_HIGH_HILLS,
   EXPANDED_RIVER_NETWORKS,
   EXPANDED_ROLLING_HILLS,
   EXPANDED_TERRAIN_CELLS,
@@ -9,6 +10,7 @@ import {
   applyExpandedWaterTerrain,
   fitExpandedWaterToTerrain,
   getExpandedTerrainBaseHeight,
+  getExpandedWaterMaterialFrame,
 } from '../src/expandedTerrainPlan.js';
 
 test('the original terrain remains the center cell of a three-by-three world', () => {
@@ -20,18 +22,95 @@ test('the original terrain remains the center cell of a three-by-three world', (
   assert.equal(getExpandedTerrainBaseHeight(centerHeight, 1024, -1024), centerHeight);
 });
 
-test('outer cells use low plains with broad rolling hill groups', () => {
+test('outer cells use low plains with unique 50-100 meter rolling hill groups', () => {
   const plainSamples = EXPANDED_TERRAIN_CELLS.map((cell) => (
     getExpandedTerrainBaseHeight(200, cell.center[0], cell.center[1])
   ));
-  const hillPeaks = EXPANDED_ROLLING_HILLS.map((hill) => (
+  const hillsByCell = EXPANDED_TERRAIN_CELLS.map((cell) => (
+    EXPANDED_ROLLING_HILLS.filter((hill) => hill.cellId === cell.id)
+  ));
+  const groupSignatures = hillsByCell.map((hills) => hills.map((hill) => [
+    hill.radiusX,
+    hill.radiusZ,
+    hill.height,
+    hill.rotation,
+    hill.lobes,
+    hill.profilePower,
+  ]).flat().join(':'));
+
+  assert.equal(EXPANDED_ROLLING_HILLS.length, 24);
+  assert.ok(plainSamples.every((height) => height >= 10 && height <= 55));
+  assert.ok(EXPANDED_ROLLING_HILLS.every((hill) => hill.height >= 50 && hill.height <= 100));
+  assert.ok(hillsByCell.every((hills) => hills.length >= 2));
+  assert.equal(new Set(groupSignatures).size, EXPANDED_TERRAIN_CELLS.length);
+});
+
+test('the outermost terrain uses separated 200-300 meter high hill groups', () => {
+  const highHillSamples = EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
     getExpandedTerrainBaseHeight(200, hill.cx, hill.cz)
   ));
+  const centerDistances = EXPANDED_OUTER_HIGH_HILLS.flatMap((hill, index) => (
+    EXPANDED_OUTER_HIGH_HILLS.slice(index + 1).map((other) => (
+      Math.hypot(other.cx - hill.cx, other.cz - hill.cz)
+    ))
+  ));
+  const protectedWaterSamples = EXPANDED_RIVER_NETWORKS.flatMap((network) => (
+    network.reaches.flatMap((reach) => reach.samples.map((sample) => {
+      const x = sample.point.x;
+      const z = sample.point.z;
+      const baseHeight = getExpandedTerrainBaseHeight(200, x, z);
 
-  assert.equal(EXPANDED_ROLLING_HILLS.length, 16);
-  assert.ok(plainSamples.every((height) => height >= 10 && height <= 55));
-  assert.ok(Math.max(...hillPeaks) >= 38);
-  assert.ok(Math.max(...hillPeaks) < 70);
+      return {
+        x,
+        z,
+        baseHeight,
+        carvedHeight: applyExpandedWaterTerrain(baseHeight, x, z),
+        outerDistance: Math.max(Math.abs(x), Math.abs(z)),
+      };
+    }))
+  )).filter(({ baseHeight, outerDistance }) => (
+    baseHeight >= 140 && outerDistance > 1600
+  ));
+  const seamSamples = [
+    ['x', -1024, 2620],
+    ['x', 1024, 2520],
+    ['x', -1024, -2500],
+    ['x', 1024, -2450],
+    ['z', -2600, 1024],
+    ['z', -2500, -1024],
+    ['z', 2600, 1024],
+    ['z', 2500, -1024],
+  ].map(([axis, fixed, along]) => {
+    const offset = 0.01;
+    const first = axis === 'x'
+      ? getExpandedTerrainBaseHeight(200, fixed - offset, along)
+      : getExpandedTerrainBaseHeight(200, along, fixed - offset);
+    const second = axis === 'x'
+      ? getExpandedTerrainBaseHeight(200, fixed + offset, along)
+      : getExpandedTerrainBaseHeight(200, along, fixed + offset);
+
+    return Math.abs(first - second);
+  });
+
+  assert.equal(EXPANDED_OUTER_HIGH_HILLS.length, 12);
+  assert.ok(EXPANDED_OUTER_HIGH_HILLS.every(
+    (hill) => hill.elevation >= 200 && hill.elevation <= 300,
+  ));
+  assert.ok(highHillSamples.every((height) => height >= 200 && height <= 305));
+  assert.ok(Math.min(...centerDistances) > 950);
+  assert.equal(new Set(EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
+    [hill.radiusX, hill.radiusZ, hill.elevation, hill.rotation, hill.lobes].join(':')
+  ))).size, EXPANDED_OUTER_HIGH_HILLS.length);
+  assert.ok(seamSamples.every((difference) => difference < 0.2));
+  assert.ok(protectedWaterSamples.length > 100);
+  assert.ok(protectedWaterSamples.every(({ x, z, baseHeight, carvedHeight }) => {
+    const materialFrame = getExpandedWaterMaterialFrame(x, z);
+
+    return carvedHeight >= baseHeight - 1e-6
+      && materialFrame.bedMask <= 1e-6
+      && materialFrame.wetMask <= 1e-6
+      && materialFrame.riverWetMask <= 1e-6;
+  }));
 });
 
 test('each outer cell contains one headwater network and two carved lakes', () => {

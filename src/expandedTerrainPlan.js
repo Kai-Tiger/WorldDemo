@@ -34,27 +34,87 @@ const CELL_PLANS = [
   createCellPlan('southeast', [2048, -2048], [1500, -2780], [2780, -1580], [2180, -2180], [1500, -1500], -0.3),
 ];
 
-const ROLLING_HILLS = [
-  [-2540, 1760, 520, 340, 31, 0.25], [-2050, 2670, 610, 390, 24, -0.2],
-  [-650, 1840, 570, 360, 28, -0.18], [620, 2480, 650, 420, 34, 0.22],
-  [1720, 1740, 600, 380, 30, 0.18], [2510, 2470, 540, 350, 25, -0.28],
-  [-2500, 480, 640, 400, 27, -0.12], [-1770, -520, 560, 360, 35, 0.26],
-  [2450, 520, 620, 390, 32, 0.14], [1780, -520, 580, 380, 26, -0.24],
-  [-2480, -2440, 590, 390, 34, 0.2], [-1760, -1770, 650, 420, 28, -0.18],
-  [-620, -2460, 620, 400, 30, 0.24], [640, -1760, 570, 360, 25, -0.2],
-  [2490, -2450, 610, 410, 33, -0.22], [1770, -1780, 560, 370, 27, 0.26],
-].map(([cx, cz, radiusX, radiusZ, height, rotation], index) => Object.freeze({
-  id: `outer-rolling-hill-${index + 1}`,
-  cx,
-  cz,
-  radiusX,
-  radiusZ,
-  height,
-  rotation,
-}));
+const ROLLING_HILL_GROUPS = [
+  createRollingHillGroup('northwest', [
+    [-2550, 2200, 620, 360, 84, 0.42, 0.13, 5, 0.35, 1.65],
+    [-2020, 2700, 430, 300, 63, -0.28, 0.09, 4, 1.4, 2.1],
+    [-1580, 1740, 390, 300, 55, 0.16, 0.16, 7, 2.3, 1.45],
+  ]),
+  createRollingHillGroup('north', [
+    [-650, 2020, 300, 410, 58, -0.18, 0.11, 6, 0.8, 1.85],
+    [80, 2540, 820, 360, 92, 0.06, 0.08, 5, 2.1, 1.35],
+    [720, 1820, 260, 480, 69, 0.34, 0.14, 7, 3, 2.25],
+  ]),
+  createRollingHillGroup('northeast', [
+    [1590, 1900, 430, 330, 62, -0.42, 0.15, 7, 0.2, 1.55],
+    [2100, 2500, 700, 390, 78, 0.26, 0.1, 4, 1.2, 1.8],
+    [2690, 1810, 300, 560, 89, -0.12, 0.12, 6, 2.5, 1.3],
+    [2600, 2700, 300, 260, 53, 0.48, 0.17, 8, 4.1, 2.35],
+  ]),
+  createRollingHillGroup('west', [
+    [-2600, 620, 380, 340, 72, -0.08, 0.08, 4, 0.5, 1.25],
+    [-2180, -350, 520, 500, 96, 0.31, 0.14, 6, 2.7, 2.2],
+  ]),
+  createRollingHillGroup('east', [
+    [2520, 420, 470, 480, 88, -0.24, 0.12, 7, 1.1, 1.5],
+    [1840, -180, 650, 310, 57, 0.18, 0.16, 5, 3.7, 2.4],
+    [2670, -650, 300, 320, 73, 0.44, 0.09, 8, 2.2, 1.75],
+  ]),
+  createRollingHillGroup('southwest', [
+    [-2620, -1760, 440, 600, 65, 0.22, 0.15, 5, 0.9, 1.4],
+    [-2300, -2560, 720, 350, 86, -0.34, 0.1, 7, 2, 1.95],
+    [-1650, -2100, 360, 310, 52, 0.08, 0.18, 8, 3.2, 2.5],
+    [-2720, -2700, 280, 300, 76, 0.46, 0.07, 4, 4.5, 1.2],
+  ]),
+  createRollingHillGroup('south', [
+    [-650, -1760, 300, 330, 61, 0.36, 0.13, 6, 0.4, 2.15],
+    [-80, -2600, 800, 390, 79, -0.04, 0.09, 5, 1.8, 1.45],
+    [650, -1950, 280, 610, 93, -0.3, 0.15, 7, 3.5, 1.8],
+  ]),
+  createRollingHillGroup('southeast', [
+    [1760, -2540, 700, 430, 98, 0.27, 0.11, 6, 0.7, 1.3],
+    [2600, -1900, 400, 600, 67, -0.38, 0.17, 9, 2.9, 2.3],
+  ]),
+];
+const ROLLING_HILLS = ROLLING_HILL_GROUPS.flat();
+const OUTER_HIGH_HILL_GROUPS = [
+  createOuterHighHillGroup('northwest', [
+    [-2580, 2100, 450, 360, 260, 0.28, 0.14, 5, 0.4, 1.55],
+    [-1700, 2700, 420, 320, 225, -0.22, 0.1, 7, 1.7, 1.9],
+  ]),
+  createOuterHighHillGroup('north', [
+    [-600, 2620, 430, 350, 290, -0.12, 0.12, 6, 0.9, 1.45],
+    [650, 2520, 500, 330, 240, 0.18, 0.16, 8, 2.4, 1.8],
+  ]),
+  createOuterHighHillGroup('northeast', [
+    [2390, 2400, 550, 400, 278, 0.36, 0.11, 5, 3.2, 1.35],
+  ]),
+  createOuterHighHillGroup('west', [
+    [-2600, 500, 420, 520, 295, -0.18, 0.15, 7, 1.2, 1.65],
+  ]),
+  createOuterHighHillGroup('east', [
+    [2640, 650, 360, 450, 250, 0.2, 0.09, 6, 2.1, 1.3],
+    [2500, -650, 450, 340, 285, -0.34, 0.17, 9, 4.3, 1.9],
+  ]),
+  createOuterHighHillGroup('southwest', [
+    [-2500, -2300, 560, 450, 270, 0.24, 0.13, 5, 2.8, 1.4],
+  ]),
+  createOuterHighHillGroup('south', [
+    [-650, -2600, 450, 350, 235, -0.26, 0.16, 8, 0.6, 1.85],
+    [650, -2500, 400, 400, 300, 0.14, 0.1, 6, 3.5, 1.25],
+  ]),
+  createOuterHighHillGroup('southeast', [
+    [2400, -2400, 550, 430, 280, -0.3, 0.14, 7, 1.9, 1.55],
+  ]),
+];
+const OUTER_HIGH_HILLS = OUTER_HIGH_HILL_GROUPS.flat();
+const OUTER_HIGH_HILLS_BY_CELL = CELL_PLANS.map((cell) => Object.freeze(
+  OUTER_HIGH_HILLS.filter((hill) => highHillOverlapsCell(hill, cell)),
+));
 
 export const EXPANDED_TERRAIN_CELLS = Object.freeze(CELL_PLANS);
 export const EXPANDED_ROLLING_HILLS = Object.freeze(ROLLING_HILLS);
+export const EXPANDED_OUTER_HIGH_HILLS = Object.freeze(OUTER_HIGH_HILLS);
 export const EXPANDED_LAKES = Object.freeze(CELL_PLANS.flatMap((cell) => cell.lakes));
 export const EXPANDED_RIVER_NETWORK_DEFINITIONS = Object.freeze(
   CELL_PLANS.map((cell) => cell.networkDefinition),
@@ -125,8 +185,12 @@ export function getExpandedTerrainBaseHeight(centerHeight, x, z) {
     + Math.sin(z * 0.0033 - x * 0.0013) * 1.1;
   const cellIndex = getOuterCellIndex(x, z);
 
-  for (const hill of ROLLING_HILLS.slice(cellIndex * 2, cellIndex * 2 + 2)) {
+  for (const hill of ROLLING_HILL_GROUPS[cellIndex] ?? []) {
     outerHeight += sampleRollingHill(hill, x, z);
+  }
+
+  for (const hill of OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []) {
+    outerHeight = Math.max(outerHeight, sampleOuterHighHillElevation(hill, x, z));
   }
 
   outerHeight = THREE.MathUtils.lerp(OUTER_EDGE_HEIGHT, outerHeight, edgeBlend);
@@ -140,7 +204,9 @@ export function applyExpandedWaterTerrain(baseHeight, x, z) {
     height = applyRiverNetworkTerrain(height, x, z, network);
   }
 
-  return height;
+  const highHillProtection = smoothstep(0.01, 0.05, getOuterHighHillMask(x, z))
+    * smoothstep(20, 50, baseHeight);
+  return THREE.MathUtils.lerp(height, baseHeight, highHillProtection);
 }
 
 export function getExpandedWaterMaterialFrame(x, z) {
@@ -178,21 +244,27 @@ export function getExpandedWaterMaterialFrame(x, z) {
     }
   }
 
+  const highHillWaterFade = 1 - smoothstep(0.01, 0.05, getOuterHighHillMask(x, z));
+
   return {
-    bedMask: THREE.MathUtils.clamp(bedMask, 0, 1),
-    wetMask: THREE.MathUtils.clamp(wetMask, 0, 1),
-    lakeBedMask: THREE.MathUtils.clamp(lakeBedMask, 0, 1),
-    riverWetMask: THREE.MathUtils.clamp(riverWetMask, 0, 1),
+    bedMask: THREE.MathUtils.clamp(bedMask * highHillWaterFade, 0, 1),
+    wetMask: THREE.MathUtils.clamp(wetMask * highHillWaterFade, 0, 1),
+    lakeBedMask: THREE.MathUtils.clamp(lakeBedMask * highHillWaterFade, 0, 1),
+    riverWetMask: THREE.MathUtils.clamp(riverWetMask * highHillWaterFade, 0, 1),
   };
 }
 
 export function isInExpandedWaterVegetationExclusion(x, z, buffer = 0) {
+  if (getOuterHighHillMask(x, z) >= 0.01) return false;
+
   return getExpandedNetworksNear(x, z, buffer).some(
     (network) => isInRiverNetworkVegetationExclusion(x, z, buffer, network),
   );
 }
 
 export function getExpandedWaterGrassAcceptance(x, z) {
+  if (getOuterHighHillMask(x, z) >= 0.01) return 1;
+
   return getExpandedNetworksNear(x, z, 12).reduce(
     (acceptance, network) => Math.min(
       acceptance,
@@ -418,18 +490,108 @@ function midpoint(start, end, t, lateralOffset) {
 }
 
 function sampleRollingHill(hill, x, z) {
+  return hill.height * sampleHillMask(hill, x, z);
+}
+
+function sampleOuterHighHillElevation(hill, x, z) {
+  return THREE.MathUtils.lerp(
+    OUTER_BASE_HEIGHT,
+    hill.elevation,
+    sampleHillMask(hill, x, z),
+  );
+}
+
+function sampleHillMask(hill, x, z) {
   const dx = x - hill.cx;
   const dz = z - hill.cz;
   const cosine = Math.cos(hill.rotation);
   const sine = Math.sin(hill.rotation);
   const localX = (dx * cosine + dz * sine) / hill.radiusX;
   const localZ = (-dx * sine + dz * cosine) / hill.radiusZ;
-  const radius = Math.hypot(localX, localZ);
+  const angle = Math.atan2(localZ, localX);
+  const outlineVariation = Math.sin(angle * hill.lobes + hill.phase) * hill.shapeAmp
+    + Math.sin(angle * (hill.lobes + 3) - hill.phase * 0.7) * hill.shapeAmp * 0.45;
+  const radius = Math.hypot(localX, localZ) * (1 + outlineVariation);
 
   if (radius >= 1) return 0;
 
   const dome = 1 - smoothstep(0.08, 1, radius);
-  return hill.height * dome * dome;
+  return Math.pow(dome, hill.profilePower);
+}
+
+function createRollingHillGroup(cellId, definitions) {
+  return Object.freeze(definitions.map(([
+    cx,
+    cz,
+    radiusX,
+    radiusZ,
+    height,
+    rotation,
+    shapeAmp,
+    lobes,
+    phase,
+    profilePower,
+  ], index) => Object.freeze({
+    id: `${cellId}-rolling-hill-${index + 1}`,
+    cellId,
+    cx,
+    cz,
+    radiusX,
+    radiusZ,
+    height,
+    rotation,
+    shapeAmp,
+    lobes,
+    phase,
+    profilePower,
+  })));
+}
+
+function createOuterHighHillGroup(cellId, definitions) {
+  return Object.freeze(definitions.map(([
+    cx,
+    cz,
+    radiusX,
+    radiusZ,
+    elevation,
+    rotation,
+    shapeAmp,
+    lobes,
+    phase,
+    profilePower,
+  ], index) => Object.freeze({
+    id: `${cellId}-outer-high-hill-${index + 1}`,
+    cellId,
+    cx,
+    cz,
+    radiusX,
+    radiusZ,
+    elevation,
+    rotation,
+    shapeAmp,
+    lobes,
+    phase,
+    profilePower,
+  })));
+}
+
+function getOuterHighHillMask(x, z) {
+  const cellIndex = getOuterCellIndex(x, z);
+
+  return (OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []).reduce(
+    (mask, hill) => Math.max(mask, sampleHillMask(hill, x, z)),
+    0,
+  );
+}
+
+function highHillOverlapsCell(hill, cell) {
+  const halfSize = EXPANDED_CELL_SIZE / 2;
+  const outlineScale = 1.4;
+
+  return hill.cx - hill.radiusX * outlineScale <= cell.center[0] + halfSize
+    && hill.cx + hill.radiusX * outlineScale >= cell.center[0] - halfSize
+    && hill.cz - hill.radiusZ * outlineScale <= cell.center[1] + halfSize
+    && hill.cz + hill.radiusZ * outlineScale >= cell.center[1] - halfSize;
 }
 
 function getOuterCellIndex(x, z) {
