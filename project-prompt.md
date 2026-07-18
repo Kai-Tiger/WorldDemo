@@ -305,6 +305,130 @@ Balanced 默认画面使用：
 - hero rocks 必须来自 9 个岩石变体中的多个变体，水中岩石与白水共用 placement 真源；
 - 六个 fixed shot 中不得出现穿水道路、悬浮石头、圆环白水图标、断流或明显地形裂缝。
 
+#### 0.5.1 Balanced 地面材质冻结契约
+
+本节用于消除“同一高度图、另一套地面美术”的自由度。允许使用 `ShaderMaterial`、`MeshStandardMaterial.onBeforeCompile`、节点材质或等价架构，但 active shader 的输入、世界尺度、层权重、PBR 响应和最终可见结果必须满足以下契约。
+
+基础层与覆盖层：
+
+- 基础自然地表只有 `forest-floor ↔ rock`；
+- snow 覆盖基础层；
+- mountain trail 覆盖 snow 之后的结果；
+- river gravel、wet bank、water bed 依次覆盖 trail；
+- snowmelt wet darkening 最后应用；
+- 固定顺序为：`forest/rock → snow → trail → gravel → wet-bank → water-bed → snowmelt-darkening`；
+- dry-grass、moss 和 splat 不参与冻结主地面的基础混合；
+- scree 仅用于 river-gravel 覆盖，不得作为普通山坡的全局底色。
+
+冻结纹理世界周期：
+
+| 层 | 映射 | 世界周期/尺度 |
+| --- | --- | --- |
+| forest-floor base/normal/ORM | world XZ，四邻 cell 随机四分之一圈旋转并平滑 texture-bombing | `2.0` |
+| rock base/normal | world-space triplanar，权重 `pow(abs(worldNormal), 4)` 后归一化 | `20 / 0.62 ≈ 32.258` |
+| snow | world XZ | `27.0`，UV offset `(6.4,-3.7)` |
+| river-bank | world XZ | `3.8` |
+| river-bed 普通河段 | 沿河累计距离 / 横向坐标 | `distance / 12`、`lateral / 3.6` |
+| river-bed 汇流 | world XZ 旋转 `0.61` radians | `12.0` |
+| river-bed 小湖 | world XZ | `12.0` |
+| scree/gravel | world XZ | `5.5` |
+
+forest-floor 的 base、normal、ORM 必须共享同一 cell rotation、offset、四邻权重和显式 gradient；不能让颜色、法线和 roughness 的纹理格子彼此错位。允许使用不同的等价 anti-tiling 算法，但 evaluator probe 与截图中的周期、方向和过渡不得产生可见差异。
+
+世界空间法线是硬要求：
+
+```glsl
+worldNormal = normalize(inverseTransformDirection(transformedNormal, viewMatrix));
+```
+
+或使用数学上等价的 normal-matrix 变换。高度坡度、forest/rock 权重、snow slope、rock triplanar color 和 rock triplanar normal 都只能读取 `worldNormal`。最终进入 Three.js 光照前，才把混合完成的 surface normal 变换到 view space。禁止直接用 `vNormal` 决定地层；相机绕地面旋转时，同一世界点的所有 layer weight 变化不得超过 `1e-4`。
+
+宏观信号使用固定 seed 的 world-XZ value noise，不能依赖相机、chunk 局部 UV 或加载顺序：
+
+```glsl
+macroX = noise(worldXZ * 0.012  + vec2( 2.8, -7.1));
+macroY = noise(worldXZ * 0.0065 + vec2(-8.0,  4.0));
+macroZ = noise(worldXZ * 0.055  + vec2(-3.0, 12.0));
+macroW = noise(worldXZ * 0.003  + vec2(17.0,-11.0));
+```
+
+`noise` 可采用 `hash = fract(sin(dot(cell, vec2(127.1,311.7))) * 43758.5453123)`、四角采样与 smooth interpolation 的 value noise，或数值等价实现。相邻 chunk 在相同世界点必须得到相同 macro。
+
+`groundMask` 从最终 deformation 后地形采样，不从 base height 或颜色贴图猜测：
+
+```text
+sampleDistance = 5
+slopeMask  = smoothstep(0.76, 0.94, sampledNormalY)
+relief     = (max(center,left,right,down,up) - min(...)) / 10
+smoothMask = 1 - smoothstep(0.22, 0.62, relief)
+groundMask = clamp(slopeMask * smoothMask, 0, 1)
+```
+
+基础 forest/rock 权重使用以下冻结 profile；若改用等价函数，外部固定 probe 的绝对权重误差不得超过 `0.03`：
+
+```glsl
+noisyHeight = worldY + (macroX - 0.5) * 30.0;
+flatMask = smoothstep(0.56, 0.92, worldNormal.y);
+lowlandMask = 1.0 - smoothstep(55.0, 90.0, noisyHeight);
+ground = smoothstep(0.08, 0.82, groundMask) * flatMask * lowlandMask;
+forestRockSignal = clamp(ground + (macroZ - 0.5) * 0.10, 0.0, 1.0);
+forestWeight = smoothstep(0.10, 0.74, forestRockSignal);
+rockWeight = 1.0 - forestWeight;
+```
+
+`forestRockSignal >= 0.74` 时使用完整 forest-floor；`<= 0.10` 时使用完整 rock；中间平滑混合颜色、world-space normal、roughness 和 AO。不得只对 base color 混合而让所有层共用一张 dry-grass normal。
+
+forest-floor 在线性空间采用冻结色调：
+
+```glsl
+luma = dot(forestColor, vec3(0.2126, 0.7152, 0.0722));
+forestColor = mix(vec3(luma), forestColor, 0.70);
+forestColor *= vec3(0.96, 1.04, 0.86);
+forestColor = forestColor * 1.16 + vec3(0.006, 0.010, 0.003);
+forestColor *= mix(1.0, 1.06, macroX);
+```
+
+地面整体的更低频亮度只允许在约 `0.96–1.05` 内变化，不能叠加黄褐色全局 tint。forest normal 与 world base normal 的混合强度为 `0.55`；ORM.G 映射 roughness `0.55–0.92`，ORM.R 映射 AO `0.75–1.0`。
+
+rock 使用三平面 base color 与三平面 rock normal；颜色乘 `vec3(0.80,0.79,0.76)`，roughness `0.80`、AO `0.96`、normal 混合强度约 `0.50`。Balanced 不得只加载 `rockNormal` 而不绑定，也不得让 rock 层继续使用 forest 或 dry-grass normal。
+
+snow profile 冻结为：
+
+```glsl
+snowLine = worldY + (macroX - 0.5) * 24.0 + (macroZ - 0.5) * 8.0;
+snowElevation = smoothstep(55.0, 130.0, snowLine);
+snowSlope = smoothstep(0.30, 0.78, worldNormal.y);
+snowCoverage = smoothstep(
+  0.12,
+  0.88,
+  snowElevation * snowSlope + (macroZ - 0.5) * 0.22
+);
+```
+
+snow color 乘 `vec3(0.90,0.94,1.0)`，roughness 向 `0.94`、AO 向 `1.0` 混合，并按 `coverage * 0.55` 将细节 normal 拉回地形 base normal。固定验证点统一取 `macroX=macroZ=0.5`：`height=35, normalY=.9 → 0`；`height=90, normalY=.9 → 0.40–0.55`；`height=140, normalY=.9 → 1`；`height=140, normalY=.25 → 0`；`height=140, normalY=.5 → 0.20–0.35`。
+
+覆盖层使用来自真实 terrain/water/trail 查询的独立字段，而不是一张手绘低分辨率 RGBA world mask：
+
+```text
+riverMask, riverBedMask, riverUnderwaterMask, riverGravelMask,
+riverConfluenceMask, riverBedCoord,
+lakeBedMask, wetShoreMask, snowmeltWetMask, plungeMask,
+smallLakeMask, mountainTrailMask
+```
+
+中心河湖与 fixed-shot ROI 的 mask 采样间距不得大于 `1`，其余可见区域不得大于 `4`；mask、植被排除和水体几何必须来自同一查询真源。
+
+覆盖 PBR 参数冻结为：
+
+- trail：保留 `72%` 原色、混入 `28%` luminance，再乘 `vec3(.91,.89,.85)`；以 `mask × .62` 覆盖，normal flatten `0.26`，roughness 在原值上增加约 `.04`，AO 向 `.98`；
+- gravel：保留 `52%` 原色、混入 `48%` luminance，乘 `vec3(.86,.84,.79)`，再以 `.58` 混回 base；roughness `.72`，packed B/A scree normal 的最大混合强度约 `.38`；
+- wet-bank：保留 `62%` 原色、混入 `38%` luminance，乘 `vec3(.82,.87,.86)`，再以 `.86` 混回 base；hero wet 区再乘 `vec3(.82,.84,.74)`，roughness 随湿度约从 `.55` 降至 `.26`；
+- water-bed：最后覆盖 bank，roughness `.42`；
+- snowmelt wet：最后按 `mask × .34` 向 `vec3(.62,.70,.74)` 压暗；
+- 所有 roughness 最终 clamp 到 `[0.18,1.0]`；AO 乘 indirect diffuse，indirect specular 只接受约 `35%` 的 AO 抑制。
+
+Balanced 的所有地形几何 LOD 至少保持相同的 Medium 等价层权重、forest normal/ORM、rock triplanar normal 和水岸覆盖。允许远景减少采样次数，但相邻材质 LOD 在同一世界点的 base color 线性 RGB 差异不得超过 `0.04`、roughness/AO 差异不得超过 `0.05`，不能在 LOD 切换时整片变色。
+
 若性能不足，先降低内部 resolution scale、远景代理复杂度、阴影更新率和远处密度；不得先删除中心湖、瀑布、河网、近景地形细节或 shot 内生态层次。
 
 ### 0.6 输入文件不可变
@@ -445,29 +569,47 @@ public/assets/terrain/nine-grid-height.png
 
 中心单元必须以 `height.webp` 为高精度真源；外围单元必须使用 `nine-grid-height.png` 或从其逐样本等价预烘焙的数据。二者必须由同一套世界地形查询层提供 `getHeightAt(x,z)` 和 `getNormalAt(x,z)`，供网格、角色、相机、植被和水系共同使用，避免视觉与碰撞高度不一致。
 
-### 4.3 推荐地表与水岸纹理
+### 4.3 冻结地表与水岸纹理
 
-基础高山层：
+Balanced 地形 shader 必须实际绑定下列九类 sampler；forest-floor 的 1k/2k 是画质档备选，同一档只绑定对应的一组，其他路径不得换成替代素材：
 
 ```text
 public/assets/terrain/rock-alpine.webp
 public/assets/terrain/rock-alpine-normal.png
 public/assets/terrain/snow-alpine.webp
 public/assets/terrain/scree-alpine.webp
-```
-
-森林地表，优先按画质选择 1k 或 2k：
-
-```text
 public/assets/terrain/forest-floor/optimized/forest_floor_basecolor_1k.jpg
 public/assets/terrain/forest-floor/optimized/forest_floor_basecolor_2k.jpg
 public/assets/terrain/forest-floor/optimized/forest_floor_normal_1k.jpg
 public/assets/terrain/forest-floor/optimized/forest_floor_normal_2k.jpg
 public/assets/terrain/forest-floor/optimized/forest_floor_orm_1k.ktx2
 public/assets/terrain/forest-floor/optimized/forest_floor_orm_2k.ktx2
+public/assets/terrain/river-bed.webp
+public/assets/terrain/river-bank-rock-wet-light-alt.webp
 ```
 
-草地、苔藓和宏观混合：
+九个 sampler 的语义是：
+
+1. rock base color；
+2. rock normal；
+3. snow base color；
+4. forest-floor base color；
+5. forest-floor normal；
+6. forest-floor packed ORM；
+7. wet river-bank base color；
+8. river-bed base color；
+9. scree/gravel base color。
+
+Performance 使用 forest-floor `1k` 三件套；Balanced 和 Quality 使用现有最高档 `2k` 三件套。画质切换必须改变实际绑定 URL/纹理对象，不能只修改 `textureSize` 常量。
+
+颜色空间与 packed channel 冻结为：
+
+- rock、snow、forest-floor base color、river-bank、river-bed、scree：RepeatWrapping + sRGB；
+- rock normal、forest-floor normal、forest-floor ORM：RepeatWrapping + NoColorSpace；
+- ORM 的 R 为 forest AO，G 为 forest roughness；B/A 可作为 scree tangent-normal X/Y；
+- 地形 `metalness = 0`。
+
+以下文件虽然存在，但不属于冻结主地面的基础层：
 
 ```text
 public/assets/terrain/materials/dry_grass_albedo.png
@@ -475,23 +617,11 @@ public/assets/terrain/materials/dry_grass_normal.png
 public/assets/terrain/materials/moss_albedo.png
 public/assets/terrain/materials/moss_normal.png
 public/assets/terrain/materials/blend_mask_splat.png
-```
-
-碎石 normal 可用：
-
-```text
 public/assets/terrain/forest-floor/optimized/scree_alpine_normal_1k.ktx2
 public/assets/terrain/forest-floor/optimized/scree_alpine_normal_2k.ktx2
 ```
 
-水岸和河床：
-
-```text
-public/assets/terrain/river-bed.webp
-public/assets/terrain/river-bank-rock-wet-light-alt.webp
-```
-
-Albedo/base-color 使用 sRGB；normal、ORM、opacity、AO、roughness、height 和 mask 使用线性色彩空间。地形材质默认 `metalness = 0`，干土、岩石和碎石整体偏高 roughness。不要把所有地表元素烘成一张嘈杂贴图。
+不得把 dry-grass、moss 或 splat 当作全局基础地面，也不得用 dry-grass normal 作为所有地层共享 normal。若把这些文件用于局部 decal、编辑器预览或不改变冻结外观的次要 breakup，必须保持可禁用且不能取代九个必需 sampler。只加载纹理、保存在 JavaScript 对象或写进未执行 shader 分支不算“使用”；评测会检查 active program 的真实 uniform/texture binding。
 
 ### 4.4 玩家与动画
 
@@ -634,18 +764,21 @@ HUD 要小而清晰，不能遮住主要画面。默认 Balanced。
 
 地表必须根据世界高度、坡度、宏观噪声、道路和水系 mask 分层，而不是单材质铺满：
 
-- 平缓低地：forest floor、苔藓和草地；
-- 干燥开阔坡面：dry grass / scree；
-- 陡坡和山脊：岩石，优先三平面映射以减少拉伸；
+- 平缓、低起伏的低地：forest-floor PBR；
+- 陡坡、山脊和不适合 forest-floor 的区域：rock PBR；
 - 高海拔和背风凹地：自然的积雪；
 - 河床和湖床：river-bed；
 - 水边过渡：较暗、较湿的 river-bank；
+- 河岸碎石带：scree/gravel；scree 不得铺成全世界的基础层；
 - 道路：压实土、碎石或裸岩，与周围自然融合。
+
+冻结基础地层只有 `forest-floor ↔ rock`；snow、trail、river gravel、wet bank 和 water bed 按第 0.5.1 节的顺序覆盖。不得把 dry-grass/moss 重新加入主基础混合，避免地面整体变成黄褐色。
 
 必须做到：
 
 - albedo 不承担假阴影；
 - normal 强度可信，不把细碎石做成巨石；
+- 所有坡度、三平面权重和层权重只使用世界空间法线，不得使用 Three.js 视空间 `vNormal`；
 - 多尺度宏观色差打散平铺重复；
 - layer 之间用平滑或 height-aware 混合，不能出现硬直线；
 - 大石头、草丛和落叶用实例或 decal 提供轮廓细节，不要全塞进地表贴图；
@@ -1116,46 +1249,79 @@ worldToHeightmap(x, z) -> { u, v, px, py } or null outside center
 
 ### 16.2 地表层权重
 
-每个位置的地表层权重至少受以下信号中的四类影响：
+第 0.5.1 节是地表权重和 PBR 输出的冻结真源。本节补充实现约束。
+
+所有自然基础层必须同时使用：
 
 - 世界高度；
-- 坡度或 normal.y；
-- 朝向或背风近似；
+- 世界空间几何 normal/slope；
 - 宏观噪声；
-- 预置 splat mask；
+- deformation 后的 `groundMask`。
+
+覆盖层按职责额外使用：
+
 - 距道路距离；
 - 距水体/岸线距离；
 - 河床 deformation mask；
 - 局部湿度。
 
-层权重必须归一化或以可解释方式组合，不能让总能量随层数无界变亮。阈值附近使用平滑过渡，并用较低频噪声打散人工等高线。
+forest/rock 基础权重必须有限、位于 `[0,1]` 且和约为 1。snow、trail、gravel、wet-bank、water-bed 是有明确顺序的覆盖，不得让总能量随层数无界变亮。阈值附近使用冻结 smoothstep 和 world-space macro 打散人工等高线。
+
+道路必须读取真实道路 mask；river-bed、wet-bank 和 gravel 必须读取真实水系/岸距/河床字段。禁止用只覆盖中心 2048 的静态低分辨率 texture 代替完整 6144 世界查询。
+
+`getProbe(x,z)` 返回的 layer weights、roughness、AO 和 dominant layer 必须来自渲染实际使用的同一数据/公式。不得为 probe 复制一套只服务验收、与 shader 输出不同的 CPU 近似。
 
 ### 16.3 纹理采样
 
 要求：
 
+- 第 4.3 节九个必需 sampler 在 Balanced 的 active WebGL program 中存在且未被编译器优化掉；
 - base color 设置正确 sRGB color space；
 - data texture 保持 linear/no color space；
+- ORM 严格使用 R=AO、G=roughness，不能让 B channel 把地形变成金属；
 - normal map 方向与 Three.js 约定一致；
+- forest base/normal/ORM 使用相同 world-XZ anti-tiling 变换；
+- rock base/normal 使用相同 world-space triplanar 尺度和权重；
 - 所有重复纹理启用合适 wrap；
 - mipmap 和 anisotropy 按 renderer 能力与画质档设置；
 - 不把 AO、roughness 或 mask 当颜色读取；
 - KTX2 在 loader 完成配置后才请求；
 - 同一路径只加载一次，多个材质共享纹理；
-- Quality 使用 2k 时，Performance 应优先 1k 或非必要纹理降级；
+- Balanced/Quality 使用 2k 时，Performance 使用对应 1k 纹理；
 - shader 中的纹理数量不得无视设备限制无限增长。
 
-陡坡岩石优先使用三平面映射或斜率感知投影。若选择普通 UV，必须避免山壁出现成倍拉伸。三平面权重应连续，normal 混合不能造成接缝发黑。
+必须使用第 0.5.1 节的冻结世界周期。相机移动不能改变纹理投影；chunk 原点、LOD 或浮点精度不能造成 UV 接缝。三平面权重应连续，normal 混合不能造成接缝发黑或 NaN。
+
+只满足以下任一情况均判定贴图“未使用”：
+
+- 只被 loader 下载但没有绑定到 active material；
+- 只存在于 JavaScript 配置、测试常量或未执行分支；
+- uniform 被绑定但 shader 编译后未采样；
+- normal/ORM 被另一张全局 dry-grass normal 或固定 roughness 完全覆盖；
+- 画质档只修改 URL 字符串但实际 GPU texture 对象不变。
 
 ### 16.4 材质可读性
 
 从 `spawn`、`forest` 和 `vista` 机位应能读出至少四类不同地表；从 `river` 与 `lake` 应能读出湿岸和河床。不同层不是简单换颜色，roughness、normal 细节和宏观尺度也应有可见差别。
+
+固定 ROI 要求：
+
+- `spawn`：近景以冷湿绿色 forest-floor 为主，2 米级细节可读，无黄褐全局底色；
+- `forest`：forest-floor base/normal/ORM、anti-tiling 和树冠阴影同时可读；
+- `river`：dry ground → gravel → wet-bank → river-bed 连续过渡，湿岸高光强于周围干地；
+- `lake`：浅岸、湿岸和湖床材质与水体透明度共同可读；
+- `vista`：rock/snow 分层稳定，远景不因材质 LOD 整片跳色。
+
+同一地面 patch 从两个相机方位观察时，dominant layer、层覆盖面积和纹理世界朝向必须保持稳定。
 
 禁止：
 
 - 用顶点色随机噪声冒充分层 PBR；
 - 用环境光全白抹平材质；
 - 在 shader 中写死固定相机坐标；
+- 使用视空间 `vNormal` 决定坡度、雪、forest/rock 权重或 triplanar 权重；
+- 给所有地层共享一张 dry-grass normal；
+- 让 dry-grass/moss/splat 把四个近地固定 ROI 改成黄褐、干旱主题；
 - 用屏幕空间颜色覆盖掩盖地形 UV 问题；
 - 以大量重复 geometry decal 替代基本地形材质。
 
@@ -1473,7 +1639,7 @@ LOD 应使用提供的 LOD0/1/2，或证明 billboard/密度衰减方案质量�
 | 抗锯齿 | FXAA | SMAA | SMAA |
 | GTAO | 关闭 | 半分辨率 6 samples | 全分辨率 12 samples |
 | 空气透视 | 关闭或简化雾 | 开启 | 开启 |
-| 纹理档 | 1k | 2k | 2k/可用 hero 高档 |
+| 纹理档 | 1k | 2k | 2k |
 
 切档要求：
 
@@ -1688,7 +1854,29 @@ loading overlay 至少区分：
 16. metrics 使用原始 RAF delta，100ms 慢帧不能被报告成 50ms；
 17. preset 的嵌套数组和对象也不可被意外修改。
 
-### 23.6 测试质量禁令
+### 23.6 地表材质
+
+Node 纯函数/adapter 测试至少包括：
+
+1. forest/rock 基础权重有限、位于 `[0,1]` 且和约为 1；
+2. 同一世界点在不同 camera/view matrix 下得到相同 layer weights、dominant layer、roughness 和 AO；
+3. 平缓低地以 forest-floor 为主，陡坡以 rock 为主；
+4. 第 0.5.1 节五个 snow 固定验证点全部通过；
+5. road、river-bed、wet-bank、gravel mask 分别只改变对应覆盖层，mask 外不污染；
+6. gravel → wet-bank → water-bed → snowmelt 的覆盖顺序不可交换；
+7. forest base 为 sRGB；forest normal、ORM 和所有 mask 为 NoColorSpace；
+8. 合成 ORM 像素证明 R 只影响 AO、G 只影响 roughness，metalness 始终为 0；
+9. 改变 forest normal 的测试输入会改变最终 normal；改变 ORM.R/G 会分别改变 AO/roughness，证明不是 unused load；
+10. rock base 与 rock normal 使用相同 world-space triplanar 权重；
+11. 不存在所有层共享 dry-grass normal 的 fallback；
+12. forest、rock、snow、bank、bed、gravel 的冻结 world size 均生效；
+13. Performance 与 Balanced 切换后实际 binding 从 1k 变为 2k；
+14. 相邻 chunk 和相邻材质 LOD 的同点权重一致，颜色/roughness 差值处于第 0.5.1 节容差；
+15. 所有混合 normal 都归一化且无 NaN/Infinity。
+
+需要 renderer 的项目由第 28 节外部 harness 验证：九个 sampler 在 active program 中存在、绑定到正确 texture/colorSpace，且实际改变 shader 输出。Node 测试不得只搜索 shader 字符串或断言 URL 常量存在。
+
+### 23.7 测试质量禁令
 
 不得：
 
@@ -1811,7 +1999,39 @@ metrics 使用最近 10 秒原始 RAF frame duration，未满 10 秒时使用 re
     resolutionScale
   },
   renderer: { drawCalls, triangles, geometries, textures, programs },
-  terrain: { worldSize, loadedChunks, lodHistogram, nearVertexSpacing, triangles },
+  terrain: {
+    worldSize,
+    loadedChunks,
+    lodHistogram,
+    nearVertexSpacing,
+    triangles,
+    material: {
+      projectionSpace: 'world',
+      materialLods: ['medium'],
+      worldSizes: {
+        forestFloor: 2,
+        rock: 32.258,
+        snow: 27,
+        riverBank: 3.8,
+        riverBedLongitudinal: 12,
+        riverBedTransverse: 3.6,
+        gravel: 5.5
+      },
+      boundTextures: {
+        forestBase: '/assets/...',
+        forestNormal: '/assets/...',
+        forestOrm: '/assets/...',
+        rockBase: '/assets/...',
+        rockNormal: '/assets/...',
+        snow: '/assets/...',
+        riverBed: '/assets/...',
+        wetBank: '/assets/...',
+        gravel: '/assets/...'
+      },
+      activeSamplers: [],
+      ormChannels: { ao: 'r', roughness: 'g', metalness: 0 }
+    }
+  },
   vegetation: {
     grassDistance,
     treeDistance,
@@ -1826,6 +2046,35 @@ metrics 使用最近 10 秒原始 RAF frame duration，未满 10 秒时使用 re
   textures: { terrainTier, loadedCount }
 }
 ```
+
+`materialLods` 返回当前可见地形真实使用的材质档集合；示例中的 `['medium']` 表示 Balanced 可以让所有几何 LOD 保持 Medium 等价材质，不要求模型机械创建三个 shader。`activeSamplers` 和 `boundTextures` 必须从 active material/program 与当前 texture 对象派生，不能复制资源清单。
+
+`getProbe(x,z)` 至少返回以下地面材质真值：
+
+```js
+{
+  worldNormal: { x, y, z },
+  macro: { x, y, z, w },
+  groundMask,
+  material: {
+    weights: {
+      forestFloor,
+      rock,
+      snow,
+      trail, // mountain road/trail
+      gravel,
+      wetBank,
+      riverBed
+    },
+    dominantLayer,
+    roughness,
+    ao,
+    metalness: 0
+  }
+}
+```
+
+这些结果必须来自渲染所用的相同 layer-weight 真源；若 CPU 与 GLSL 分别实现，必须通过固定 probe 交叉测试证明误差在第 0.5.1 节容差内。
 
 ### 24.1 固定机位要求
 
@@ -2100,6 +2349,10 @@ README 至少说明：
 - 没有可控制玩家或第三人称相机：总分最高 45；
 - 水系只有矩形 plane、没有完整上下游连接：总分最高 55；
 - 水体与真实地形高差明显失配、出现大面积悬浮：产品门槛失败；
+- forest base/normal/ORM 或 rock base/normal 任一未进入 active terrain shader：产品门槛失败；
+- 使用视空间法线决定地层、所有层共用 dry-grass normal，或 dry-grass/moss 令近地 shot 变为黄褐干旱主题：产品门槛失败；
+- wet-bank、river-bed、snow、rock 仅加载但没有可观察输出：对应产品材质项记 0，若影响四个近地 shot 则产品门槛失败；
+- Balanced 仍绑定 forest-floor 1k，或 texture tier 只有配置字符串没有真实 binding 变化：对应画质与材质项记 0；
 - 六个 shot 任一个只显示占位几何、错误主题或严重断裂：产品门槛失败；
 - 画质字段存在但无运行时消费者：对应画质项记 0；
 - 运行时依赖外网：总分最高 50；
@@ -2158,6 +2411,7 @@ golden capture 使用 CSS 1280×720、设备缩放 1。清空站点缓存后首�
 - shader compile 信息；
 - `getState()`、`getSceneSummary()` 和冻结锚点的 `getProbe()`；
 - 使用固定 URL、seed、time 和 production build 重新生成六个 shot 截图，不直接信任提交的截图；
+- 从 production 截图额外保存 evaluator-only 材质 ROI：`spawn-ground`、`forest-ground`、`river-bank-bed`、`lake-shore-bed`、`vista-rock-snow`；
 - 以同一参数打开六个 `check-*`，记录外围/低地诊断截图；这些图由 evaluator 保存，不要求候选提交 artifact；
 - Balanced 预热后 10 秒 metrics；
 - 三档画质 metrics 差异；
@@ -2171,6 +2425,8 @@ golden capture 使用 CSS 1280×720、设备缩放 1。清空站点缓存后首�
 2. 湖、瀑布、河、森林、远景主体是否占据与 golden 相近的画面区域和尺度；
 3. 是否保留冷湿高山色调、生态密度和规定的可见层次；
 4. 是否出现第 0.1、0.5 或 11 节的拒绝项。
+
+材质 ROI 逐项对比 golden 的主色调、层覆盖面积、细节世界尺度、normal 响应和 roughness 高光；特别检查 forest-floor 是否绿色湿润、rock/snow 分层是否稳定，以及 river 的 dry ground → gravel → wet-bank → bed 是否连续。ROI 感知差异和盲评共同使用，不以单一逐像素阈值决定通过。
 
 不得只用整图像素差决定视觉通过，因为 GPU、抗锯齿和透明排序会产生合理差异；也不得只凭“同属高山主题”判定通过。自动图像指标用于发现构图、主体面积、色调和空场景的明显偏差，最终由至少两名隐藏模型名称的评测者盲评。若只有一名评测者，使用同一显示器、随机顺序至少复看两轮。
 
@@ -2187,6 +2443,11 @@ golden capture 使用 CSS 1280×720、设备缩放 1。清空站点缓存后首�
 5. 连续两次打开相同 capture URL，确认状态、相机、simulation time 和 placement 可重复；
 6. 检查 `setShot()` resolve 时该 ROI 已 settled，而不是随后仍大批加载或跳变；
 7. 检查所有 preset 字段都有 live consumer；未接线字段按第 27.7 节处理。
+8. 从 live terrain material 与 compiled WebGL program 核对九个必需 sampler、实际 texture 对象、URL、colorSpace、ORM channel 和 world-size uniform；不只信任 summary；
+9. 在同一 patch 固定世界坐标、改变 camera yaw/pitch，确认 `getProbe()` 权重和画面 dominant layer 不变；
+10. 在 Performance/Balanced 间切换，确认 forest 三件套的实际 GPU texture 从 1k/对应对象变为 2k/对应对象；
+11. 结合 active sampler、shader source、`getProbe()` 与材质 ROI，确认 forest normal/ORM 和 rock normal 分别真实影响 normal、AO、roughness，而不是被优化掉或被固定值覆盖；
+12. 检查相邻 chunk 与 LOD 边界没有材质颜色、roughness、normal 或 UV 跳变。
 
 实现者自写的测试通过、`loaded: true`、preset 常量递增或提交的 `acceptance.json` 都只是证据来源，不能替代上述独立检查。
 
@@ -2294,11 +2555,25 @@ golden capture 使用 CSS 1280×720、设备缩放 1。清空站点缓存后首�
 - [ ] 步道连接出生区与高山景点；
 - [ ] 低地道路存在且自然。
 
+### 地面材质
+
+- [ ] 冻结九个 sampler 均为 active shader input，不是只加载不用；
+- [ ] forest base/normal/ORM 使用同一 world-XZ anti-tiling 和正确 1k/2k 档；
+- [ ] rock base/normal 使用相同 world-space triplanar 投影；
+- [ ] ORM 使用 R=AO、G=roughness，地形 metalness 始终为 0；
+- [ ] layer selection、snow slope 和 triplanar 权重只使用世界空间 normal；
+- [ ] 不同 layer 没有共用一张全局 dry-grass normal；
+- [ ] forest `2`、rock `32.258`、snow `27`、bank `3.8`、bed `12/3.6`、gravel `5.5` 世界尺度生效；
+- [ ] 基础层只有 forest-floor ↔ rock，dry-grass/moss/splat 未改变冻结主地面；
+- [ ] snow、trail、gravel、wet-bank、water-bed、snowmelt 以冻结顺序覆盖；
+- [ ] `spawn`、`forest`、`lake`、`river` 地面保持冷湿绿色，不呈黄褐干旱主题；
+- [ ] wet-bank roughness 低于周围干地，river-bed、gravel、snow 的 normal/roughness 差异可读；
+- [ ] 相机旋转、chunk 边界和材质 LOD 切换不会改变 dominant layer 或产生色跳。
+
 ### 视觉与性能
 
 - [ ] Balanced 相机、曝光、天空、雾、太阳和半球光使用第 0.4 节冻结基线；
 - [ ] 天空、云、暖阳、冷阴影和空气透视成立，无巨大半透明天体；
-- [ ] 岩石、森林地表、雪、碎石、河床和湿岸的实际材质输入均参与输出；
 - [ ] 阴影稳定且叶片不是方块；
 - [ ] 后处理克制；
 - [ ] 三档画质真实改变成本；
