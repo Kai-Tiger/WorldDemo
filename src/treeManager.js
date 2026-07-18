@@ -10,7 +10,7 @@ import { PLAYER_SPAWN_POSITION } from './spawn.js';
 
 const GENERATION_BATCH_SIZE = 64;
 const DEFAULT_UPDATE_BUDGET_MS = 1;
-const DEFAULT_TREE_DISTANCE = 380;
+const DEFAULT_TREE_DISTANCE = 760;
 
 export class TreeManager {
   constructor(terrain, treeModels, leafTextures, farTreeField = null) {

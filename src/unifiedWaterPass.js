@@ -219,6 +219,27 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     return anchoredStrand * mix(0.12, 1.0, movingBreakup);
   }
 
+  float getWaterCoverage(float riverBlend) {
+    float shoreAa = max(fwidth(vShoreDistanceMeters), 0.015);
+    float lakeCoverage = smoothstep(0.0, shoreAa, vShoreDistanceMeters);
+    float macroBank = waterNoise(
+      vWorldPositionXZ * 0.12 + vec2(17.3, -6.4)
+    );
+    float detailBank = waterNoise2(
+      vWorldPositionXZ * 0.38 + vec2(-8.1, 13.7)
+    );
+    float bankNoise = macroBank * 0.72 + detailBank * 0.28;
+    float edgeInset = mix(0.08, 0.22, bankNoise);
+    float edgeFade = clamp(abs(vFlowUv.y) * 0.12, 0.18, 0.50);
+    float riverCoverage = smoothstep(
+      edgeInset - shoreAa,
+      edgeInset + edgeFade + shoreAa,
+      vShoreDistanceMeters
+    );
+
+    return mix(lakeCoverage, riverCoverage, riverBlend);
+  }
+
   vec2 encodeOctahedron(vec3 normalValue) {
     normalValue /= abs(normalValue.x) + abs(normalValue.y) + abs(normalValue.z);
     vec2 encoded = normalValue.xz;
@@ -231,11 +252,10 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   }
 
   void main() {
-    float shoreAa = max(fwidth(vShoreDistanceMeters), 0.015);
-    float coverage = smoothstep(0.0, shoreAa, vShoreDistanceMeters);
+    float riverBlend = smoothstep(0.02, 0.72, vRiverInfluence);
+    float coverage = getWaterCoverage(riverBlend);
     if (coverage < (1.0 / 255.0)) discard;
 
-    float riverBlend = smoothstep(0.02, 0.72, vRiverInfluence);
     float riverTravel = uTime * mix(
       0.42,
       1.0,

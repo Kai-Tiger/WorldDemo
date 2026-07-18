@@ -97,37 +97,46 @@ test('quality presets keep the center at 256 and use preset values for rings', (
   assert.equal(terrain.buildBudgetMs, 5);
 });
 
-test('initial readiness waits for the spawn chunk while the full map keeps loading', async () => {
+test('initial readiness waits until every terrain chunk is loaded', async () => {
   const terrain = createTerrain();
   const animationFrames = [];
+  const initialBuildBudgets = [];
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 
   globalThis.requestAnimationFrame = (callback) => {
     animationFrames.push(callback);
     return animationFrames.length;
   };
-  terrain.processChunkBuilds = () => completeNextScheduledChunk(terrain);
+  terrain.processChunkBuilds = (buildBudgetMs) => {
+    initialBuildBudgets.push(buildBudgetMs);
+    completeNextScheduledChunk(terrain);
+  };
 
   try {
     const ready = terrain.prepareInitialChunk({ x: 335, z: -358 });
 
     assert.equal(terrain.loadedChunks.size, 0);
     assert.equal(terrain.pendingChunks.size, 576);
+    assert.equal(terrain.pendingChunks.get('13,10').segments, 256);
+    assert.equal(terrain.pendingChunks.get('0,0').segments, 32);
+    assert.equal(terrain.pendingChunks.get('13,10').skirtSampleStep, 1);
+    assert.equal(terrain.pendingChunks.get('0,0').skirtSampleStep, 8);
     assert.equal(animationFrames.length, 1);
 
     animationFrames.shift()();
-    await ready;
 
     assert.equal(terrain.loadedChunks.has('13,10'), true);
     assert.equal(terrain.loadedChunks.size, 1);
     assert.equal(terrain.pendingChunks.size, 575);
 
-    while (terrain.pendingChunks.size > 0) {
-      terrain.update();
+    while (animationFrames.length > 0) {
+      animationFrames.shift()();
     }
+    await ready;
 
     assert.equal(terrain.loadedChunks.size, 576);
     assert.equal(terrain.pendingChunks.size, 0);
+    assert.ok(initialBuildBudgets.every((budgetMs) => budgetMs === 12));
     assert.deepEqual([terrain.centerChunkX, terrain.centerChunkZ], [13, 10]);
     assert.equal(
       terrain.getAllChunkKeys().every((key) => terrain.loadedChunks.has(key)),

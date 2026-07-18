@@ -228,6 +228,11 @@ test('hero river banks keep wet gravel readable and dry gravel muted over natura
       'terrainBaseColor = mix(terrainBaseColor, terrainBedColor',
     );
 
+    assert.match(source, /float terrainRiverBankBreakup = clamp\(/);
+    assert.match(
+      source,
+      /mix\(0\.03, 0\.18, terrainRiverBankBreakup\)/,
+    );
     assert.match(source, /float terrainRiverMask = terrainRiverMaterialMask;/);
     assert.match(
       source,
@@ -236,9 +241,14 @@ test('hero river banks keep wet gravel readable and dry gravel muted over natura
     assert.doesNotMatch(source, /smoothstep\(0\.05, 0\.95, vTerrainRiverBedMask\)/);
     assert.doesNotMatch(source, /terrainRiverSlopeMask/);
     assert.match(source, /float terrainRiverGravelMacro = mix\(/);
+    assert.match(source, /float terrainRiverGravelBreakup = clamp\(/);
     assert.match(
       source,
-      /clamp\(vTerrainRiverGravelMask, 0\.0, 1\.0\)\s*\* terrainRiverGravelMacro/,
+      /mix\(0\.02, 0\.14, terrainRiverGravelBreakup\)/,
+    );
+    assert.match(
+      source,
+      /clamp\(vTerrainRiverGravelMask, 0\.0, 1\.0\)[\s\S]*\* terrainRiverGravelMacro/,
     );
     assert.match(source, /vec3 terrainMutedGravelColor = mix\(/);
     assert.match(source, /terrainRawGravelColor,\s*0\.52/);

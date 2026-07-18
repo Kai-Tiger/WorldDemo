@@ -517,7 +517,16 @@ float terrainSnowCoverage = smoothstep(
   terrainSnowElevation * terrainSnowSlope
     + (vTerrainMacro.z - 0.5) * 0.22
 );
-float terrainRiverMaterialMask = clamp(vTerrainRiverMask, 0.0, 1.0);
+float terrainRiverBankBreakup = clamp(
+  vTerrainMacro.z * 0.72 + vTerrainMacro.x * 0.28,
+  0.0,
+  1.0
+);
+float terrainRiverMaterialMask = smoothstep(
+  mix(0.03, 0.18, terrainRiverBankBreakup),
+  0.90,
+  clamp(vTerrainRiverMask, 0.0, 1.0)
+);
 float terrainRiverMask = terrainRiverMaterialMask;
 float terrainRiverBedMask = clamp(vTerrainRiverBedMask, 0.0, 1.0);
 float terrainRiverGravelMacro = mix(
@@ -525,7 +534,16 @@ float terrainRiverGravelMacro = mix(
   1.0,
   smoothstep(0.18, 0.82, vTerrainMacro.y)
 );
-float terrainRiverGravelMask = clamp(vTerrainRiverGravelMask, 0.0, 1.0)
+float terrainRiverGravelBreakup = clamp(
+  vTerrainMacro.y * 0.42 + vTerrainMacro.z * 0.58,
+  0.0,
+  1.0
+);
+float terrainRiverGravelMask = smoothstep(
+  mix(0.02, 0.14, terrainRiverGravelBreakup),
+  0.88,
+  clamp(vTerrainRiverGravelMask, 0.0, 1.0)
+)
   * terrainRiverGravelMacro;
 float terrainLakeBedMask = smoothstep(0.04, 0.92, vTerrainWaterSystemMask.x);
 float terrainWetShoreMask = smoothstep(0.05, 0.95, vTerrainWaterSystemMask.y);

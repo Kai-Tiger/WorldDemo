@@ -23,6 +23,7 @@ import {
   TREE_SWAY_BOUNDS_PADDING,
 } from '../src/vegetationConfig.js';
 import { isInSmallLakeExclusion, SMALL_LAKES } from '../src/smallLakes.js';
+import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 
 function createPlacement() {
   return {
@@ -109,6 +110,13 @@ test('tree quality preset applies generation budget and visibility distance', ()
     minZ: 0,
     maxZ: 64,
   }), 26);
+});
+
+test('quality presets keep model trees visible well beyond the old LOD range', () => {
+  assert.deepEqual(
+    Object.values(RENDER_QUALITY_PRESETS).map((preset) => preset.vegetation.treeDistance),
+    [420, 760, 1040],
+  );
 });
 
 test('tree mesh roles animate only authored branches and leaves', () => {

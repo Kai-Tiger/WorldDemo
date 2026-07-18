@@ -109,14 +109,24 @@ test('water attribute material writes the documented MRT contract', () => {
   assert.match(material.vertexShader, /vFlowUv = flowUv;/);
   assert.doesNotMatch(material.vertexShader, /vFlowUv = flowUv \+/);
   assert.doesNotMatch(material.vertexShader, /mouthInfluence/);
+  const coverageSource = material.fragmentShader.match(
+    /float getWaterCoverage\(float riverBlend\) \{[\s\S]*?\n  \}/,
+  )?.[0];
+
+  assert.ok(coverageSource);
   assert.match(
-    material.fragmentShader,
+    coverageSource,
     /float shoreAa = max\(fwidth\(vShoreDistanceMeters\), 0\.015\);/,
   );
+  assert.match(coverageSource, /waterNoise\(\s*vWorldPositionXZ \* 0\.12/);
+  assert.match(coverageSource, /waterNoise2\(\s*vWorldPositionXZ \* 0\.38/);
+  assert.match(coverageSource, /float edgeInset = mix\(0\.08, 0\.22, bankNoise\);/);
   assert.match(
-    material.fragmentShader,
-    /float coverage = smoothstep\(0\.0, shoreAa, vShoreDistanceMeters\);/,
+    coverageSource,
+    /float edgeFade = clamp\(abs\(vFlowUv\.y\) \* 0\.12, 0\.18, 0\.50\);/,
   );
+  assert.match(coverageSource, /return mix\(lakeCoverage, riverCoverage, riverBlend\);/);
+  assert.doesNotMatch(coverageSource, /uTime/);
   assert.deepEqual(
     Object.keys(material.defaultAttributeValues).filter((name) => ![
       'color',

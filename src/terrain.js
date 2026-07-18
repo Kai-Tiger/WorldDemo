@@ -42,6 +42,7 @@ const SHADOW_PROXY_SEGMENTS = 64;
 export const TERRAIN_SHADOW_PROXY_LAYER = 2;
 const DEFAULT_LOD_SEGMENTS = [256, 128, 64, 32];
 const DEFAULT_CHUNK_BUILD_BUDGET_MS = 3;
+const INITIAL_CHUNK_BUILD_BUDGET_MS = 12;
 const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
 const CHUNK_BUILD_SKIRT_BATCH_SIZE = 64;
@@ -139,13 +140,16 @@ export class Terrain {
 
     this.centerChunkX = centerChunkX;
     this.centerChunkZ = centerChunkZ;
-    this.scheduleChunks(this.getAllChunkKeys());
+    this.scheduleInitialChunks(this.getAllChunkKeys(), centerKey);
 
     await new Promise((resolve) => {
       const advance = () => {
-        this.processChunkBuilds();
+        this.processChunkBuilds(Math.max(
+          this.buildBudgetMs,
+          INITIAL_CHUNK_BUILD_BUDGET_MS,
+        ));
 
-        if (this.loadedChunks.has(centerKey)) {
+        if (this.pendingChunks.size === 0) {
           resolve();
           return;
         }
@@ -271,6 +275,21 @@ export class Terrain {
     }
   }
 
+  scheduleInitialChunks(keys, centerKey) {
+    const distantSegments = this.lodSegments.at(-1);
+
+    for (const key of keys) {
+      const { x, z } = this.parseChunkKey(key);
+      const isCenter = key === centerKey;
+      const segments = isCenter
+        ? this.getDesiredChunkSegments(x, z)
+        : distantSegments;
+      const priority = this.getChunkBuildPriority(x, z, segments);
+
+      this.requestChunkBuild(x, z, segments, priority, false, isCenter);
+    }
+  }
+
   scheduleLoadedChunkLods() {
     for (const record of this.loadedChunks.values()) {
       const segments = this.getDesiredChunkSegments(record.chunkX, record.chunkZ);
@@ -326,13 +345,22 @@ export class Terrain {
       : PRIORITY_NEAR_UPGRADE + distance;
   }
 
-  requestChunkBuild(chunkX, chunkZ, segments, priority = 0, force = false) {
+  requestChunkBuild(
+    chunkX,
+    chunkZ,
+    segments,
+    priority = 0,
+    force = false,
+    enforceMinimum = true,
+  ) {
     const key = this.getChunkKey(chunkX, chunkZ);
 
     if (this.editStrokeActive && this.dirtyEditedChunks.has(key)) return;
 
     const revision = this.getChunkRevision(key);
-    const normalizedSegments = this.applyMinimumChunkSegments(chunkX, chunkZ, segments);
+    const normalizedSegments = enforceMinimum
+      ? this.applyMinimumChunkSegments(chunkX, chunkZ, segments)
+      : normalizeChunkSegments(segments);
     const loaded = this.loadedChunks.get(key);
 
     if (
@@ -363,10 +391,18 @@ export class Terrain {
       normalizedSegments,
       revision,
       priority,
+      enforceMinimum,
     ));
   }
 
-  createChunkBuildTask(chunkX, chunkZ, segments, revision, priority) {
+  createChunkBuildTask(
+    chunkX,
+    chunkZ,
+    segments,
+    revision,
+    priority,
+    fullResolutionSkirt = true,
+  ) {
     return {
       key: this.getChunkKey(chunkX, chunkZ),
       chunkX,
@@ -385,12 +421,13 @@ export class Terrain {
       minX: -HALF_MAP_SIZE + chunkX * CHUNK_SIZE,
       minZ: -HALF_MAP_SIZE + chunkZ * CHUNK_SIZE,
       vertexStep: CHUNK_SIZE / segments,
+      skirtSampleStep: fullResolutionSkirt ? 1 : CHUNK_SIZE / segments,
       verticesPerSide: segments + 1,
     };
   }
 
-  processChunkBuilds() {
-    const deadline = this.now() + this.buildBudgetMs;
+  processChunkBuilds(buildBudgetMs = this.buildBudgetMs) {
+    const deadline = this.now() + buildBudgetMs;
     let didWork = false;
 
     while (this.pendingChunks.size > 0 && (!didWork || this.now() < deadline)) {
@@ -494,7 +531,7 @@ export class Terrain {
     }
 
     if (task.phase === 'skirt') {
-      const samplesPerEdge = CHUNK_SIZE + 1;
+      const samplesPerEdge = CHUNK_SIZE / task.skirtSampleStep + 1;
       const sampleCount = samplesPerEdge * 4;
       let processed = 0;
 
@@ -506,11 +543,11 @@ export class Terrain {
         const edge = Math.floor(task.skirtSampleIndex / samplesPerEdge);
         const edgeOffset = task.skirtSampleIndex % samplesPerEdge;
         const worldX = edge < 2
-          ? task.minX + edgeOffset
+          ? task.minX + edgeOffset * task.skirtSampleStep
           : task.minX + (edge === 3 ? CHUNK_SIZE : 0);
         const worldZ = edge < 2
           ? task.minZ + (edge === 1 ? CHUNK_SIZE : 0)
-          : task.minZ + edgeOffset;
+          : task.minZ + edgeOffset * task.skirtSampleStep;
         const height = this.getCachedSurfaceHeight(worldX, worldZ, task.surfaceHeightCache);
 
         task.edgeMinimums[edge] = Math.min(task.edgeMinimums[edge], height);
