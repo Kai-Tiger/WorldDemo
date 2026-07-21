@@ -75,7 +75,7 @@ export const GRASS_COMMUNITY_SECONDARY_RATIO = 0.20;
 // --- 风动 (Wind sway) ---
 
 /** 草尖近身最大摆幅（米）  |  Maximum close-range grass-tip displacement (m) */
-export const GRASS_SWAY_STRENGTH = 0.06;
+export const GRASS_SWAY_STRENGTH = 0.09;
 
 /** 玩家附近完整摆动半径（米）  |  Full-sway radius around the player (m) */
 export const GRASS_SWAY_PLAYER_RADIUS = 8;
@@ -160,7 +160,7 @@ export const TREE_SHADOW_LIFT_INTENSITY = 0.04;
 // --- 风动 (Wind sway) ---
 
 /** 树冠最大摆幅占模型高度的比例  |  Maximum canopy sway as a fraction of model height */
-export const TREE_SWAY_STRENGTH = 0.006;
+export const TREE_SWAY_STRENGTH = 0.009;
 
 /** 树冠主、次摆动频率  |  Primary and secondary canopy sway frequencies */
 export const TREE_SWAY_PRIMARY_FREQUENCY = 0.28;
