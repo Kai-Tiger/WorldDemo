@@ -45,15 +45,41 @@ test('outer cells use low plains with unique 50-100 meter rolling hill groups', 
   assert.equal(new Set(groupSignatures).size, EXPANDED_TERRAIN_CELLS.length);
 });
 
-test('the outermost terrain uses separated 200-300 meter high hill groups', () => {
+test('the outermost terrain uses pointed summits over a continuous mountain ridge', () => {
   const highHillSamples = EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
     getExpandedTerrainBaseHeight(200, hill.cx, hill.cz)
   ));
+  const summitDrops = EXPANDED_OUTER_HIGH_HILLS.map((hill, index) => {
+    const shoulderDistance = hill.radiusX * 0.06;
+    const shoulderX = hill.cx + Math.cos(hill.rotation) * shoulderDistance;
+    const shoulderZ = hill.cz + Math.sin(hill.rotation) * shoulderDistance;
+
+    return highHillSamples[index]
+      - getExpandedTerrainBaseHeight(200, shoulderX, shoulderZ);
+  });
   const centerDistances = EXPANDED_OUTER_HIGH_HILLS.flatMap((hill, index) => (
     EXPANDED_OUTER_HIGH_HILLS.slice(index + 1).map((other) => (
       Math.hypot(other.cx - hill.cx, other.cz - hill.cz)
     ))
   ));
+  const worldHalfSize = EXPANDED_TERRAIN_SIZE / 2;
+  const perimeterCrests = Array.from({ length: 48 }, (_, index) => {
+    const angle = index / 48 * Math.PI * 2;
+    const directionX = Math.cos(angle);
+    const directionZ = Math.sin(angle);
+    const maximumRadius = worldHalfSize
+      / Math.max(Math.abs(directionX), Math.abs(directionZ));
+    let crest = Number.NEGATIVE_INFINITY;
+
+    for (let radius = 2100; radius <= maximumRadius; radius += 25) {
+      crest = Math.max(
+        crest,
+        getExpandedTerrainBaseHeight(200, directionX * radius, directionZ * radius),
+      );
+    }
+
+    return crest;
+  });
   const protectedWaterSamples = EXPANDED_RIVER_NETWORKS.flatMap((network) => (
     network.reaches.flatMap((reach) => reach.samples.map((sample) => {
       const x = sample.point.x;
@@ -97,6 +123,8 @@ test('the outermost terrain uses separated 200-300 meter high hill groups', () =
     (hill) => hill.elevation >= 200 && hill.elevation <= 300,
   ));
   assert.ok(highHillSamples.every((height) => height >= 200 && height <= 305));
+  assert.ok(summitDrops.every((drop) => drop > 5));
+  assert.ok(perimeterCrests.every((height) => height >= 135));
   assert.ok(Math.min(...centerDistances) > 950);
   assert.equal(new Set(EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
     [hill.radiusX, hill.radiusZ, hill.elevation, hill.rotation, hill.lobes].join(':')

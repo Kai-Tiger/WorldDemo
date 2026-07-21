@@ -189,6 +189,8 @@ export function getExpandedTerrainBaseHeight(centerHeight, x, z) {
     outerHeight += sampleRollingHill(hill, x, z);
   }
 
+  outerHeight = applyOuterMountainRidge(outerHeight, x, z);
+
   for (const hill of OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []) {
     outerHeight = Math.max(outerHeight, sampleOuterHighHillElevation(hill, x, z));
   }
@@ -493,12 +495,73 @@ function sampleRollingHill(hill, x, z) {
   return hill.height * sampleHillMask(hill, x, z);
 }
 
+function applyOuterMountainRidge(height, x, z) {
+  const superellipseRadius = getOuterMountainRidgeRadius(x, z);
+
+  if (superellipseRadius <= 2025 || superellipseRadius >= 3135) return height;
+
+  const angle = Math.atan2(z, x);
+  const ridgeMask = getOuterMountainRidgeMaskAt(superellipseRadius, angle);
+  const primaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 6 + 0.4)), 2);
+  const secondaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 13 - 0.9)), 3);
+  const crestHeight = 160 + primaryPeak * 55 + secondaryPeak * 30;
+
+  return height + Math.max(crestHeight - height, 0) * ridgeMask;
+}
+
+function getOuterMountainRidgeMask(x, z) {
+  const superellipseRadius = getOuterMountainRidgeRadius(x, z);
+
+  if (superellipseRadius <= 2025 || superellipseRadius >= 3135) return 0;
+
+  return getOuterMountainRidgeMaskAt(superellipseRadius, Math.atan2(z, x));
+}
+
+function getOuterMountainRidgeRadius(x, z) {
+  const xSquared = x * x;
+  const zSquared = z * z;
+  const xFourth = xSquared * xSquared;
+  const zFourth = zSquared * zSquared;
+
+  return Math.pow(xFourth * xFourth + zFourth * zFourth, 1 / 8);
+}
+
+function getOuterMountainRidgeMaskAt(superellipseRadius, angle) {
+  const crestRadius = 2580
+    + Math.sin(angle * 3 + 0.35) * 60
+    + Math.sin(angle * 7 - 1.1) * 35;
+
+  return Math.pow(
+    Math.max(1 - Math.abs(superellipseRadius - crestRadius) / 460, 0),
+    1.55,
+  );
+}
+
 function sampleOuterHighHillElevation(hill, x, z) {
   return THREE.MathUtils.lerp(
     OUTER_BASE_HEIGHT,
     hill.elevation,
-    sampleHillMask(hill, x, z),
+    sampleOuterHighHillMask(hill, x, z),
   );
+}
+
+function sampleOuterHighHillMask(hill, x, z) {
+  const dx = x - hill.cx;
+  const dz = z - hill.cz;
+  const cosine = Math.cos(hill.rotation);
+  const sine = Math.sin(hill.rotation);
+  const localX = (dx * cosine + dz * sine) / hill.radiusX;
+  const localZ = (-dx * sine + dz * cosine) / hill.radiusZ;
+  const angle = Math.atan2(localZ, localX);
+  const outlineVariation = Math.sin(angle * hill.lobes + hill.phase) * hill.shapeAmp
+    + Math.sin(angle * (hill.lobes + 3) - hill.phase * 0.7) * hill.shapeAmp * 0.45;
+  const baseRadius = Math.hypot(localX, localZ);
+  const outlineFade = smoothstep(0.18, 0.5, baseRadius);
+  const radius = baseRadius * (1 + outlineVariation * outlineFade);
+
+  if (radius >= 1) return 0;
+
+  return Math.pow(1 - radius, hill.profilePower);
 }
 
 function sampleHillMask(hill, x, z) {
@@ -579,8 +642,8 @@ function getOuterHighHillMask(x, z) {
   const cellIndex = getOuterCellIndex(x, z);
 
   return (OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []).reduce(
-    (mask, hill) => Math.max(mask, sampleHillMask(hill, x, z)),
-    0,
+    (mask, hill) => Math.max(mask, sampleOuterHighHillMask(hill, x, z)),
+    getOuterMountainRidgeMask(x, z),
   );
 }
 
