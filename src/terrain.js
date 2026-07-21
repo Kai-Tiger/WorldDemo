@@ -54,7 +54,8 @@ const PRIORITY_NEW_VISIBLE = 20;
 const PRIORITY_NEAR_UPGRADE = 40;
 const PRIORITY_EDITOR_REBUILD = 5;
 const PRIORITY_DOWNGRADE = 100;
-const MAX_HEIGHT = 300;
+const HEIGHT_MAP_MAX_HEIGHT = 300;
+const TERRAIN_MAX_HEIGHT = 450;
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const HALF_HEIGHT_MAP_WORLD_SIZE = HEIGHT_MAP_WORLD_SIZE / 2;
 const CHUNKS_PER_SIDE = MAP_SIZE / CHUNK_SIZE;
@@ -740,7 +741,7 @@ export class Terrain {
       width: this.width,
       height: this.height,
       worldSize: HEIGHT_MAP_WORLD_SIZE,
-      maxHeight: MAX_HEIGHT,
+      maxHeight: HEIGHT_MAP_MAX_HEIGHT,
     };
   }
 
@@ -759,7 +760,7 @@ export class Terrain {
     const maxX = Math.min(Math.ceil(centerX + pixelRadius), this.width - 1);
     const minY = Math.max(Math.floor(centerY - pixelRadius), 0);
     const maxY = Math.min(Math.ceil(centerY + pixelRadius), this.height - 1);
-    const delta = (strength / MAX_HEIGHT) * 255;
+    const delta = (strength / HEIGHT_MAP_MAX_HEIGHT) * 255;
 
     for (let y = minY; y <= maxY; y += 1) {
       for (let x = minX; x <= maxX; x += 1) {
@@ -1118,7 +1119,7 @@ export class Terrain {
     return THREE.MathUtils.clamp(
       getExpandedTerrainBaseHeight(height, x, z),
       0,
-      MAX_HEIGHT,
+      TERRAIN_MAX_HEIGHT,
     );
   }
 
@@ -1211,7 +1212,7 @@ export class Terrain {
     const index = (y * this.width + x) * 4;
     const luminance = this.getPixelLuminance(index) / 255;
 
-    return luminance * MAX_HEIGHT;
+    return luminance * HEIGHT_MAP_MAX_HEIGHT;
   }
 
   getPreciseWaterPixelMask(x, y) {
@@ -1499,10 +1500,14 @@ function getEdgeSurfaceVertexIndex(edge, index, segments, verticesPerSide) {
 }
 
 function createChunkBoundingSphere(minX, minZ, includeSkirt) {
-  const verticalRadius = MAX_HEIGHT / 2 + (includeSkirt ? 32 : 24);
+  const verticalRadius = TERRAIN_MAX_HEIGHT / 2 + (includeSkirt ? 32 : 24);
 
   return new THREE.Sphere(
-    new THREE.Vector3(minX + CHUNK_SIZE / 2, MAX_HEIGHT / 2, minZ + CHUNK_SIZE / 2),
+    new THREE.Vector3(
+      minX + CHUNK_SIZE / 2,
+      TERRAIN_MAX_HEIGHT / 2,
+      minZ + CHUNK_SIZE / 2,
+    ),
     Math.hypot(CHUNK_SIZE / 2, CHUNK_SIZE / 2, verticalRadius),
   );
 }
@@ -1556,8 +1561,8 @@ function createTerrainShadowProxy(terrain) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.boundingSphere = new THREE.Sphere(
-    new THREE.Vector3(0, MAX_HEIGHT / 2, 0),
-    Math.hypot(HALF_MAP_SIZE, HALF_MAP_SIZE, MAX_HEIGHT / 2),
+    new THREE.Vector3(0, TERRAIN_MAX_HEIGHT / 2, 0),
+    Math.hypot(HALF_MAP_SIZE, HALF_MAP_SIZE, TERRAIN_MAX_HEIGHT / 2),
   );
   const material = new THREE.MeshBasicMaterial({
     colorWrite: false,

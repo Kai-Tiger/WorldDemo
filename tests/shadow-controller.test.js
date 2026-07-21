@@ -6,7 +6,7 @@ import {
   getQualityCascadeDistances,
   usesBuiltInLighting,
 } from '../src/shadowController.js';
-import { RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
+import { getShadowCameraFit, RENDER_QUALITY_PRESETS } from '../src/renderQuality.js';
 
 function createFixture() {
   const scene = new THREE.Scene();
@@ -27,16 +27,25 @@ function createFixture() {
     shadowProxyLayer: 3,
   });
 
-  return { camera, controller, scene, sunLight };
+  return { camera, controller, lightDirection, scene, sunLight };
 }
 
 test('single-cascade presets keep the original sun and their 1024/2048 budgets', () => {
-  const { controller, scene, sunLight } = createFixture();
+  const { controller, lightDirection, scene, sunLight } = createFixture();
 
   controller.applyQualityPreset(RENDER_QUALITY_PRESETS.performance.shadows);
+  const expectedFit = getShadowCameraFit(
+    RENDER_QUALITY_PRESETS.performance.shadows,
+    lightDirection,
+    -40,
+    450,
+    0.5,
+  );
+
   assert.equal(sunLight.visible, true);
   assert.equal(sunLight.shadow.mapSize.width, 1024);
   assert.equal(sunLight.shadow.mapSize.height, 1024);
+  assert.equal(sunLight.shadow.camera.far, expectedFit.halfDepth * 2 + 16);
   assert.equal(controller.getCascadeLights().length, 0);
 
   controller.applyQualityPreset(RENDER_QUALITY_PRESETS.balanced.shadows);

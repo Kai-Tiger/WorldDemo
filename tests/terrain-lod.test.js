@@ -80,6 +80,29 @@ test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () =>
   assert.ok(proxyLake < lakeBase - 20);
 });
 
+test('runtime terrain preserves outer peaks above the heightmap encoding ceiling', () => {
+  const terrain = createTerrain();
+
+  assert.equal(terrain.getHeightMapData().maxHeight, 300);
+  assert.ok(terrain.getBaseHeightAt(650, -2500) > 440);
+
+  terrain.requestChunkBuild(14, 2, 128, 0);
+  terrain.processChunkBuilds(Number.POSITIVE_INFINITY);
+
+  const geometry = terrain.loadedChunks.get('14,2').surface.geometry;
+  const positions = geometry.getAttribute('position');
+  const point = new THREE.Vector3();
+  let maximumVertexHeight = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < positions.count; index += 1) {
+    point.fromBufferAttribute(positions, index);
+    maximumVertexHeight = Math.max(maximumVertexHeight, point.y);
+    assert.ok(geometry.boundingSphere.containsPoint(point));
+  }
+
+  assert.ok(maximumVertexHeight > 440);
+});
+
 test('quality presets keep the center at 256 and use preset values for rings', () => {
   const terrain = createTerrain();
 

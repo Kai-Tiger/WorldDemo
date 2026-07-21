@@ -57,6 +57,20 @@ test('the outermost terrain uses pointed summits over a continuous mountain ridg
     return highHillSamples[index]
       - getExpandedTerrainBaseHeight(200, shoulderX, shoulderZ);
   });
+  const landmarkRelief = EXPANDED_OUTER_HIGH_HILLS.map((hill, index) => {
+    const cosine = Math.cos(hill.rotation);
+    const sine = Math.sin(hill.rotation);
+    const ridgeSamples = [
+      [cosine * hill.radiusX * 1.4, sine * hill.radiusX * 1.4],
+      [-cosine * hill.radiusX * 1.4, -sine * hill.radiusX * 1.4],
+      [-sine * hill.radiusZ * 1.4, cosine * hill.radiusZ * 1.4],
+      [sine * hill.radiusZ * 1.4, -cosine * hill.radiusZ * 1.4],
+    ].map(([offsetX, offsetZ]) => (
+      getExpandedTerrainBaseHeight(200, hill.cx + offsetX, hill.cz + offsetZ)
+    ));
+
+    return highHillSamples[index] - Math.max(...ridgeSamples);
+  });
   const centerDistances = EXPANDED_OUTER_HIGH_HILLS.flatMap((hill, index) => (
     EXPANDED_OUTER_HIGH_HILLS.slice(index + 1).map((other) => (
       Math.hypot(other.cx - hill.cx, other.cz - hill.cz)
@@ -120,11 +134,12 @@ test('the outermost terrain uses pointed summits over a continuous mountain ridg
 
   assert.equal(EXPANDED_OUTER_HIGH_HILLS.length, 12);
   assert.ok(EXPANDED_OUTER_HIGH_HILLS.every(
-    (hill) => hill.elevation >= 200 && hill.elevation <= 300,
+    (hill) => hill.elevation >= 337.5 && hill.elevation <= 450,
   ));
-  assert.ok(highHillSamples.every((height) => height >= 200 && height <= 305));
+  assert.ok(highHillSamples.every((height) => height >= 337.5 && height <= 455));
   assert.ok(summitDrops.every((drop) => drop > 5));
-  assert.ok(perimeterCrests.every((height) => height >= 135));
+  assert.ok(landmarkRelief.every((relief) => relief > 75));
+  assert.ok(perimeterCrests.every((height) => height >= 230));
   assert.ok(Math.min(...centerDistances) > 950);
   assert.equal(new Set(EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
     [hill.radiusX, hill.radiusZ, hill.elevation, hill.rotation, hill.lobes].join(':')

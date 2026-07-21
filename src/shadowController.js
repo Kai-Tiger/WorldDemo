@@ -3,7 +3,7 @@ import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { getShadowCameraFit } from './renderQuality.js';
 
 const SHADOW_WORLD_MIN_Y = -40;
-const SHADOW_WORLD_MAX_Y = 340;
+const SHADOW_WORLD_MAX_Y = 450;
 const SHADOW_BOUNDS_MARGIN = 0.5;
 const SHADOW_DEPTH_MARGIN = 8;
 const QUALITY_NEAR_CASCADE_DISTANCE = 90;

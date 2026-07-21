@@ -20,6 +20,7 @@ const CENTER_BLEND_WIDTH = 384;
 const WORLD_EDGE_BLEND_WIDTH = 256;
 const OUTER_BASE_HEIGHT = 14;
 const OUTER_EDGE_HEIGHT = 12;
+const OUTER_MOUNTAIN_HEIGHT_SCALE = 1.5;
 const WATER_FEATURE_SEGMENTS = 128;
 const OUTER_HEADWATER_COORDINATE = CENTER_HALF_SIZE + 32;
 
@@ -498,13 +499,15 @@ function sampleRollingHill(hill, x, z) {
 function applyOuterMountainRidge(height, x, z) {
   const superellipseRadius = getOuterMountainRidgeRadius(x, z);
 
-  if (superellipseRadius <= 2025 || superellipseRadius >= 3135) return height;
+  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) return height;
 
   const angle = Math.atan2(z, x);
   const ridgeMask = getOuterMountainRidgeMaskAt(superellipseRadius, angle);
   const primaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 6 + 0.4)), 2);
   const secondaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 13 - 0.9)), 3);
-  const crestHeight = 160 + primaryPeak * 55 + secondaryPeak * 30;
+  const crestHeight = 160 * OUTER_MOUNTAIN_HEIGHT_SCALE
+    + primaryPeak * 40
+    + secondaryPeak * 20;
 
   return height + Math.max(crestHeight - height, 0) * ridgeMask;
 }
@@ -512,7 +515,7 @@ function applyOuterMountainRidge(height, x, z) {
 function getOuterMountainRidgeMask(x, z) {
   const superellipseRadius = getOuterMountainRidgeRadius(x, z);
 
-  if (superellipseRadius <= 2025 || superellipseRadius >= 3135) return 0;
+  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) return 0;
 
   return getOuterMountainRidgeMaskAt(superellipseRadius, Math.atan2(z, x));
 }
@@ -532,7 +535,7 @@ function getOuterMountainRidgeMaskAt(superellipseRadius, angle) {
     + Math.sin(angle * 7 - 1.1) * 35;
 
   return Math.pow(
-    Math.max(1 - Math.abs(superellipseRadius - crestRadius) / 460, 0),
+    Math.max(1 - Math.abs(superellipseRadius - crestRadius) / 420, 0),
     1.55,
   );
 }
@@ -629,7 +632,7 @@ function createOuterHighHillGroup(cellId, definitions) {
     cz,
     radiusX,
     radiusZ,
-    elevation,
+    elevation: elevation * OUTER_MOUNTAIN_HEIGHT_SCALE,
     rotation,
     shapeAmp,
     lobes,
