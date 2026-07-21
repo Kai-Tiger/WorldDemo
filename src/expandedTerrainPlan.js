@@ -21,6 +21,9 @@ const WORLD_EDGE_BLEND_WIDTH = 256;
 const OUTER_BASE_HEIGHT = 14;
 const OUTER_EDGE_HEIGHT = 12;
 const OUTER_MOUNTAIN_HEIGHT_SCALE = 1.5;
+const OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT = 20;
+const OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH = 0.27;
+const OUTER_MOUNTAIN_RIDGE_SHOULDER_SCALE = 0.56;
 const WATER_FEATURE_SEGMENTS = 128;
 const OUTER_HEADWATER_COORDINATE = CENTER_HALF_SIZE + 32;
 
@@ -109,6 +112,13 @@ const OUTER_HIGH_HILL_GROUPS = [
   ]),
 ];
 const OUTER_HIGH_HILLS = OUTER_HIGH_HILL_GROUPS.flat();
+const OUTER_MOUNTAIN_RIDGE_ANCHORS = Object.freeze(OUTER_HIGH_HILLS.map((hill) => (
+  Object.freeze({
+    angle: Math.atan2(hill.cz, hill.cx),
+    radius: getOuterMountainRidgeRadius(hill.cx, hill.cz),
+    shoulderHeight: hill.elevation * OUTER_MOUNTAIN_RIDGE_SHOULDER_SCALE,
+  })
+)));
 const OUTER_HIGH_HILLS_BY_CELL = CELL_PLANS.map((cell) => Object.freeze(
   OUTER_HIGH_HILLS.filter((hill) => highHillOverlapsCell(hill, cell)),
 ));
@@ -191,9 +201,13 @@ export function getExpandedTerrainBaseHeight(centerHeight, x, z) {
   }
 
   outerHeight = applyOuterMountainRidge(outerHeight, x, z);
+  const ridgeFoundation = outerHeight;
 
   for (const hill of OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []) {
-    outerHeight = Math.max(outerHeight, sampleOuterHighHillElevation(hill, x, z));
+    outerHeight = Math.max(
+      outerHeight,
+      sampleOuterHighHillElevation(hill, ridgeFoundation, x, z),
+    );
   }
 
   outerHeight = THREE.MathUtils.lerp(OUTER_EDGE_HEIGHT, outerHeight, edgeBlend);
@@ -497,27 +511,88 @@ function sampleRollingHill(hill, x, z) {
 }
 
 function applyOuterMountainRidge(height, x, z) {
-  const superellipseRadius = getOuterMountainRidgeRadius(x, z);
-
-  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) return height;
-
-  const angle = Math.atan2(z, x);
-  const ridgeMask = getOuterMountainRidgeMaskAt(superellipseRadius, angle);
-  const primaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 6 + 0.4)), 2);
-  const secondaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 13 - 0.9)), 3);
-  const crestHeight = 160 * OUTER_MOUNTAIN_HEIGHT_SCALE
-    + primaryPeak * 40
-    + secondaryPeak * 20;
-
-  return height + Math.max(crestHeight - height, 0) * ridgeMask;
+  return sampleOuterMountainRidge(height, x, z, false);
 }
 
-function getOuterMountainRidgeMask(x, z) {
+function getOuterMountainProtectionMask(x, z) {
+  return sampleOuterMountainRidge(0, x, z, true);
+}
+
+function sampleOuterMountainRidge(height, x, z, protectionOnly) {
   const superellipseRadius = getOuterMountainRidgeRadius(x, z);
 
-  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) return 0;
+  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) {
+    return protectionOnly ? 0 : height;
+  }
 
-  return getOuterMountainRidgeMaskAt(superellipseRadius, Math.atan2(z, x));
+  const angle = Math.atan2(z, x);
+  const primaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 6 + 0.4)), 2);
+  const secondaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 13 - 0.9)), 3);
+  let crestHeight = OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT
+    + primaryPeak * (125 + secondaryPeak * 40);
+  let crestRadius = 2580
+    + Math.sin(angle * 3 + 0.35) * 60
+    + Math.sin(angle * 7 - 1.1) * 35;
+  let weightedAnchorRadius = 0;
+  let totalAnchorWeight = 0;
+  let strongestAnchorInfluence = 0;
+
+  for (const anchor of OUTER_MOUNTAIN_RIDGE_ANCHORS) {
+    let angularDistance = Math.abs(angle - anchor.angle);
+
+    if (angularDistance > Math.PI) angularDistance = Math.PI * 2 - angularDistance;
+    if (angularDistance >= OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH) continue;
+
+    const influence = 1 - smoothstep(
+      0,
+      OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH,
+      angularDistance,
+    );
+    const weight = influence * influence;
+
+    crestHeight = Math.max(
+      crestHeight,
+      THREE.MathUtils.lerp(
+        OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT,
+        anchor.shoulderHeight,
+        influence,
+      ),
+    );
+    weightedAnchorRadius += anchor.radius * weight;
+    totalAnchorWeight += weight;
+    strongestAnchorInfluence = Math.max(strongestAnchorInfluence, influence);
+  }
+
+  if (totalAnchorWeight > 0) {
+    const radiusAnchorBlend = 1 - (1 - strongestAnchorInfluence) ** 2;
+
+    crestRadius = THREE.MathUtils.lerp(
+      crestRadius,
+      weightedAnchorRadius / totalAnchorWeight,
+      radiusAnchorBlend,
+    );
+  }
+
+  const ridgeMask = getOuterMountainRidgeMaskAt(
+    superellipseRadius,
+    crestRadius,
+  );
+
+  if (protectionOnly) {
+    const localRidgeHeight = THREE.MathUtils.lerp(
+      OUTER_BASE_HEIGHT,
+      crestHeight,
+      ridgeMask,
+    );
+
+    return ridgeMask * smoothstep(
+      OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT,
+      50,
+      localRidgeHeight,
+    );
+  }
+
+  return height + Math.max(crestHeight - height, 0) * ridgeMask;
 }
 
 function getOuterMountainRidgeRadius(x, z) {
@@ -529,23 +604,16 @@ function getOuterMountainRidgeRadius(x, z) {
   return Math.pow(xFourth * xFourth + zFourth * zFourth, 1 / 8);
 }
 
-function getOuterMountainRidgeMaskAt(superellipseRadius, angle) {
-  const crestRadius = 2580
-    + Math.sin(angle * 3 + 0.35) * 60
-    + Math.sin(angle * 7 - 1.1) * 35;
-
+function getOuterMountainRidgeMaskAt(superellipseRadius, crestRadius) {
   return Math.pow(
     Math.max(1 - Math.abs(superellipseRadius - crestRadius) / 420, 0),
     1.55,
   );
 }
 
-function sampleOuterHighHillElevation(hill, x, z) {
-  return THREE.MathUtils.lerp(
-    OUTER_BASE_HEIGHT,
-    hill.elevation,
-    sampleOuterHighHillMask(hill, x, z),
-  );
+function sampleOuterHighHillElevation(hill, foundationHeight, x, z) {
+  return foundationHeight + Math.max(hill.elevation - foundationHeight, 0)
+    * sampleOuterHighHillMask(hill, x, z);
 }
 
 function sampleOuterHighHillMask(hill, x, z) {
@@ -646,7 +714,7 @@ function getOuterHighHillMask(x, z) {
 
   return (OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []).reduce(
     (mask, hill) => Math.max(mask, sampleOuterHighHillMask(hill, x, z)),
-    getOuterMountainRidgeMask(x, z),
+    getOuterMountainProtectionMask(x, z),
   );
 }
 
