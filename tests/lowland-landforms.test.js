@@ -88,6 +88,33 @@ test('lowland definitions cover the east, north, and south watersheds with froze
   assert.ok(LOWLAND_HILLS.some((hill) => hill.radiusZ > hill.radiusX * 1.4));
 });
 
+test('the two northern lakes use dense rugged shorelines with many bays and headlands', () => {
+  const ruggedLakes = LOWLAND_LAKES.filter(({ id }) => (
+    id === 'northwest-shallow-lake' || id === 'northeast-shallow-lake'
+  ));
+
+  assert.equal(ruggedLakes.length, 2);
+
+  for (const lake of ruggedLakes) {
+    const radii = Array.from({ length: 720 }, (_, segment) => (
+      getLakeBoundaryRadius(lake, segment / 720 * Math.PI * 2)
+    ));
+    let radialTurns = 0;
+
+    for (let segment = 0; segment < radii.length; segment += 1) {
+      const previous = radii[(segment - 1 + radii.length) % radii.length];
+      const current = radii[segment];
+      const next = radii[(segment + 1) % radii.length];
+
+      if ((current - previous) * (next - current) < 0) radialTurns += 1;
+    }
+
+    assert.equal(lake.shapeKind, 'rugged');
+    assert.equal(lake.angularSegments, 144);
+    assert.ok(radialTurns >= 20, `${lake.id} only has ${radialTurns} shoreline turns`);
+  }
+});
+
 test('singular lowland stream definition remains directly compilable as the east basin', () => {
   const compiled = compileRiverNetwork(LOWLAND_STREAM_DEFINITION);
 

@@ -166,7 +166,8 @@ export function getLowlandStreamLakeFade(x, z) {
 }
 
 export function createLowlandLakeGeometry(lake, terrain) {
-  const vertexCount = 1 + LAKE_RADIAL_RINGS * LAKE_ANGLE_SEGMENTS;
+  const angleSegments = lake.angularSegments ?? LAKE_ANGLE_SEGMENTS;
+  const vertexCount = 1 + LAKE_RADIAL_RINGS * angleSegments;
   const positions = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
   const lakeDepths = new Float32Array(vertexCount);
@@ -191,8 +192,8 @@ export function createLowlandLakeGeometry(lake, terrain) {
   for (let ring = 1; ring <= LAKE_RADIAL_RINGS; ring += 1) {
     const radiusT = ring / LAKE_RADIAL_RINGS;
 
-    for (let segment = 0; segment < LAKE_ANGLE_SEGMENTS; segment += 1) {
-      const angle = segment / LAKE_ANGLE_SEGMENTS * Math.PI * 2;
+    for (let segment = 0; segment < angleSegments; segment += 1) {
+      const angle = segment / angleSegments * Math.PI * 2;
       const radialPoint = rotateLocalPoint(
         lake,
         Math.cos(angle) * lake.radiusX,
@@ -204,7 +205,7 @@ export function createLowlandLakeGeometry(lake, terrain) {
         x: lake.cx + Math.cos(worldAngle) * boundaryRadius,
         z: lake.cz + Math.sin(worldAngle) * boundaryRadius,
       };
-      const vertex = 1 + (ring - 1) * LAKE_ANGLE_SEGMENTS + segment;
+      const vertex = 1 + (ring - 1) * angleSegments + segment;
 
       writeLakeVertex(
         positions,
@@ -223,17 +224,17 @@ export function createLowlandLakeGeometry(lake, terrain) {
   }
 
   for (let ring = 0; ring < LAKE_RADIAL_RINGS; ring += 1) {
-    for (let segment = 0; segment < LAKE_ANGLE_SEGMENTS; segment += 1) {
-      const current = 1 + ring * LAKE_ANGLE_SEGMENTS + segment;
-      const next = 1 + ring * LAKE_ANGLE_SEGMENTS
-        + (segment + 1) % LAKE_ANGLE_SEGMENTS;
+    for (let segment = 0; segment < angleSegments; segment += 1) {
+      const current = 1 + ring * angleSegments + segment;
+      const next = 1 + ring * angleSegments
+        + (segment + 1) % angleSegments;
       const currentInner = ring === 0
         ? 0
-        : 1 + (ring - 1) * LAKE_ANGLE_SEGMENTS + segment;
+        : 1 + (ring - 1) * angleSegments + segment;
       const nextInner = ring === 0
         ? 0
-        : 1 + (ring - 1) * LAKE_ANGLE_SEGMENTS
-          + (segment + 1) % LAKE_ANGLE_SEGMENTS;
+        : 1 + (ring - 1) * angleSegments
+          + (segment + 1) % angleSegments;
 
       if (ring === 0) indices.push(0, next, current);
       else {

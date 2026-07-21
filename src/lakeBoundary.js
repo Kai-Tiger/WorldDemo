@@ -223,6 +223,17 @@ function getLakeShapeScale(lake, angle) {
   const amplitude = lake.shapeAmp ?? 0;
   const phase = lake.phase ?? 0;
 
+  if (lake.shapeKind === 'rugged') {
+    return 1 + amplitude * (
+      Math.sin(angle * 2 + phase) * 0.28
+      + Math.sin(angle * 3 - phase * 0.61) * 0.22
+      + Math.sin(angle * 5 + phase * 1.17) * 0.16
+      + Math.sin(angle * 11 - phase * 1.73) * 0.14
+      + Math.sin(angle * 19 + phase * 0.43) * 0.12
+      + Math.sin(angle * 29 - phase * 2.11) * 0.08
+    );
+  }
+
   return 1 + amplitude * (
     Math.sin(angle * 3 + phase) * 0.5
     + Math.sin(angle * 5 - phase * 0.7) * 0.3
