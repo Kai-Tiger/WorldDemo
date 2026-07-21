@@ -1,0 +1,412 @@
+{
+  "version": 1,
+  "algorithm": "lowpass-macro-ridged-valley-v1",
+  "sourceLowPassSigmaPixels": 22,
+  "encoding": "rg16be-normalized",
+  "decodeMeters": "12 + uint16 / 65535 * 408",
+  "width": 4000,
+  "height": 800,
+  "minHeightMeters": 12,
+  "maxHeightMeters": 420,
+  "bandDepthMeters": 1227.5708927231808,
+  "verticalAxis": "v=0 outer edge, v=1 inner edge",
+  "margins": {
+    "outerPixels": 96,
+    "outerNormalized": 0.12015018773466833,
+    "outerMeters": 147.49287321830457,
+    "innerPixels": 144,
+    "innerNormalized": 0.1802252816020025,
+    "innerMeters": 221.23930982745685,
+    "baselineHeightMeters": 12
+  },
+  "heightfields": [
+    {
+      "side": "north",
+      "runtimePath": "/assets/terrain/edge-heightfields/north.height-rg16.png",
+      "previewPath": "/assets/terrain/edge-heightfields/north.preview.png",
+      "width": 4000,
+      "height": 800,
+      "encoding": "rg16be-normalized",
+      "minHeightMeters": 12,
+      "maxHeightMeters": 420,
+      "bandDepthMeters": 1227.5708927231808,
+      "orientation": "west-to-east",
+      "source": "generated-heightmaps/alpine-glacial-range-5x1.png",
+      "sourceSha256": "48990337bceb141a29fee8030e648d7b31cef58dc7f7bc3a99739a06387ed03f",
+      "sha256": "3262af47d7d3ba62caeb953794af5f608a31ffc72a490949f5493de8eef353cc",
+      "previewSha256": "70ac0b543a95e5449b09b9448e593af367fa849c227a75dbe3a0eadef8b5b390",
+      "statistics": {
+        "minimum": {
+          "uint16": 0,
+          "normalized": 0,
+          "meters": 12
+        },
+        "maximum": {
+          "uint16": 65535,
+          "normalized": 1,
+          "meters": 420
+        },
+        "percentiles": {
+          "p00": {
+            "uint16": 0,
+            "normalized": 0,
+            "meters": 12
+          },
+          "p01": {
+            "uint16": 2,
+            "normalized": 0.000030518043793392844,
+            "meters": 12.012451361867704
+          },
+          "p05": {
+            "uint16": 278,
+            "normalized": 0.004242008087281605,
+            "meters": 13.730739299610894
+          },
+          "p10": {
+            "uint16": 1376,
+            "normalized": 0.020996414129854278,
+            "meters": 20.566536964980546
+          },
+          "p25": {
+            "uint16": 6144,
+            "normalized": 0.09375143053330282,
+            "meters": 50.25058365758755
+          },
+          "p50": {
+            "uint16": 15445,
+            "normalized": 0.23567559319447623,
+            "meters": 108.1556420233463
+          },
+          "p75": {
+            "uint16": 28362,
+            "normalized": 0.43277637903410393,
+            "meters": 188.5727626459144
+          },
+          "p90": {
+            "uint16": 40459,
+            "normalized": 0.6173647669184406,
+            "meters": 263.8848249027237
+          },
+          "p95": {
+            "uint16": 46529,
+            "normalized": 0.7099870298313878,
+            "meters": 301.67470817120625
+          },
+          "p99": {
+            "uint16": 55375,
+            "normalized": 0.8449683375295644,
+            "meters": 356.74708171206225
+          },
+          "p100": {
+            "uint16": 65535,
+            "normalized": 1,
+            "meters": 420
+          }
+        },
+        "outerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        },
+        "innerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        }
+      }
+    },
+    {
+      "side": "east",
+      "runtimePath": "/assets/terrain/edge-heightfields/east.height-rg16.png",
+      "previewPath": "/assets/terrain/edge-heightfields/east.preview.png",
+      "width": 4000,
+      "height": 800,
+      "encoding": "rg16be-normalized",
+      "minHeightMeters": 12,
+      "maxHeightMeters": 420,
+      "bandDepthMeters": 1227.5708927231808,
+      "orientation": "north-to-south",
+      "source": "generated-heightmaps/folded-sawtooth-range-5x1.png",
+      "sourceSha256": "6d56613e588462e1aa82f95f278f6dbe05c195571c8a8119030dc60ad60f72cc",
+      "sha256": "aa7d740e1a730cdf037bddea72564c17f06f421dae5363cef4eba481b9bf2706",
+      "previewSha256": "590f7d507e62c75ebcb857caa03d164c13a7a2338a3c8fbeb419dbb8dd95660e",
+      "statistics": {
+        "minimum": {
+          "uint16": 0,
+          "normalized": 0,
+          "meters": 12
+        },
+        "maximum": {
+          "uint16": 65535,
+          "normalized": 1,
+          "meters": 420
+        },
+        "percentiles": {
+          "p00": {
+            "uint16": 0,
+            "normalized": 0,
+            "meters": 12
+          },
+          "p01": {
+            "uint16": 2,
+            "normalized": 0.000030518043793392844,
+            "meters": 12.012451361867704
+          },
+          "p05": {
+            "uint16": 334,
+            "normalized": 0.005096513313496605,
+            "meters": 14.079377431906615
+          },
+          "p10": {
+            "uint16": 1913,
+            "normalized": 0.029190508888380255,
+            "meters": 23.909727626459144
+          },
+          "p25": {
+            "uint16": 7447,
+            "normalized": 0.11363393606469825,
+            "meters": 58.362645914396886
+          },
+          "p50": {
+            "uint16": 14778,
+            "normalized": 0.22549782558937972,
+            "meters": 104.00311284046693
+          },
+          "p75": {
+            "uint16": 29158,
+            "normalized": 0.44492256046387424,
+            "meters": 193.52840466926068
+          },
+          "p90": {
+            "uint16": 41993,
+            "normalized": 0.6407721065079729,
+            "meters": 273.4350194552529
+          },
+          "p95": {
+            "uint16": 48255,
+            "normalized": 0.7363241016250859,
+            "meters": 312.42023346303506
+          },
+          "p99": {
+            "uint16": 55886,
+            "normalized": 0.8527656977187762,
+            "meters": 359.9284046692607
+          },
+          "p100": {
+            "uint16": 65535,
+            "normalized": 1,
+            "meters": 420
+          }
+        },
+        "outerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        },
+        "innerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        }
+      }
+    },
+    {
+      "side": "south",
+      "runtimePath": "/assets/terrain/edge-heightfields/south.height-rg16.png",
+      "previewPath": "/assets/terrain/edge-heightfields/south.preview.png",
+      "width": 4000,
+      "height": 800,
+      "encoding": "rg16be-normalized",
+      "minHeightMeters": 12,
+      "maxHeightMeters": 420,
+      "bandDepthMeters": 1227.5708927231808,
+      "orientation": "east-to-west",
+      "source": "generated-heightmaps/river-cut-highland-5x1.png",
+      "sourceSha256": "5ce7db7c0247a988158af5ca7ae0c92c624cdbd35ee413d46cf8e2692b6d4562",
+      "sha256": "2feda22667a1dfa60b7e75a6979b9ec295ffd5fb463aa55c2e92011f71a92d19",
+      "previewSha256": "a755b1887d8b47d97730364615c37b43ed98d01cc377a51a9e4b6d46126ef276",
+      "statistics": {
+        "minimum": {
+          "uint16": 0,
+          "normalized": 0,
+          "meters": 12
+        },
+        "maximum": {
+          "uint16": 65535,
+          "normalized": 1,
+          "meters": 420
+        },
+        "percentiles": {
+          "p00": {
+            "uint16": 0,
+            "normalized": 0,
+            "meters": 12
+          },
+          "p01": {
+            "uint16": 3,
+            "normalized": 0.000045777065690089265,
+            "meters": 12.018677042801556
+          },
+          "p05": {
+            "uint16": 497,
+            "normalized": 0.0075837338826581216,
+            "meters": 15.094163424124513
+          },
+          "p10": {
+            "uint16": 2789,
+            "normalized": 0.04255741206988632,
+            "meters": 29.36342412451362
+          },
+          "p25": {
+            "uint16": 12601,
+            "normalized": 0.19227893492027162,
+            "meters": 90.44980544747082
+          },
+          "p50": {
+            "uint16": 26610,
+            "normalized": 0.4060425726710918,
+            "meters": 177.66536964980546
+          },
+          "p75": {
+            "uint16": 38475,
+            "normalized": 0.5870908674753949,
+            "meters": 251.5330739299611
+          },
+          "p90": {
+            "uint16": 46209,
+            "normalized": 0.705104142824445,
+            "meters": 299.68249027237357
+          },
+          "p95": {
+            "uint16": 50024,
+            "normalized": 0.7633173113603418,
+            "meters": 323.43346303501943
+          },
+          "p99": {
+            "uint16": 57626,
+            "normalized": 0.879316395819028,
+            "meters": 370.7610894941634
+          },
+          "p100": {
+            "uint16": 65535,
+            "normalized": 1,
+            "meters": 420
+          }
+        },
+        "outerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        },
+        "innerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        }
+      }
+    },
+    {
+      "side": "west",
+      "runtimePath": "/assets/terrain/edge-heightfields/west.height-rg16.png",
+      "previewPath": "/assets/terrain/edge-heightfields/west.preview.png",
+      "width": 4000,
+      "height": 800,
+      "encoding": "rg16be-normalized",
+      "minHeightMeters": 12,
+      "maxHeightMeters": 420,
+      "bandDepthMeters": 1227.5708927231808,
+      "orientation": "south-to-north",
+      "source": "generated-heightmaps/faulted-mixed-range-5x1.png",
+      "sourceSha256": "e814d7ab860d24871a0c3002d709726b2946b642d42f12bbfbbc05eabc04d759",
+      "sha256": "2e0bc4252bd3ba86537a2a122ca320ce8424380ccb4c26e728082fd46ff0c70f",
+      "previewSha256": "67dbdbb0e4135e766a74d1ee8614cda2453f5d0d9dd8958c50b82826cc66e13f",
+      "statistics": {
+        "minimum": {
+          "uint16": 0,
+          "normalized": 0,
+          "meters": 12
+        },
+        "maximum": {
+          "uint16": 65535,
+          "normalized": 1,
+          "meters": 420
+        },
+        "percentiles": {
+          "p00": {
+            "uint16": 0,
+            "normalized": 0,
+            "meters": 12
+          },
+          "p01": {
+            "uint16": 3,
+            "normalized": 0.000045777065690089265,
+            "meters": 12.018677042801556
+          },
+          "p05": {
+            "uint16": 427,
+            "normalized": 0.006515602349889372,
+            "meters": 14.658365758754865
+          },
+          "p10": {
+            "uint16": 1704,
+            "normalized": 0.026001373311970704,
+            "meters": 22.608560311284048
+          },
+          "p25": {
+            "uint16": 5554,
+            "normalized": 0.08474860761425193,
+            "meters": 46.57743190661479
+          },
+          "p50": {
+            "uint16": 13745,
+            "normalized": 0.20973525597009232,
+            "meters": 97.57198443579767
+          },
+          "p75": {
+            "uint16": 30451,
+            "normalized": 0.46465247577630275,
+            "meters": 201.57821011673153
+          },
+          "p90": {
+            "uint16": 45690,
+            "normalized": 0.6971847104600595,
+            "meters": 296.4513618677043
+          },
+          "p95": {
+            "uint16": 52970,
+            "normalized": 0.8082703898680095,
+            "meters": 341.7743190661479
+          },
+          "p99": {
+            "uint16": 60307,
+            "normalized": 0.9202258335240711,
+            "meters": 387.452140077821
+          },
+          "p100": {
+            "uint16": 65535,
+            "normalized": 1,
+            "meters": 420
+          }
+        },
+        "outerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        },
+        "innerEdge": {
+          "minimumUint16": 0,
+          "maximumUint16": 0,
+          "meanUint16": 0,
+          "maximumMeters": 12
+        }
+      }
+    }
+  ]
+}

@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   EXPANDED_LAKES,
-  EXPANDED_OUTER_HIGH_HILLS,
   EXPANDED_RIVER_NETWORKS,
-  EXPANDED_ROLLING_HILLS,
   EXPANDED_TERRAIN_CELLS,
   EXPANDED_TERRAIN_SIZE,
   applyExpandedWaterTerrain,
@@ -14,42 +12,12 @@ import {
   getExpandedWaterMaterialFrame,
   isInExpandedWaterVegetationExclusion,
 } from '../src/expandedTerrainPlan.js';
+import {
+  createEdgeHeightFieldSet,
+  setActiveEdgeHeightFields,
+} from '../src/edgeHeightFields.js';
 
-const TAU = Math.PI * 2;
-
-function getSuperellipseRadius(x, z) {
-  return Math.pow(Math.pow(x, 8) + Math.pow(z, 8), 1 / 8);
-}
-
-function getAngularDistance(first, second) {
-  return Math.abs(Math.atan2(
-    Math.sin(first - second),
-    Math.cos(first - second),
-  ));
-}
-
-function sampleOuterPerimeterCrest(angle) {
-  const directionX = Math.cos(angle);
-  const directionZ = Math.sin(angle);
-  const directionScale = getSuperellipseRadius(directionX, directionZ);
-  let crestHeight = Number.NEGATIVE_INFINITY;
-  let crestRadius = 0;
-
-  for (let radius = 2080; radius <= 3060; radius += 5) {
-    const worldRadius = radius / directionScale;
-    const height = getExpandedTerrainBaseHeight(
-      200,
-      directionX * worldRadius,
-      directionZ * worldRadius,
-    );
-
-    if (height <= crestHeight) continue;
-    crestHeight = height;
-    crestRadius = radius;
-  }
-
-  return { angle, height: crestHeight, radius: crestRadius };
-}
+const EDGE_SIDES = ['north', 'east', 'south', 'west'];
 
 test('the original terrain remains the center cell of a three-by-three world', () => {
   const centerHeight = 137.25;
@@ -60,180 +28,48 @@ test('the original terrain remains the center cell of a three-by-three world', (
   assert.equal(getExpandedTerrainBaseHeight(centerHeight, 1024, -1024), centerHeight);
 });
 
-test('outer cells use low plains with unique 50-100 meter rolling hill groups', () => {
-  const plainSamples = EXPANDED_TERRAIN_CELLS.map((cell) => (
-    getExpandedTerrainBaseHeight(200, cell.center[0], cell.center[1])
-  ));
-  const hillsByCell = EXPANDED_TERRAIN_CELLS.map((cell) => (
-    EXPANDED_ROLLING_HILLS.filter((hill) => hill.cellId === cell.id)
-  ));
-  const groupSignatures = hillsByCell.map((hills) => hills.map((hill) => [
-    hill.radiusX,
-    hill.radiusZ,
-    hill.height,
-    hill.rotation,
-    hill.lobes,
-    hill.profilePower,
-  ]).flat().join(':'));
+test('edge heightfields are the authoritative outer relief source', () => {
+  const edgeSample = { height: 312, influence: 1 };
+  const firstFallback = getExpandedTerrainBaseHeight(200, 0, 2500, null);
+  const secondFallback = getExpandedTerrainBaseHeight(40, 0, 2500, null);
 
-  assert.equal(EXPANDED_ROLLING_HILLS.length, 24);
-  assert.ok(plainSamples.every((height) => height >= 10 && height <= 55));
-  assert.ok(EXPANDED_ROLLING_HILLS.every((hill) => hill.height >= 50 && hill.height <= 100));
-  assert.ok(hillsByCell.every((hills) => hills.length >= 2));
-  assert.equal(new Set(groupSignatures).size, EXPANDED_TERRAIN_CELLS.length);
+  assert.equal(getExpandedTerrainBaseHeight(200, 0, 2500, edgeSample), 312);
+  assert.equal(getExpandedTerrainBaseHeight(40, 0, 2500, edgeSample), 312);
+  assert.equal(firstFallback, secondFallback);
+  assert.ok(firstFallback <= 20);
+  assert.equal(getExpandedTerrainBaseHeight(137.25, 0, 0, edgeSample), 137.25);
 });
 
-test('the outermost terrain uses pointed summits over a continuous mountain ridge', () => {
-  const highHillSamples = EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
-    getExpandedTerrainBaseHeight(200, hill.cx, hill.cz)
-  ));
-  const summitDrops = EXPANDED_OUTER_HIGH_HILLS.map((hill, index) => {
-    const shoulderDistance = hill.radiusX * 0.06;
-    const shoulderX = hill.cx + Math.cos(hill.rotation) * shoulderDistance;
-    const shoulderZ = hill.cz + Math.sin(hill.rotation) * shoulderDistance;
+test('edge-derived mountain protection suppresses high channels but keeps low passes active', () => {
+  const highFields = createConstantEdgeHeightFields(1);
+  const lowFields = createConstantEdgeHeightFields(0);
+  const x = -2780;
+  const z = 2720;
 
-    return highHillSamples[index]
-      - getExpandedTerrainBaseHeight(200, shoulderX, shoulderZ);
-  });
-  const landmarkRelief = EXPANDED_OUTER_HIGH_HILLS.map((hill, index) => {
-    const cosine = Math.cos(hill.rotation);
-    const sine = Math.sin(hill.rotation);
-    const ridgeSamples = [
-      [cosine * hill.radiusX * 1.4, sine * hill.radiusX * 1.4],
-      [-cosine * hill.radiusX * 1.4, -sine * hill.radiusX * 1.4],
-      [-sine * hill.radiusZ * 1.4, cosine * hill.radiusZ * 1.4],
-      [sine * hill.radiusZ * 1.4, -cosine * hill.radiusZ * 1.4],
-    ].map(([offsetX, offsetZ]) => (
-      getExpandedTerrainBaseHeight(200, hill.cx + offsetX, hill.cz + offsetZ)
-    ));
+  try {
+    setActiveEdgeHeightFields(highFields);
+    const highBaseHeight = 200;
+    const highFrame = getExpandedWaterMaterialFrame(x, z);
 
-    return highHillSamples[index] - Math.max(...ridgeSamples);
-  });
-  const centerDistances = EXPANDED_OUTER_HIGH_HILLS.flatMap((hill, index) => (
-    EXPANDED_OUTER_HIGH_HILLS.slice(index + 1).map((other) => (
-      Math.hypot(other.cx - hill.cx, other.cz - hill.cz)
-    ))
-  ));
-  const highHillAngles = EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
-    Math.atan2(hill.cz, hill.cx)
-  ));
-  const perimeterCrests = Array.from({ length: 180 }, (_, index) => (
-    sampleOuterPerimeterCrest(index / 180 * TAU)
-  ));
-  const nonApexCrests = perimeterCrests.filter(({ angle }) => (
-    highHillAngles.every((hillAngle) => getAngularDistance(angle, hillAngle) >= 0.08)
-  ));
-  const sortedNonApexHeights = nonApexCrests
-    .map(({ height }) => height)
-    .sort((first, second) => first - second);
-  const lowRidgeHeight = sortedNonApexHeights[Math.floor(sortedNonApexHeights.length * 0.1)];
-  const highRidgeHeight = sortedNonApexHeights[Math.floor(sortedNonApexHeights.length * 0.9)];
-  const ridgeAttachments = EXPANDED_OUTER_HIGH_HILLS.flatMap((hill) => {
-    const centerAngle = Math.atan2(hill.cz, hill.cx);
-    const tangentX = -Math.sin(centerAngle);
-    const tangentZ = Math.cos(centerAngle);
-    const cosine = Math.cos(hill.rotation);
-    const sine = Math.sin(hill.rotation);
-    const localTangentX = tangentX * cosine + tangentZ * sine;
-    const localTangentZ = -tangentX * sine + tangentZ * cosine;
-    const tangentRadius = 1 / Math.hypot(
-      localTangentX / hill.radiusX,
-      localTangentZ / hill.radiusZ,
-    );
+    assert.equal(applyExpandedWaterTerrain(highBaseHeight, x, z), highBaseHeight);
+    assert.ok(highFrame.bedMask <= 1e-6);
+    assert.ok(highFrame.wetMask <= 1e-6);
+    assert.ok(highFrame.riverWetMask <= 1e-6);
+    assert.equal(isInExpandedWaterVegetationExclusion(x, z), false);
+    assert.ok(getExpandedWaterGrassAcceptance(x, z) >= 1 - 1e-6);
 
-    return [-1, 1].map((sign) => {
-      const x = hill.cx + sign * tangentX * tangentRadius * 0.55;
-      const z = hill.cz + sign * tangentZ * tangentRadius * 0.55;
-      const height = getExpandedTerrainBaseHeight(200, x, z);
-      const crest = sampleOuterPerimeterCrest(Math.atan2(z, x));
+    setActiveEdgeHeightFields(lowFields);
+    const lowBaseHeight = 25;
+    const lowFrame = getExpandedWaterMaterialFrame(x, z);
 
-      return {
-        heightRatio: height / crest.height,
-        radialOffset: Math.abs(getSuperellipseRadius(x, z) - crest.radius),
-      };
-    });
-  });
-  const protectedWaterSamples = EXPANDED_RIVER_NETWORKS.flatMap((network) => (
-    network.reaches.flatMap((reach) => reach.samples.map((sample) => {
-      const x = sample.point.x;
-      const z = sample.point.z;
-      const baseHeight = getExpandedTerrainBaseHeight(200, x, z);
-
-      return {
-        x,
-        z,
-        baseHeight,
-        carvedHeight: applyExpandedWaterTerrain(baseHeight, x, z),
-        outerDistance: Math.max(Math.abs(x), Math.abs(z)),
-      };
-    }))
-  )).filter(({ baseHeight, outerDistance }) => (
-    baseHeight >= 140 && outerDistance > 1600
-  ));
-  const lowPassX = -2780;
-  const lowPassZ = 2720;
-  const lowPassBaseHeight = getExpandedTerrainBaseHeight(200, lowPassX, lowPassZ);
-  const lowPassCarvedHeight = applyExpandedWaterTerrain(
-    lowPassBaseHeight,
-    lowPassX,
-    lowPassZ,
-  );
-  const lowPassMaterialFrame = getExpandedWaterMaterialFrame(lowPassX, lowPassZ);
-  const seamSamples = [
-    ['x', -1024, 2620],
-    ['x', 1024, 2520],
-    ['x', -1024, -2500],
-    ['x', 1024, -2450],
-    ['z', -2600, 1024],
-    ['z', -2500, -1024],
-    ['z', 2600, 1024],
-    ['z', 2500, -1024],
-  ].map(([axis, fixed, along]) => {
-    const offset = 0.01;
-    const first = axis === 'x'
-      ? getExpandedTerrainBaseHeight(200, fixed - offset, along)
-      : getExpandedTerrainBaseHeight(200, along, fixed - offset);
-    const second = axis === 'x'
-      ? getExpandedTerrainBaseHeight(200, fixed + offset, along)
-      : getExpandedTerrainBaseHeight(200, along, fixed + offset);
-
-    return Math.abs(first - second);
-  });
-
-  assert.equal(EXPANDED_OUTER_HIGH_HILLS.length, 12);
-  assert.ok(EXPANDED_OUTER_HIGH_HILLS.every(
-    (hill) => hill.elevation >= 337.5 && hill.elevation <= 450,
-  ));
-  assert.ok(highHillSamples.every((height) => height >= 337.5 && height <= 455));
-  assert.ok(summitDrops.every((drop) => drop > 5));
-  assert.ok(landmarkRelief.every((relief) => relief > 75));
-  assert.ok(perimeterCrests.every(({ height }) => height >= 18));
-  assert.ok(Math.min(...perimeterCrests.map(({ height }) => height)) <= 35);
-  assert.ok(highRidgeHeight - lowRidgeHeight >= 100);
-  assert.ok(ridgeAttachments.every(({ heightRatio }) => heightRatio >= 0.68));
-  assert.ok(ridgeAttachments.every(({ radialOffset }) => radialOffset <= 140));
-  assert.ok(Math.min(...centerDistances) > 950);
-  assert.equal(new Set(EXPANDED_OUTER_HIGH_HILLS.map((hill) => (
-    [hill.radiusX, hill.radiusZ, hill.elevation, hill.rotation, hill.lobes].join(':')
-  ))).size, EXPANDED_OUTER_HIGH_HILLS.length);
-  assert.ok(seamSamples.every((difference) => difference < 0.2));
-  assert.ok(protectedWaterSamples.length > 100);
-  assert.ok(protectedWaterSamples.every(({ x, z, baseHeight, carvedHeight }) => {
-    const materialFrame = getExpandedWaterMaterialFrame(x, z);
-
-    return carvedHeight >= baseHeight - 1e-6
-      && materialFrame.bedMask <= 1e-6
-      && materialFrame.wetMask <= 1e-6
-      && materialFrame.riverWetMask <= 1e-6
-      && !isInExpandedWaterVegetationExclusion(x, z)
-      && getExpandedWaterGrassAcceptance(x, z) >= 1 - 1e-6;
-  }));
-  assert.ok(lowPassBaseHeight >= 18 && lowPassBaseHeight <= 30);
-  assert.ok(lowPassCarvedHeight < lowPassBaseHeight - 1);
-  assert.ok(lowPassMaterialFrame.bedMask >= 0.9);
-  assert.ok(lowPassMaterialFrame.wetMask > 0);
-  assert.ok(isInExpandedWaterVegetationExclusion(lowPassX, lowPassZ));
-  assert.ok(getExpandedWaterGrassAcceptance(lowPassX, lowPassZ) <= 1e-6);
+    assert.ok(applyExpandedWaterTerrain(lowBaseHeight, x, z) < lowBaseHeight - 1);
+    assert.ok(lowFrame.bedMask >= 0.9);
+    assert.ok(lowFrame.wetMask > 0);
+    assert.equal(isInExpandedWaterVegetationExclusion(x, z), true);
+    assert.ok(getExpandedWaterGrassAcceptance(x, z) <= 1e-6);
+  } finally {
+    setActiveEdgeHeightFields(null);
+  }
 });
 
 test('each outer cell contains one headwater network and two carved lakes', () => {
@@ -319,3 +155,18 @@ test('expanded river surfaces are fitted to terrain before terrain carving', () 
     }
   }
 });
+
+function createConstantEdgeHeightFields(value) {
+  const width = 5;
+  const height = 2;
+
+  return createEdgeHeightFieldSet(Object.fromEntries(EDGE_SIDES.map((side) => [
+    side,
+    {
+      side,
+      width,
+      height,
+      values: new Uint16Array(width * height).fill(Math.round(value * 0xffff)),
+    },
+  ])));
+}

@@ -29,6 +29,12 @@ import {
 } from './terrainHeightEncoding.js';
 import { MAP_SIZE } from './vegetationConfig.js';
 import { getExpandedTerrainBaseHeight } from './expandedTerrainPlan.js';
+import {
+  getActiveEdgeHeightFields,
+  loadEdgeHeightFields,
+  sampleEdgeHeightFields,
+  setActiveEdgeHeightFields,
+} from './edgeHeightFields.js';
 
 const HEIGHT_MAP_PATH = '/assets/terrain/height.webp';
 const ALPINE_ROCK_TEXTURE_PATH = '/assets/terrain/rock-alpine.webp';
@@ -88,6 +94,8 @@ export class Terrain {
       ? new Float32Array(width * height)
       : null;
     this.sampledHeightCache?.fill(Number.NaN);
+    this.edgeHeightFields = options.edgeHeightFields ?? getActiveEdgeHeightFields();
+    if (options.edgeHeightFields) setActiveEdgeHeightFields(options.edgeHeightFields);
     this.group = new THREE.Group();
     this.group.name = 'Terrain';
     this.materials = createTerrainMaterials(textures, {
@@ -121,9 +129,11 @@ export class Terrain {
   static async create(options = {}) {
     const [
       { data, width, height },
+      edgeHeightFields,
       textures,
     ] = await Promise.all([
       loadHeightMap(HEIGHT_MAP_PATH),
+      options.edgeHeightFields ?? loadEdgeHeightFields(),
       loadTerrainTextures(
         options.textureTier,
         options.textureAnisotropy,
@@ -131,7 +141,10 @@ export class Terrain {
       ),
     ]);
 
-    return new Terrain(data, width, height, textures, options);
+    return new Terrain(data, width, height, textures, {
+      ...options,
+      edgeHeightFields,
+    });
   }
 
   async prepareInitialChunk(centerPosition) {
@@ -753,6 +766,13 @@ export class Terrain {
   }
 
   applyHeightBrush(worldX, worldZ, radius, strength) {
+    if (
+      Math.abs(worldX) > HALF_HEIGHT_MAP_WORLD_SIZE
+      || Math.abs(worldZ) > HALF_HEIGHT_MAP_WORLD_SIZE
+    ) {
+      return null;
+    }
+
     const centerX = ((worldX + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1);
     const centerY = (1 - ((worldZ + HALF_HEIGHT_MAP_WORLD_SIZE) / HEIGHT_MAP_WORLD_SIZE)) * (this.height - 1);
     const pixelRadius = Math.max((radius / HEIGHT_MAP_WORLD_SIZE) * (this.width - 1), 1);
@@ -1117,7 +1137,12 @@ export class Terrain {
       + getHeightDither(x, z) * (1 - preciseWaterMask);
 
     return THREE.MathUtils.clamp(
-      getExpandedTerrainBaseHeight(height, x, z),
+      getExpandedTerrainBaseHeight(
+        height,
+        x,
+        z,
+        sampleEdgeHeightFields(this.edgeHeightFields, x, z),
+      ),
       0,
       TERRAIN_MAX_HEIGHT,
     );

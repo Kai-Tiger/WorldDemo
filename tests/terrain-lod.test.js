@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import {
+  EDGE_HEIGHTFIELD_MAX_HEIGHT,
+  EDGE_HEIGHTFIELD_MIN_HEIGHT,
+  createEdgeHeightFieldSet,
+} from '../src/edgeHeightFields.js';
 import { getLowlandMinimumSegmentsForBounds } from '../src/lowlandLandforms.js';
 import { Terrain } from '../src/terrain.js';
+
+const EDGE_SIDES = ['north', 'east', 'south', 'west'];
+const FLAT_EDGE_HEIGHT_FIELDS = createConstantEdgeHeightFields(0);
 
 function createTerrain(options = {}) {
   const size = 32;
@@ -25,6 +33,7 @@ function createTerrain(options = {}) {
     riverBed: texture,
     riverGravel: texture,
   }, {
+    edgeHeightFields: FLAT_EDGE_HEIGHT_FIELDS,
     minimumSegmentsForChunk: () => 0,
     ...options,
   });
@@ -80,27 +89,55 @@ test('shadow proxy keeps macro basins but ignores narrow tree-river cuts', () =>
   assert.ok(proxyLake < lakeBase - 20);
 });
 
-test('runtime terrain preserves outer peaks above the heightmap encoding ceiling', () => {
-  const terrain = createTerrain();
+test('runtime terrain uses injected edge fields for sampling and chunk vertices', () => {
+  const normalizedHeight = 0.75;
+  const edgeHeightFields = createConstantEdgeHeightFields(0, {
+    north: normalizedHeight,
+  });
+  const terrain = createTerrain({ edgeHeightFields });
+  const sampleX = 128;
+  const sampleZ = 2688;
+  const expectedHeight = EDGE_HEIGHTFIELD_MIN_HEIGHT
+    + (EDGE_HEIGHTFIELD_MAX_HEIGHT - EDGE_HEIGHTFIELD_MIN_HEIGHT) * normalizedHeight;
 
   assert.equal(terrain.getHeightMapData().maxHeight, 300);
-  assert.ok(terrain.getBaseHeightAt(650, -2500) > 440);
+  assert.ok(Math.abs(terrain.getBaseHeightAt(sampleX, sampleZ) - expectedHeight) < 0.01);
 
-  terrain.requestChunkBuild(14, 2, 128, 0);
+  terrain.requestChunkBuild(12, 22, 64, 0);
   terrain.processChunkBuilds(Number.POSITIVE_INFINITY);
 
-  const geometry = terrain.loadedChunks.get('14,2').surface.geometry;
+  const geometry = terrain.loadedChunks.get('12,22').surface.geometry;
   const positions = geometry.getAttribute('position');
   const point = new THREE.Vector3();
   let maximumVertexHeight = Number.NEGATIVE_INFINITY;
+  let sampledVertexHeight = null;
 
   for (let index = 0; index < positions.count; index += 1) {
     point.fromBufferAttribute(positions, index);
     maximumVertexHeight = Math.max(maximumVertexHeight, point.y);
     assert.ok(geometry.boundingSphere.containsPoint(point));
+
+    if (point.x === sampleX && point.z === sampleZ) {
+      sampledVertexHeight = point.y;
+    }
   }
 
-  assert.ok(maximumVertexHeight > 440);
+  assert.ok(maximumVertexHeight > 300);
+  assert.notEqual(sampledVertexHeight, null);
+  assert.ok(Math.abs(sampledVertexHeight - terrain.getHeightAt(sampleX, sampleZ)) < 1e-5);
+});
+
+test('painting imported edge terrain does not mutate the editable center heightmap', () => {
+  const terrain = createTerrain({
+    edgeHeightFields: createConstantEdgeHeightFields(0.75),
+  });
+  const beforeData = terrain.heightData.slice();
+  const beforeHeight = terrain.getBaseHeightAt(0, 2500);
+
+  terrain.applyHeightBrush(0, 2500, 12, 5);
+
+  assert.deepEqual(terrain.heightData, beforeData);
+  assert.equal(terrain.getBaseHeightAt(0, 2500), beforeHeight);
 });
 
 test('quality presets keep the center at 256 and use preset values for rings', () => {
@@ -489,3 +526,19 @@ test('a dirty edge refresh recomputes its full-resolution skirt minimum synchron
     );
   }
 });
+
+function createConstantEdgeHeightFields(defaultValue, overrides = {}) {
+  const width = 5;
+  const height = 2;
+
+  return createEdgeHeightFieldSet(Object.fromEntries(EDGE_SIDES.map((side) => {
+    const value = overrides[side] ?? defaultValue;
+
+    return [side, {
+      side,
+      width,
+      height,
+      values: new Uint16Array(width * height).fill(Math.round(value * 0xffff)),
+    }];
+  })));
+}

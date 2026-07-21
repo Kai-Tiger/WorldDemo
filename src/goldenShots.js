@@ -109,6 +109,26 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 955, z: -500, y: 110 },
     target: { x: 750, z: -680, y: 3 },
   },
+  'edge-north': {
+    player: { x: -1300, z: 2050 },
+    camera: { x: -1390, z: 1840, heightOffset: 80 },
+    target: { x: -1250, z: 2500, heightOffset: 25 },
+  },
+  'edge-east': {
+    player: { x: 2050, z: 1250 },
+    camera: { x: 1840, z: 1340, heightOffset: 80 },
+    target: { x: 2500, z: 1200, heightOffset: 25 },
+  },
+  'edge-south': {
+    player: { x: 1500, z: -2050 },
+    camera: { x: 1590, z: -1840, heightOffset: 80 },
+    target: { x: 1450, z: -2500, heightOffset: 25 },
+  },
+  'edge-west': {
+    player: { x: -2050, z: -1125 },
+    camera: { x: -1840, z: -1215, heightOffset: 80 },
+    target: { x: -2500, z: -1075, heightOffset: 25 },
+  },
   'river-reference-overhead': {
     player: { x: 590, z: -345 },
     camera: { x: 570, z: -515, y: 105 },

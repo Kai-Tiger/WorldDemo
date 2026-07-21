@@ -9,21 +9,15 @@ import {
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { getLakeBoundaryFrame } from './lakeBoundary.js';
+import { getEdgeMountainProtection } from './edgeHeightFields.js';
 
 export const ORIGINAL_TERRAIN_SIZE = 2048;
 export const EXPANDED_TERRAIN_SIZE = ORIGINAL_TERRAIN_SIZE * 3;
 export const EXPANDED_CELL_SIZE = ORIGINAL_TERRAIN_SIZE;
 
 const CENTER_HALF_SIZE = ORIGINAL_TERRAIN_SIZE / 2;
-const WORLD_HALF_SIZE = EXPANDED_TERRAIN_SIZE / 2;
 const CENTER_BLEND_WIDTH = 384;
-const WORLD_EDGE_BLEND_WIDTH = 256;
 const OUTER_BASE_HEIGHT = 14;
-const OUTER_EDGE_HEIGHT = 12;
-const OUTER_MOUNTAIN_HEIGHT_SCALE = 1.5;
-const OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT = 20;
-const OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH = 0.27;
-const OUTER_MOUNTAIN_RIDGE_SHOULDER_SCALE = 0.56;
 const WATER_FEATURE_SEGMENTS = 128;
 const OUTER_HEADWATER_COORDINATE = CENTER_HALF_SIZE + 32;
 
@@ -38,94 +32,7 @@ const CELL_PLANS = [
   createCellPlan('southeast', [2048, -2048], [1500, -2780], [2780, -1580], [2180, -2180], [1500, -1500], -0.3),
 ];
 
-const ROLLING_HILL_GROUPS = [
-  createRollingHillGroup('northwest', [
-    [-2550, 2200, 620, 360, 84, 0.42, 0.13, 5, 0.35, 1.65],
-    [-2020, 2700, 430, 300, 63, -0.28, 0.09, 4, 1.4, 2.1],
-    [-1580, 1740, 390, 300, 55, 0.16, 0.16, 7, 2.3, 1.45],
-  ]),
-  createRollingHillGroup('north', [
-    [-650, 2020, 300, 410, 58, -0.18, 0.11, 6, 0.8, 1.85],
-    [80, 2540, 820, 360, 92, 0.06, 0.08, 5, 2.1, 1.35],
-    [720, 1820, 260, 480, 69, 0.34, 0.14, 7, 3, 2.25],
-  ]),
-  createRollingHillGroup('northeast', [
-    [1590, 1900, 430, 330, 62, -0.42, 0.15, 7, 0.2, 1.55],
-    [2100, 2500, 700, 390, 78, 0.26, 0.1, 4, 1.2, 1.8],
-    [2690, 1810, 300, 560, 89, -0.12, 0.12, 6, 2.5, 1.3],
-    [2600, 2700, 300, 260, 53, 0.48, 0.17, 8, 4.1, 2.35],
-  ]),
-  createRollingHillGroup('west', [
-    [-2600, 620, 380, 340, 72, -0.08, 0.08, 4, 0.5, 1.25],
-    [-2180, -350, 520, 500, 96, 0.31, 0.14, 6, 2.7, 2.2],
-  ]),
-  createRollingHillGroup('east', [
-    [2520, 420, 470, 480, 88, -0.24, 0.12, 7, 1.1, 1.5],
-    [1840, -180, 650, 310, 57, 0.18, 0.16, 5, 3.7, 2.4],
-    [2670, -650, 300, 320, 73, 0.44, 0.09, 8, 2.2, 1.75],
-  ]),
-  createRollingHillGroup('southwest', [
-    [-2620, -1760, 440, 600, 65, 0.22, 0.15, 5, 0.9, 1.4],
-    [-2300, -2560, 720, 350, 86, -0.34, 0.1, 7, 2, 1.95],
-    [-1650, -2100, 360, 310, 52, 0.08, 0.18, 8, 3.2, 2.5],
-    [-2720, -2700, 280, 300, 76, 0.46, 0.07, 4, 4.5, 1.2],
-  ]),
-  createRollingHillGroup('south', [
-    [-650, -1760, 300, 330, 61, 0.36, 0.13, 6, 0.4, 2.15],
-    [-80, -2600, 800, 390, 79, -0.04, 0.09, 5, 1.8, 1.45],
-    [650, -1950, 280, 610, 93, -0.3, 0.15, 7, 3.5, 1.8],
-  ]),
-  createRollingHillGroup('southeast', [
-    [1760, -2540, 700, 430, 98, 0.27, 0.11, 6, 0.7, 1.3],
-    [2600, -1900, 400, 600, 67, -0.38, 0.17, 9, 2.9, 2.3],
-  ]),
-];
-const ROLLING_HILLS = ROLLING_HILL_GROUPS.flat();
-const OUTER_HIGH_HILL_GROUPS = [
-  createOuterHighHillGroup('northwest', [
-    [-2580, 2100, 450, 360, 260, 0.28, 0.14, 5, 0.4, 1.55],
-    [-1700, 2700, 420, 320, 225, -0.22, 0.1, 7, 1.7, 1.9],
-  ]),
-  createOuterHighHillGroup('north', [
-    [-600, 2620, 430, 350, 290, -0.12, 0.12, 6, 0.9, 1.45],
-    [650, 2520, 500, 330, 240, 0.18, 0.16, 8, 2.4, 1.8],
-  ]),
-  createOuterHighHillGroup('northeast', [
-    [2390, 2400, 550, 400, 278, 0.36, 0.11, 5, 3.2, 1.35],
-  ]),
-  createOuterHighHillGroup('west', [
-    [-2600, 500, 420, 520, 295, -0.18, 0.15, 7, 1.2, 1.65],
-  ]),
-  createOuterHighHillGroup('east', [
-    [2640, 650, 360, 450, 250, 0.2, 0.09, 6, 2.1, 1.3],
-    [2500, -650, 450, 340, 285, -0.34, 0.17, 9, 4.3, 1.9],
-  ]),
-  createOuterHighHillGroup('southwest', [
-    [-2500, -2300, 560, 450, 270, 0.24, 0.13, 5, 2.8, 1.4],
-  ]),
-  createOuterHighHillGroup('south', [
-    [-650, -2600, 450, 350, 235, -0.26, 0.16, 8, 0.6, 1.85],
-    [650, -2500, 400, 400, 300, 0.14, 0.1, 6, 3.5, 1.25],
-  ]),
-  createOuterHighHillGroup('southeast', [
-    [2400, -2400, 550, 430, 280, -0.3, 0.14, 7, 1.9, 1.55],
-  ]),
-];
-const OUTER_HIGH_HILLS = OUTER_HIGH_HILL_GROUPS.flat();
-const OUTER_MOUNTAIN_RIDGE_ANCHORS = Object.freeze(OUTER_HIGH_HILLS.map((hill) => (
-  Object.freeze({
-    angle: Math.atan2(hill.cz, hill.cx),
-    radius: getOuterMountainRidgeRadius(hill.cx, hill.cz),
-    shoulderHeight: hill.elevation * OUTER_MOUNTAIN_RIDGE_SHOULDER_SCALE,
-  })
-)));
-const OUTER_HIGH_HILLS_BY_CELL = CELL_PLANS.map((cell) => Object.freeze(
-  OUTER_HIGH_HILLS.filter((hill) => highHillOverlapsCell(hill, cell)),
-));
-
 export const EXPANDED_TERRAIN_CELLS = Object.freeze(CELL_PLANS);
-export const EXPANDED_ROLLING_HILLS = Object.freeze(ROLLING_HILLS);
-export const EXPANDED_OUTER_HIGH_HILLS = Object.freeze(OUTER_HIGH_HILLS);
 export const EXPANDED_LAKES = Object.freeze(CELL_PLANS.flatMap((cell) => cell.lakes));
 export const EXPANDED_RIVER_NETWORK_DEFINITIONS = Object.freeze(
   CELL_PLANS.map((cell) => cell.networkDefinition),
@@ -181,7 +88,7 @@ const WATER_FEATURE_BOUNDS_BY_NETWORK = EXPANDED_RIVER_NETWORKS.map(
 );
 const WATER_FEATURE_BOUNDS = WATER_FEATURE_BOUNDS_BY_NETWORK.flat();
 
-export function getExpandedTerrainBaseHeight(centerHeight, x, z) {
+export function getExpandedTerrainBaseHeight(centerHeight, x, z, edgeSample = null) {
   const outsideX = Math.max(Math.abs(x) - CENTER_HALF_SIZE, 0);
   const outsideZ = Math.max(Math.abs(z) - CENTER_HALF_SIZE, 0);
 
@@ -189,28 +96,14 @@ export function getExpandedTerrainBaseHeight(centerHeight, x, z) {
 
   const centerDistance = Math.hypot(outsideX, outsideZ);
   const centerBlend = smoothstep(0, CENTER_BLEND_WIDTH, centerDistance);
-  const edgeDistance = WORLD_HALF_SIZE - Math.max(Math.abs(x), Math.abs(z));
-  const edgeBlend = smoothstep(0, WORLD_EDGE_BLEND_WIDTH, edgeDistance);
-  let outerHeight = OUTER_BASE_HEIGHT
-    + Math.sin(x * 0.0041 + z * 0.0017) * 1.4
-    + Math.sin(z * 0.0033 - x * 0.0013) * 1.1;
-  const cellIndex = getOuterCellIndex(x, z);
+  const outerHeight = edgeSample
+    ? THREE.MathUtils.lerp(
+      OUTER_BASE_HEIGHT,
+      edgeSample.height,
+      edgeSample.influence,
+    )
+    : OUTER_BASE_HEIGHT;
 
-  for (const hill of ROLLING_HILL_GROUPS[cellIndex] ?? []) {
-    outerHeight += sampleRollingHill(hill, x, z);
-  }
-
-  outerHeight = applyOuterMountainRidge(outerHeight, x, z);
-  const ridgeFoundation = outerHeight;
-
-  for (const hill of OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []) {
-    outerHeight = Math.max(
-      outerHeight,
-      sampleOuterHighHillElevation(hill, ridgeFoundation, x, z),
-    );
-  }
-
-  outerHeight = THREE.MathUtils.lerp(OUTER_EDGE_HEIGHT, outerHeight, edgeBlend);
   return THREE.MathUtils.lerp(centerHeight, outerHeight, centerBlend);
 }
 
@@ -221,8 +114,7 @@ export function applyExpandedWaterTerrain(baseHeight, x, z) {
     height = applyRiverNetworkTerrain(height, x, z, network);
   }
 
-  const highHillProtection = smoothstep(0.01, 0.05, getOuterHighHillMask(x, z))
-    * smoothstep(20, 50, baseHeight);
+  const highHillProtection = getEdgeMountainProtection(x, z);
   return THREE.MathUtils.lerp(height, baseHeight, highHillProtection);
 }
 
@@ -261,7 +153,7 @@ export function getExpandedWaterMaterialFrame(x, z) {
     }
   }
 
-  const highHillWaterFade = 1 - smoothstep(0.01, 0.05, getOuterHighHillMask(x, z));
+  const highHillWaterFade = 1 - getEdgeMountainProtection(x, z);
 
   return {
     bedMask: THREE.MathUtils.clamp(bedMask * highHillWaterFade, 0, 1),
@@ -272,7 +164,7 @@ export function getExpandedWaterMaterialFrame(x, z) {
 }
 
 export function isInExpandedWaterVegetationExclusion(x, z, buffer = 0) {
-  if (getOuterHighHillMask(x, z) >= 0.01) return false;
+  if (getEdgeMountainProtection(x, z) >= 0.01) return false;
 
   return getExpandedNetworksNear(x, z, buffer).some(
     (network) => isInRiverNetworkVegetationExclusion(x, z, buffer, network),
@@ -280,7 +172,7 @@ export function isInExpandedWaterVegetationExclusion(x, z, buffer = 0) {
 }
 
 export function getExpandedWaterGrassAcceptance(x, z) {
-  if (getOuterHighHillMask(x, z) >= 0.01) return 1;
+  if (getEdgeMountainProtection(x, z) >= 0.01) return 1;
 
   return getExpandedNetworksNear(x, z, 12).reduce(
     (acceptance, network) => Math.min(
@@ -504,235 +396,6 @@ function midpoint(start, end, t, lateralOffset) {
     THREE.MathUtils.lerp(start[0], end[0], t) - dz / length * lateralOffset,
     THREE.MathUtils.lerp(start[1], end[1], t) + dx / length * lateralOffset,
   ];
-}
-
-function sampleRollingHill(hill, x, z) {
-  return hill.height * sampleHillMask(hill, x, z);
-}
-
-function applyOuterMountainRidge(height, x, z) {
-  return sampleOuterMountainRidge(height, x, z, false);
-}
-
-function getOuterMountainProtectionMask(x, z) {
-  return sampleOuterMountainRidge(0, x, z, true);
-}
-
-function sampleOuterMountainRidge(height, x, z, protectionOnly) {
-  const superellipseRadius = getOuterMountainRidgeRadius(x, z);
-
-  if (superellipseRadius <= 2065 || superellipseRadius >= 3095) {
-    return protectionOnly ? 0 : height;
-  }
-
-  const angle = Math.atan2(z, x);
-  const primaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 6 + 0.4)), 2);
-  const secondaryPeak = Math.pow(1 - Math.abs(Math.sin(angle * 13 - 0.9)), 3);
-  let crestHeight = OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT
-    + primaryPeak * (125 + secondaryPeak * 40);
-  let crestRadius = 2580
-    + Math.sin(angle * 3 + 0.35) * 60
-    + Math.sin(angle * 7 - 1.1) * 35;
-  let weightedAnchorRadius = 0;
-  let totalAnchorWeight = 0;
-  let strongestAnchorInfluence = 0;
-
-  for (const anchor of OUTER_MOUNTAIN_RIDGE_ANCHORS) {
-    let angularDistance = Math.abs(angle - anchor.angle);
-
-    if (angularDistance > Math.PI) angularDistance = Math.PI * 2 - angularDistance;
-    if (angularDistance >= OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH) continue;
-
-    const influence = 1 - smoothstep(
-      0,
-      OUTER_MOUNTAIN_RIDGE_ANCHOR_WIDTH,
-      angularDistance,
-    );
-    const weight = influence * influence;
-
-    crestHeight = Math.max(
-      crestHeight,
-      THREE.MathUtils.lerp(
-        OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT,
-        anchor.shoulderHeight,
-        influence,
-      ),
-    );
-    weightedAnchorRadius += anchor.radius * weight;
-    totalAnchorWeight += weight;
-    strongestAnchorInfluence = Math.max(strongestAnchorInfluence, influence);
-  }
-
-  if (totalAnchorWeight > 0) {
-    const radiusAnchorBlend = 1 - (1 - strongestAnchorInfluence) ** 2;
-
-    crestRadius = THREE.MathUtils.lerp(
-      crestRadius,
-      weightedAnchorRadius / totalAnchorWeight,
-      radiusAnchorBlend,
-    );
-  }
-
-  const ridgeMask = getOuterMountainRidgeMaskAt(
-    superellipseRadius,
-    crestRadius,
-  );
-
-  if (protectionOnly) {
-    const localRidgeHeight = THREE.MathUtils.lerp(
-      OUTER_BASE_HEIGHT,
-      crestHeight,
-      ridgeMask,
-    );
-
-    return ridgeMask * smoothstep(
-      OUTER_MOUNTAIN_RIDGE_MIN_HEIGHT,
-      50,
-      localRidgeHeight,
-    );
-  }
-
-  return height + Math.max(crestHeight - height, 0) * ridgeMask;
-}
-
-function getOuterMountainRidgeRadius(x, z) {
-  const xSquared = x * x;
-  const zSquared = z * z;
-  const xFourth = xSquared * xSquared;
-  const zFourth = zSquared * zSquared;
-
-  return Math.pow(xFourth * xFourth + zFourth * zFourth, 1 / 8);
-}
-
-function getOuterMountainRidgeMaskAt(superellipseRadius, crestRadius) {
-  return Math.pow(
-    Math.max(1 - Math.abs(superellipseRadius - crestRadius) / 420, 0),
-    1.55,
-  );
-}
-
-function sampleOuterHighHillElevation(hill, foundationHeight, x, z) {
-  return foundationHeight + Math.max(hill.elevation - foundationHeight, 0)
-    * sampleOuterHighHillMask(hill, x, z);
-}
-
-function sampleOuterHighHillMask(hill, x, z) {
-  const dx = x - hill.cx;
-  const dz = z - hill.cz;
-  const cosine = Math.cos(hill.rotation);
-  const sine = Math.sin(hill.rotation);
-  const localX = (dx * cosine + dz * sine) / hill.radiusX;
-  const localZ = (-dx * sine + dz * cosine) / hill.radiusZ;
-  const angle = Math.atan2(localZ, localX);
-  const outlineVariation = Math.sin(angle * hill.lobes + hill.phase) * hill.shapeAmp
-    + Math.sin(angle * (hill.lobes + 3) - hill.phase * 0.7) * hill.shapeAmp * 0.45;
-  const baseRadius = Math.hypot(localX, localZ);
-  const outlineFade = smoothstep(0.18, 0.5, baseRadius);
-  const radius = baseRadius * (1 + outlineVariation * outlineFade);
-
-  if (radius >= 1) return 0;
-
-  return Math.pow(1 - radius, hill.profilePower);
-}
-
-function sampleHillMask(hill, x, z) {
-  const dx = x - hill.cx;
-  const dz = z - hill.cz;
-  const cosine = Math.cos(hill.rotation);
-  const sine = Math.sin(hill.rotation);
-  const localX = (dx * cosine + dz * sine) / hill.radiusX;
-  const localZ = (-dx * sine + dz * cosine) / hill.radiusZ;
-  const angle = Math.atan2(localZ, localX);
-  const outlineVariation = Math.sin(angle * hill.lobes + hill.phase) * hill.shapeAmp
-    + Math.sin(angle * (hill.lobes + 3) - hill.phase * 0.7) * hill.shapeAmp * 0.45;
-  const radius = Math.hypot(localX, localZ) * (1 + outlineVariation);
-
-  if (radius >= 1) return 0;
-
-  const dome = 1 - smoothstep(0.08, 1, radius);
-  return Math.pow(dome, hill.profilePower);
-}
-
-function createRollingHillGroup(cellId, definitions) {
-  return Object.freeze(definitions.map(([
-    cx,
-    cz,
-    radiusX,
-    radiusZ,
-    height,
-    rotation,
-    shapeAmp,
-    lobes,
-    phase,
-    profilePower,
-  ], index) => Object.freeze({
-    id: `${cellId}-rolling-hill-${index + 1}`,
-    cellId,
-    cx,
-    cz,
-    radiusX,
-    radiusZ,
-    height,
-    rotation,
-    shapeAmp,
-    lobes,
-    phase,
-    profilePower,
-  })));
-}
-
-function createOuterHighHillGroup(cellId, definitions) {
-  return Object.freeze(definitions.map(([
-    cx,
-    cz,
-    radiusX,
-    radiusZ,
-    elevation,
-    rotation,
-    shapeAmp,
-    lobes,
-    phase,
-    profilePower,
-  ], index) => Object.freeze({
-    id: `${cellId}-outer-high-hill-${index + 1}`,
-    cellId,
-    cx,
-    cz,
-    radiusX,
-    radiusZ,
-    elevation: elevation * OUTER_MOUNTAIN_HEIGHT_SCALE,
-    rotation,
-    shapeAmp,
-    lobes,
-    phase,
-    profilePower,
-  })));
-}
-
-function getOuterHighHillMask(x, z) {
-  const cellIndex = getOuterCellIndex(x, z);
-
-  return (OUTER_HIGH_HILLS_BY_CELL[cellIndex] ?? []).reduce(
-    (mask, hill) => Math.max(mask, sampleOuterHighHillMask(hill, x, z)),
-    getOuterMountainProtectionMask(x, z),
-  );
-}
-
-function highHillOverlapsCell(hill, cell) {
-  const halfSize = EXPANDED_CELL_SIZE / 2;
-  const outlineScale = 1.4;
-
-  return hill.cx - hill.radiusX * outlineScale <= cell.center[0] + halfSize
-    && hill.cx + hill.radiusX * outlineScale >= cell.center[0] - halfSize
-    && hill.cz - hill.radiusZ * outlineScale <= cell.center[1] + halfSize
-    && hill.cz + hill.radiusZ * outlineScale >= cell.center[1] - halfSize;
-}
-
-function getOuterCellIndex(x, z) {
-  return CELL_PLANS.findIndex((cell) => (
-    Math.abs(x - cell.center[0]) <= EXPANDED_CELL_SIZE / 2
-    && Math.abs(z - cell.center[1]) <= EXPANDED_CELL_SIZE / 2
-  ));
 }
 
 function getExpandedNetworksNear(x, z, padding = 0) {
