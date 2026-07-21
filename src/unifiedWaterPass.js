@@ -179,22 +179,22 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
     vec2 microFlowDomain
   ) {
     float foamMass = smoothstep(
-      0.46,
-      0.82,
+      0.34,
+      0.72,
       waterNoise2(
         macroFlowDomain * vec2(0.28, 0.82) + vec2(-9.4, 17.2)
       )
     );
     float foamBreakup = smoothstep(
-      0.36,
-      0.78,
+      0.24,
+      0.66,
       waterNoise(
         middleFlowDomain * vec2(0.75, 1.80) + vec2(21.6, -3.8)
       )
     );
     float foamFleck = smoothstep(
-      0.56,
-      0.80,
+      0.46,
+      0.74,
       waterNoise2(
         microFlowDomain * vec2(1.55, 3.20) + vec2(8.7, 31.4)
       )
@@ -388,8 +388,8 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
         * smoothstep(0.70, 0.90, foamPattern);
 
       riverFoam = clamp(
-        baseFoamMask * 0.50
-          + foamCoreMask * 0.36
+        baseFoamMask * 0.68
+          + foamCoreMask * 0.18
           + wakeFoamMask * 0.28,
         0.0,
         0.86

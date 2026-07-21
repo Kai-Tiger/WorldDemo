@@ -228,6 +228,9 @@ test('unified river foam restores patterned hydraulic and sheltered wake gating'
 
   assert.match(material.vertexShader, /vDisturbanceMask = clamp\(disturbanceMask/);
   assert.match(shader, /float getFoamPattern/);
+  assert.match(shader, /float foamMass = smoothstep\(\s*0\.34,\s*0\.72,/);
+  assert.match(shader, /float foamBreakup = smoothstep\(\s*0\.24,\s*0\.66,/);
+  assert.match(shader, /float foamFleck = smoothstep\(\s*0\.46,\s*0\.74,/);
   assert.match(shader, /float getWakePattern/);
   assert.match(shader, /smoothstep\(\s*0\.45,\s*1\.15,\s*vWaterDepth\s*\)/);
   assert.match(shader, /smoothstep\(0\.65, 1\.35, vFlowSpeed\)/);
@@ -242,6 +245,8 @@ test('unified river foam restores patterned hydraulic and sheltered wake gating'
     shader,
     /float riverFoamWeight = vRiverInfluence \* vRiverInfluence/,
   );
+  assert.match(shader, /baseFoamMask \* 0\.68/);
+  assert.match(shader, /foamCoreMask \* 0\.18/);
   assert.match(shader, /riverFoam = clamp\([\s\S]*?\) \* riverFoamWeight/);
   assert.match(shader, /mix\(roughness, 0\.78, foam\)/);
   assert.doesNotMatch(shader, /max\(vDisturbanceMask, vJunctionMask/);
