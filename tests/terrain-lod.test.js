@@ -343,6 +343,9 @@ test('LOD replacement retains the old surface until an atomic swap and disposes 
   assert.equal(replacement.surface.userData.isTerrainSurface, true);
   assert.equal(replacement.skirt.userData.isTerrainSkirt, true);
   assert.equal(replacement.skirt.raycast.name, 'disableRaycast');
+  assert.equal(replacement.skirt.material.polygonOffset, true);
+  assert.ok(replacement.skirt.material.polygonOffsetFactor > 0);
+  assert.ok(replacement.skirt.material.polygonOffsetUnits > 0);
 
   const skirtPositions = replacement.skirt.geometry.getAttribute('position').array;
   const verticesPerEdge = (replacement.segments + 1) * 2;

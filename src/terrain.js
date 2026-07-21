@@ -1516,6 +1516,9 @@ function createTerrainSkirtMaterial() {
   return new THREE.MeshBasicMaterial({
     color: 0x465044,
     fog: true,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
     side: THREE.DoubleSide,
   });
 }
