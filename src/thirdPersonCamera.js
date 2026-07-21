@@ -14,7 +14,7 @@ export class ThirdPersonCamera {
     this.pitch = 0.45;
     this.distance = 6;
     this.minDistance = 3;
-    this.maxDistance = 10;
+    this.maxDistance = 18;
     this.rotateSpeed = 0.006;
     this.zoomSpeed = 0.006;
     this.lookAtOffset = new THREE.Vector3(0, 1.25, 0);
