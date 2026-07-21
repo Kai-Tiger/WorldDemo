@@ -14,6 +14,21 @@ const GOLDEN_SHOTS = Object.freeze({
     camera: { x: 450, z: -398, y: 30 },
     target: { x: 413, z: -423, y: 7 },
   },
+  'waterfall-lip': {
+    player: { x: 397, z: -405 },
+    camera: { x: 427, z: -409, y: 39 },
+    target: { x: 410, z: -421, y: 25 },
+  },
+  'waterfall-overhead': {
+    player: { x: 397, z: -405 },
+    camera: { x: 418, z: -424, y: 60 },
+    target: { x: 418, z: -424, y: 3.245 },
+  },
+  'waterfall-grazing': {
+    player: { x: 397, z: -405 },
+    camera: { x: 412, z: -387, y: 16 },
+    target: { x: 414, z: -423, y: 16 },
+  },
   forest: {
     player: { x: 356, z: -332 },
     camera: { x: 349, z: -322, heightOffset: 4.8 },

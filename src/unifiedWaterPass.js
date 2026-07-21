@@ -24,6 +24,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
   in float waterDepth;
   in float shoreDistanceMeters;
   in float shoreFoamMask;
+  in float surfaceCoverage;
   in vec2 flowUv;
   in vec2 flowDirection;
   in vec2 junctionFlowDirection;
@@ -40,6 +41,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
   out float vWaterDepth;
   out float vShoreDistanceMeters;
   out float vShoreFoamMask;
+  out float vSurfaceCoverage;
   out float vRiverInfluence;
   out float vReflectionTier;
   out vec2 vFlowUv;
@@ -62,6 +64,7 @@ const ATTRIBUTE_VERTEX_SHADER = `
     vWaterDepth = max(waterDepth, 0.0);
     vShoreDistanceMeters = max(shoreDistanceMeters, 0.0);
     vShoreFoamMask = clamp(shoreFoamMask, 0.0, 1.0);
+    vSurfaceCoverage = clamp(surfaceCoverage, 0.0, 1.0);
     vRiverInfluence = clamp(riverInfluence, 0.0, 1.0);
     vReflectionTier = clamp(reflectionTier, 0.0, 1.0);
     vFlowUv = flowUv;
@@ -98,6 +101,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   in float vWaterDepth;
   in float vShoreDistanceMeters;
   in float vShoreFoamMask;
+  in float vSurfaceCoverage;
   in float vRiverInfluence;
   in float vReflectionTier;
   in vec2 vFlowUv;
@@ -254,6 +258,7 @@ const ATTRIBUTE_FRAGMENT_SHADER = `
   void main() {
     float riverBlend = smoothstep(0.02, 0.72, vRiverInfluence);
     float coverage = getWaterCoverage(riverBlend);
+    coverage *= vSurfaceCoverage;
     if (coverage < (1.0 / 255.0)) discard;
 
     float riverTravel = uTime * mix(
@@ -853,6 +858,7 @@ export function createUnifiedWaterAttributeMaterial({
     waterDepth: [1],
     shoreDistanceMeters: [100],
     shoreFoamMask: [1],
+    surfaceCoverage: [1],
     flowUv: [0, 0],
     flowDirection: [1, 0],
     junctionFlowDirection: [1, 0],
@@ -1103,6 +1109,7 @@ export class UnifiedWaterPass extends Pass {
       renderer.render(this.scene, this.camera);
 
       this.bindResolveInputs(readBuffer);
+      this.bindEffectOpticsInputs(readBuffer);
       restoreRootVisibility(this.scene, childVisibility);
       this.scene.overrideMaterial = previousOverrideMaterial;
       renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
@@ -1149,6 +1156,51 @@ export class UnifiedWaterPass extends Pass {
     uniforms.uCameraWorldMatrix.value.copy(this.camera.matrixWorld);
     uniforms.uViewMatrix.value.copy(this.camera.matrixWorldInverse);
     uniforms.uCameraPosition.value.setFromMatrixPosition(this.camera.matrixWorld);
+  }
+
+  bindEffectOpticsInputs(readBuffer) {
+    const resolveUniforms = this.resolveMaterial.uniforms;
+    const seenMaterials = new Set();
+
+    for (const root of this.effectRoots) {
+      root.traverse?.((object) => {
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+
+        for (const material of materials) {
+          if (
+            !material?.userData.waterEffectOptics
+            || seenMaterials.has(material)
+          ) continue;
+          seenMaterials.add(material);
+
+          const uniforms = material.uniforms ?? {};
+
+          if (uniforms.tSceneColor) uniforms.tSceneColor.value = readBuffer.texture;
+          if (uniforms.tSceneDepth) uniforms.tSceneDepth.value = readBuffer.depthTexture;
+          if (uniforms.tWaterDepth) uniforms.tWaterDepth.value = this.infoTarget.depthTexture;
+          if (uniforms.uWaterEffectOpticsReady) {
+            uniforms.uWaterEffectOpticsReady.value = 1;
+          }
+          uniforms.uResolution?.value.set(this.infoTarget.width, this.infoTarget.height);
+          uniforms.uProjectionMatrixInverse?.value.copy(this.camera.projectionMatrixInverse);
+          uniforms.uCameraWorldMatrix?.value.copy(this.camera.matrixWorld);
+          uniforms.uViewMatrix?.value.copy(this.camera.matrixWorldInverse);
+          uniforms.uCameraPosition?.value.setFromMatrixPosition(this.camera.matrixWorld);
+          if (uniforms.tEnvironmentMap) {
+            uniforms.tEnvironmentMap.value = resolveUniforms.tEnvironmentMap.value;
+          }
+          if (uniforms.uHasEnvironmentMap) {
+            uniforms.uHasEnvironmentMap.value = resolveUniforms.uHasEnvironmentMap.value;
+          }
+          uniforms.uSunDirection?.value.copy(resolveUniforms.uSunDirection.value);
+          uniforms.uSunColor?.value.copy(resolveUniforms.uSunColor.value);
+          if (uniforms.uCameraNear) uniforms.uCameraNear.value = this.camera.near;
+          if (uniforms.uCameraFar) uniforms.uCameraFar.value = this.camera.far;
+        }
+      });
+    }
   }
 
   dispose() {

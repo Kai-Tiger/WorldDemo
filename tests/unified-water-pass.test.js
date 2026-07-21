@@ -105,6 +105,7 @@ test('water attribute material writes the documented MRT contract', () => {
   );
   assert.match(material.vertexShader, /in float shoreDistanceMeters;/);
   assert.match(material.vertexShader, /in float shoreFoamMask;/);
+  assert.match(material.vertexShader, /in float surfaceCoverage;/);
   assert.match(material.vertexShader, /in float riverInfluence;/);
   assert.match(material.vertexShader, /vFlowUv = flowUv;/);
   assert.doesNotMatch(material.vertexShader, /vFlowUv = flowUv \+/);
@@ -127,6 +128,7 @@ test('water attribute material writes the documented MRT contract', () => {
   );
   assert.match(coverageSource, /return mix\(lakeCoverage, riverCoverage, riverBlend\);/);
   assert.doesNotMatch(coverageSource, /uTime/);
+  assert.match(material.fragmentShader, /coverage \*= vSurfaceCoverage;/);
   assert.deepEqual(
     Object.keys(material.defaultAttributeValues).filter((name) => ![
       'color',
@@ -137,6 +139,7 @@ test('water attribute material writes the documented MRT contract', () => {
       'waterDepth',
       'shoreDistanceMeters',
       'shoreFoamMask',
+      'surfaceCoverage',
       'flowUv',
       'flowDirection',
       'junctionFlowDirection',
@@ -149,6 +152,7 @@ test('water attribute material writes the documented MRT contract', () => {
     ],
   );
   assert.deepEqual(material.defaultAttributeValues.shoreFoamMask, [1]);
+  assert.deepEqual(material.defaultAttributeValues.surfaceCoverage, [1]);
   assert.match(material.fragmentShader, /encodeOctahedron/);
   assert.match(material.fragmentShader, /float getNaturalWaterHeight/);
   assert.match(material.fragmentShader, /vec2 getNaturalWaterSlope/);
@@ -364,6 +368,26 @@ test('unified water pass runs attributes, resolve and effects then restores stat
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
   const surface = new THREE.Group();
   const effects = new THREE.Group();
+  const effectMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      tSceneColor: { value: null },
+      tSceneDepth: { value: null },
+      tWaterDepth: { value: null },
+      tEnvironmentMap: { value: null },
+      uHasEnvironmentMap: { value: 0 },
+      uWaterEffectOpticsReady: { value: 0 },
+      uResolution: { value: new THREE.Vector2() },
+      uProjectionMatrixInverse: { value: new THREE.Matrix4() },
+      uCameraWorldMatrix: { value: new THREE.Matrix4() },
+      uViewMatrix: { value: new THREE.Matrix4() },
+      uCameraPosition: { value: new THREE.Vector3() },
+      uSunDirection: { value: new THREE.Vector3() },
+      uSunColor: { value: new THREE.Color() },
+      uCameraNear: { value: 0 },
+      uCameraFar: { value: 0 },
+    },
+  });
+  const effectMesh = new THREE.Mesh(new THREE.BufferGeometry(), effectMaterial);
   const terrain = new THREE.Group();
   const hidden = new THREE.Group();
   const originalBackground = new THREE.Color(0x123456);
@@ -388,6 +412,8 @@ test('unified water pass runs attributes, resolve and effects then restores stat
   let failOnAttributeRender = false;
 
   hidden.visible = false;
+  effectMaterial.userData.waterEffectOptics = true;
+  effects.add(effectMesh);
   scene.background = originalBackground;
   scene.add(surface, effects, terrain, hidden);
   camera.updateProjectionMatrix();
@@ -453,8 +479,10 @@ test('unified water pass runs attributes, resolve and effects then restores stat
     width: 64,
     height: 48,
   });
+  const environmentMap = { name: 'environment-map' };
 
   pass.setTime(1.25);
+  pass.setReflectionTextures({ environmentMap });
   pass.setQuality({
     refractionPixels: 3,
     reflectionMode: 2,
@@ -480,6 +508,41 @@ test('unified water pass runs attributes, resolve and effects then restores stat
     pass.resolveMaterial.uniforms.tWaterOptics.value,
     pass.infoTarget.textures[0],
   );
+  assert.equal(effectMaterial.uniforms.tSceneColor.value, readBuffer.texture);
+  assert.notEqual(effectMaterial.uniforms.tSceneColor.value, writeBuffer.texture);
+  assert.equal(effectMaterial.uniforms.tSceneDepth.value, readBuffer.depthTexture);
+  assert.notEqual(effectMaterial.uniforms.tSceneDepth.value, writeBuffer.depthTexture);
+  assert.equal(effectMaterial.uniforms.tWaterDepth.value, pass.infoTarget.depthTexture);
+  assert.equal(effectMaterial.uniforms.tEnvironmentMap.value, environmentMap);
+  assert.equal(effectMaterial.uniforms.uHasEnvironmentMap.value, 1);
+  assert.equal(effectMaterial.uniforms.uWaterEffectOpticsReady.value, 1);
+  assert.deepEqual(effectMaterial.uniforms.uResolution.value.toArray(), [64, 48]);
+  assert.deepEqual(
+    effectMaterial.uniforms.uProjectionMatrixInverse.value.toArray(),
+    camera.projectionMatrixInverse.toArray(),
+  );
+  assert.deepEqual(
+    effectMaterial.uniforms.uCameraWorldMatrix.value.toArray(),
+    camera.matrixWorld.toArray(),
+  );
+  assert.deepEqual(
+    effectMaterial.uniforms.uViewMatrix.value.toArray(),
+    camera.matrixWorldInverse.toArray(),
+  );
+  assert.deepEqual(
+    effectMaterial.uniforms.uCameraPosition.value.toArray(),
+    camera.position.toArray(),
+  );
+  assert.deepEqual(
+    effectMaterial.uniforms.uSunDirection.value.toArray(),
+    pass.resolveMaterial.uniforms.uSunDirection.value.toArray(),
+  );
+  assert.equal(
+    effectMaterial.uniforms.uSunColor.value.getHex(),
+    pass.resolveMaterial.uniforms.uSunColor.value.getHex(),
+  );
+  assert.equal(effectMaterial.uniforms.uCameraNear.value, camera.near);
+  assert.equal(effectMaterial.uniforms.uCameraFar.value, camera.far);
   assert.equal(currentTarget, originalTarget);
   assert.equal(renderer.autoClear, true);
   assert.equal(renderer.shadowMap.autoUpdate, true);
@@ -492,6 +555,20 @@ test('unified water pass runs attributes, resolve and effects then restores stat
   assert.equal(hidden.visible, false);
   assert.equal(clearColor.getHex(), 0x456789);
   assert.equal(clearAlpha, 0.65);
+
+  const nextReadBuffer = {
+    texture: { name: 'next-read-color' },
+    depthTexture: { name: 'next-read-depth' },
+    width: 64,
+    height: 48,
+  };
+
+  sceneRenderCount = 0;
+  pass.render(renderer, writeBuffer, nextReadBuffer);
+  assert.equal(effectMaterial.uniforms.tSceneColor.value, nextReadBuffer.texture);
+  assert.equal(effectMaterial.uniforms.tSceneDepth.value, nextReadBuffer.depthTexture);
+  assert.notEqual(effectMaterial.uniforms.tSceneColor.value, writeBuffer.texture);
+  assert.notEqual(effectMaterial.uniforms.tSceneDepth.value, writeBuffer.depthTexture);
 
   sceneRenderCount = 0;
   failOnAttributeRender = true;
@@ -513,4 +590,6 @@ test('unified water pass runs attributes, resolve and effects then restores stat
   assert.equal(clearAlpha, 0.65);
 
   pass.dispose();
+  effectMesh.geometry.dispose();
+  effectMaterial.dispose();
 });

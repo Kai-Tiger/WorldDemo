@@ -8,7 +8,7 @@ import {
 } from '../src/lakeBoundary.js';
 import {
   PLUNGE_POOL,
-  getBakedLowlandHeight,
+  WATERFALL_HYDRAULIC_FRAME,
 } from '../src/lowlandHeightPlan.js';
 import { createRiverWaterMesh } from '../src/riverChannel.js';
 import {
@@ -35,26 +35,20 @@ function disposeSystem(system) {
   materials.forEach((material) => material.dispose());
 }
 
-test('runtime water terrain keeps baked lowland channels while retaining mountain carving', () => {
+test('runtime water terrain keeps lowland channels and the authoritative waterfall profile', () => {
   assert.equal(applyWaterSystemTerrain(9, 735, -308), 9);
   const plungeFloor = PLUNGE_POOL.waterLevel - PLUNGE_POOL.maxDepth;
 
-  assert.equal(applyWaterSystemMacroTerrain(30, 418, -424), plungeFloor);
-  assert.equal(applyWaterSystemMacroTerrain(plungeFloor, 418, -424), plungeFloor);
-
-  for (let ring = 0; ring <= 9; ring += 1) {
-    for (let segment = 0; segment < 24; segment += 1) {
-      const radius = ring / 10 * PLUNGE_POOL.radius;
-      const angle = segment / 24 * Math.PI * 2;
-      const x = PLUNGE_POOL.cx + Math.cos(angle) * radius;
-      const z = PLUNGE_POOL.cz + Math.sin(angle) * radius;
-      const bakedHeight = getBakedLowlandHeight(x, z);
-
-      assert.ok(Math.abs(
-        applyWaterSystemMacroTerrain(bakedHeight, x, z) - bakedHeight,
-      ) < 1e-10);
-    }
-  }
+  assert.ok(Math.abs(
+    applyWaterSystemMacroTerrain(30, 418, -424) - plungeFloor,
+  ) < 1e-10);
+  assert.ok(Math.abs(
+    applyWaterSystemMacroTerrain(plungeFloor, 418, -424) - plungeFloor,
+  ) < 1e-10);
+  assert.ok(Math.abs(
+    applyWaterSystemMacroTerrain(18, 409, -421)
+      - WATERFALL_HYDRAULIC_FRAME.lipBedY,
+  ) < 1e-10);
   assert.ok(applyWaterSystemMacroTerrain(80, 300, -400) < 32);
 });
 
@@ -167,7 +161,7 @@ test('water system exposes one merged tributary geometry source and keeps the co
   assert.equal(tributaries.geometry.getAttribute('junctionMask').itemSize, 1);
   assert.equal(tributaries.geometry.getAttribute('viewDistance').itemSize, 1);
   assert.ok(Math.abs(
-    confluencePositions.getY(0) - (PLUNGE_POOL.waterLevel + 0.02),
+    confluencePositions.getY(0) - (WATERFALL_HYDRAULIC_FRAME.poolSurfaceY + 0.025),
   ) < 1e-6);
 
   const camera = new THREE.PerspectiveCamera();
@@ -177,6 +171,186 @@ test('water system exposes one merged tributary geometry source and keeps the co
   updateWaterSystemVisuals(system, camera, 4.25);
   assert.equal(waterfallMaterial.uniforms.uTime.value, 4.25);
   assert.deepEqual(waterfallMaterial.uniforms.uCameraPosition.value.toArray(), [12, 34, 56]);
+
+  disposeSystem(system);
+});
+
+test('waterfall uses one ballistic mountain veil with localized four-draw effects', () => {
+  const system = createWaterSystem(createTerrainStub());
+  const [curtain, particles] = system.waterfall.children;
+  const positions = curtain.geometry.getAttribute('position');
+  const fallTimes = curtain.geometry.getAttribute('fallTime');
+  const lateralMeters = curtain.geometry.getAttribute('lateralMeters');
+  const sheetThickness = curtain.geometry.getAttribute('sheetThickness');
+  const verticesPerRow = 17;
+  const centerColumn = 8;
+
+  assert.equal(system.waterfall.children.length, 2);
+  assert.equal(curtain.name, 'WaterfallMountainThinVeil');
+  assert.equal(curtain.isMesh, true);
+  assert.equal(positions.count, 65 * verticesPerRow);
+  assert.equal(curtain.geometry.index.count, 64 * 16 * 6);
+  assert.equal(fallTimes.itemSize, 1);
+  assert.equal(lateralMeters.itemSize, 1);
+  assert.equal(sheetThickness.itemSize, 1);
+  assert.deepEqual(curtain.geometry.userData.waterfall, {
+    verticalSegments: 64,
+    lateralSegments: 16,
+    flightTime: curtain.geometry.userData.waterfall.flightTime,
+    topWidth: WATERFALL_HYDRAULIC_FRAME.crestWidth,
+    impactY: WATERFALL_HYDRAULIC_FRAME.poolSurfaceY,
+  });
+
+  const topLeft = new THREE.Vector3().fromBufferAttribute(positions, 0);
+  const topRight = new THREE.Vector3().fromBufferAttribute(positions, verticesPerRow - 1);
+  const topCenter = new THREE.Vector3().fromBufferAttribute(positions, centerColumn);
+  const bottomRow = 64 * verticesPerRow;
+  const bottomCenter = new THREE.Vector3().fromBufferAttribute(
+    positions,
+    bottomRow + centerColumn,
+  );
+
+  assert.ok(Math.abs(topLeft.distanceTo(topRight) - WATERFALL_HYDRAULIC_FRAME.crestWidth) < 3e-5);
+  assert.ok(topCenter.distanceTo(new THREE.Vector3(
+    WATERFALL_HYDRAULIC_FRAME.lip.x,
+    WATERFALL_HYDRAULIC_FRAME.lip.y,
+    WATERFALL_HYDRAULIC_FRAME.lip.z,
+  )) < 1e-5);
+  assert.ok(Math.hypot(
+    bottomCenter.x - WATERFALL_HYDRAULIC_FRAME.impact.x,
+    bottomCenter.z - WATERFALL_HYDRAULIC_FRAME.impact.z,
+  ) < 1e-5);
+  assert.ok(Math.abs(
+    bottomCenter.y - WATERFALL_HYDRAULIC_FRAME.poolSurfaceY,
+  ) < 1e-5);
+  assert.equal(fallTimes.getX(0), 0);
+  assert.ok(fallTimes.getX(bottomRow) > 2);
+
+  let previousDrop = -Infinity;
+  for (let row = 1; row <= 64; row += 1) {
+    const previousY = positions.getY((row - 1) * verticesPerRow + centerColumn);
+    const currentY = positions.getY(row * verticesPerRow + centerColumn);
+    const drop = previousY - currentY;
+
+    assert.ok(currentY <= previousY);
+    assert.ok(drop + 1e-6 >= previousDrop);
+    previousDrop = drop;
+  }
+  for (let vertex = bottomRow; vertex < positions.count; vertex += 1) {
+    assert.ok(Math.abs(
+      positions.getY(vertex) - WATERFALL_HYDRAULIC_FRAME.poolSurfaceY,
+    ) < 1e-5);
+  }
+
+  assert.equal(curtain.material.userData.waterEffectOptics, true);
+  assert.equal(curtain.material.userData.waterfallStyle, 'mountain-thin-veil');
+  assert.equal(curtain.material.premultipliedAlpha, true);
+  assert.equal(curtain.material.depthWrite, false);
+  assert.equal(curtain.material.depthTest, true);
+  for (const uniform of [
+    'tSceneColor',
+    'tSceneDepth',
+    'tWaterDepth',
+    'tEnvironmentMap',
+    'uResolution',
+    'uProjectionMatrixInverse',
+    'uCameraWorldMatrix',
+    'uViewMatrix',
+    'uWaterEffectOpticsReady',
+  ]) {
+    assert.ok(uniform in curtain.material.uniforms);
+  }
+  assert.match(curtain.material.fragmentShader, /phase = vFallTime - uTime/);
+  assert.match(curtain.material.fragmentShader, /fwidth\(strandField\)/);
+  assert.match(curtain.material.fragmentShader, /texture2D\(tWaterDepth/);
+  assert.match(curtain.material.fragmentShader, /smoothstep\(0\.0, 0\.055, vUv\.y\)/);
+
+  assert.equal(particles.name, 'WaterfallSprayMistParticles');
+  assert.equal(particles.isPoints, true);
+  assert.equal(particles.geometry.getAttribute('position').count, 192);
+  assert.equal(particles.geometry.userData.sprayCount, 128);
+  assert.equal(particles.geometry.userData.mistCount, 64);
+  assert.equal(particles.material.userData.waterEffectOptics, true);
+  const particleTypes = particles.geometry.getAttribute('particleType');
+  const particlePositions = particles.geometry.getAttribute('position');
+
+  assert.equal(Array.from(particleTypes.array).filter((value) => value === 0).length, 128);
+  assert.equal(Array.from(particleTypes.array).filter((value) => value === 1).length, 64);
+  for (let vertex = 0; vertex < particlePositions.count; vertex += 1) {
+    assert.ok(particlePositions.getY(vertex) >= WATERFALL_HYDRAULIC_FRAME.poolSurfaceY + 0.08);
+  }
+
+  const impactPositions = system.confluence.geometry.getAttribute('position');
+  let maxImpactRadius = 0;
+  for (let vertex = 0; vertex < impactPositions.count; vertex += 1) {
+    maxImpactRadius = Math.max(maxImpactRadius, Math.hypot(
+      impactPositions.getX(vertex) - WATERFALL_HYDRAULIC_FRAME.impact.x,
+      impactPositions.getZ(vertex) - WATERFALL_HYDRAULIC_FRAME.impact.z,
+    ));
+  }
+  assert.ok(maxImpactRadius <= 6);
+  assert.equal(system.confluence.name, 'WaterfallConfluenceFoam');
+  assert.equal(system.confluence.userData.effectType, 'localized-waterfall-impact');
+
+  const crestGeometry = system.waterfallLipFoam.geometry;
+  const crestPositions = crestGeometry.getAttribute('position');
+  const crestCoverage = crestGeometry.getAttribute('crestCoverage');
+  const crestRowSize = crestGeometry.userData.rowSize;
+  const crestLipRow = crestGeometry.userData.lipRow;
+  const crestLipRowStart = crestLipRow * crestRowSize;
+  const crestCenterColumn = Math.floor(crestRowSize / 2);
+  const crestWidth = new THREE.Vector3().fromBufferAttribute(crestPositions, crestLipRowStart)
+    .distanceTo(new THREE.Vector3().fromBufferAttribute(
+      crestPositions,
+      crestLipRowStart + crestRowSize - 1,
+    ));
+  assert.ok(Math.abs(crestWidth - WATERFALL_HYDRAULIC_FRAME.crestWidth) < 3e-5);
+  assert.equal(crestGeometry.userData.crestLength, WATERFALL_HYDRAULIC_FRAME.lipBlendLength);
+  assert.equal(
+    crestGeometry.userData.crestOverlapLength,
+    WATERFALL_HYDRAULIC_FRAME.lipOverlapLength,
+  );
+  assert.equal(crestCoverage.getX(crestCenterColumn), 0);
+  assert.equal(crestCoverage.getX(crestLipRowStart + crestCenterColumn), 1);
+  assert.equal(crestCoverage.getX(crestPositions.count - crestCenterColumn - 1), 0);
+
+  for (let row = 0; row <= crestLipRow; row += 1) {
+    const center = row * crestRowSize + crestCenterColumn;
+
+    assert.ok(Math.abs(
+      crestPositions.getY(center) - WATERFALL_HYDRAULIC_FRAME.lip.y - 0.018,
+    ) < 1e-5);
+  }
+
+  const crestLipCenter = new THREE.Vector3().fromBufferAttribute(
+    crestPositions,
+    crestLipRowStart + crestCenterColumn,
+  );
+  const crestEndCenter = new THREE.Vector3().fromBufferAttribute(
+    crestPositions,
+    crestPositions.count - crestCenterColumn - 1,
+  );
+  const downstreamDistance = (crestEndCenter.x - crestLipCenter.x)
+    * WATERFALL_HYDRAULIC_FRAME.fallDirection.x
+    + (crestEndCenter.z - crestLipCenter.z)
+    * WATERFALL_HYDRAULIC_FRAME.fallDirection.z;
+
+  assert.ok(crestLipCenter.distanceTo(new THREE.Vector3(
+    WATERFALL_HYDRAULIC_FRAME.lip.x,
+    WATERFALL_HYDRAULIC_FRAME.lip.y + 0.018,
+    WATERFALL_HYDRAULIC_FRAME.lip.z,
+  )) < 1e-5);
+  assert.ok(Math.abs(
+    downstreamDistance - WATERFALL_HYDRAULIC_FRAME.lipOverlapLength,
+  ) < 1e-5);
+  assert.match(system.waterfallLipFoam.material.fragmentShader, /vCrestCoverage/);
+
+  let effectDraws = 0;
+  system.waterfall.traverse((object) => {
+    if (object.isMesh || object.isPoints) effectDraws += 1;
+  });
+  effectDraws += Number(system.waterfallLipFoam.isMesh) + Number(system.confluence.isMesh);
+  assert.equal(effectDraws, 4);
 
   disposeSystem(system);
 });
@@ -340,4 +514,18 @@ test('tree-river confluence, tarn, and inlet have deterministic visual-check cam
   assert.deepEqual(j1.target, { x: 16, z: -352, y: 50.6 });
   assert.deepEqual(tarn.target, { x: 76, z: -552, y: 49.5 });
   assert.deepEqual(inlet.target, { x: 278, z: -458, y: 31.6 });
+});
+
+test('waterfall has deterministic front, lip, overhead, and grazing visual-check cameras', () => {
+  const front = getGoldenShotFromLocation({ search: '?shot=waterfall' });
+  const lip = getGoldenShotFromLocation({ search: '?shot=waterfall-lip' });
+  const overhead = getGoldenShotFromLocation({ search: '?shot=waterfall-overhead' });
+  const grazing = getGoldenShotFromLocation({ search: '?shot=waterfall-grazing' });
+
+  assert.deepEqual(front.camera, { x: 450, z: -398, y: 30 });
+  assert.deepEqual(lip.camera, { x: 427, z: -409, y: 39 });
+  assert.deepEqual(lip.target, { x: 410, z: -421, y: 25 });
+  assert.deepEqual(overhead.target, { x: 418, z: -424, y: 3.245 });
+  assert.deepEqual(grazing.camera, { x: 412, z: -387, y: 16 });
+  assert.deepEqual(grazing.target, { x: 414, z: -423, y: 16 });
 });

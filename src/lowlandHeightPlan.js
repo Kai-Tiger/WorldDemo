@@ -2,6 +2,8 @@ import { CatmullRomCurve3, Vector3 } from 'three';
 import { compileRiverNetwork } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
 import {
+  ALPINE_LAKE_BOUNDARY,
+  findLakeBoundaryIntersection,
   getLakeBoundary,
   getLakeBoundaryFrame,
   getLakeOutsideFade,
@@ -25,6 +27,56 @@ export const LOWLAND_HEIGHT_SETTINGS = deepFreeze({
   reliefMax: 2.4,
   edgeFeatherMeters: 24,
   maximumBakedHeight: 18,
+});
+
+const waterfallOutletShore = findLakeBoundaryIntersection(
+  ALPINE_LAKE_BOUNDARY,
+  { x: 340, z: -410 },
+  { x: 365, z: -417 },
+);
+const waterfallFallLength = Math.hypot(9, -3);
+const waterfallOutflowLength = Math.hypot(0.82, 0.57);
+
+export const WATERFALL_HYDRAULIC_FRAME = deepFreeze({
+  outletPoints: [
+    [waterfallOutletShore.x, waterfallOutletShore.z],
+    [365, -417],
+    [392, -419],
+    [409, -421],
+  ],
+  lip: { x: 409, y: 29.65, z: -421 },
+  lipBedY: 29.3,
+  impact: { x: 418, y: 3.245, z: -424 },
+  outflowStart: { x: 420, z: -423 },
+  fallDirection: { x: 9 / waterfallFallLength, z: -3 / waterfallFallLength },
+  outflowDirection: {
+    x: 0.82 / waterfallOutflowLength,
+    z: 0.57 / waterfallOutflowLength,
+  },
+  crestWidth: 5.2,
+  outletInfluence: 8.5,
+  outletWaterOffset: 0.35,
+  poolSurfaceY: 3.245,
+  poolFloorY: 1.5,
+  lipProtectionLength: 0.75,
+  plungeBlendLength: 3,
+  lipBlendLength: 2.1,
+  lipOverlapLength: 0.65,
+});
+
+export const PLUNGE_POOL = deepFreeze({
+  id: 'waterfall-plunge-pool',
+  cx: WATERFALL_HYDRAULIC_FRAME.impact.x,
+  cz: WATERFALL_HYDRAULIC_FRAME.impact.z,
+  radius: 10,
+  shapeKind: 'rugged',
+  shapeAmp: 0.1,
+  phase: 2.35,
+  waterLevel: 3.2,
+  maxDepth: 1.7,
+  edgeDepth: 0.2,
+  shoreWidth: 4,
+  surfaceOffset: 0.045,
 });
 
 const preservedHills = [
@@ -152,6 +204,7 @@ export const SOUTHERN_LOWLAND_LAKES = deepFreeze([
 ]);
 
 const riverConnectedLowlandLakes = [
+  PLUNGE_POOL,
   TERMINAL_LOWLAND_LAKE,
   ...LOWLAND_LAKES,
   ...SOUTHERN_LOWLAND_LAKES,
@@ -260,7 +313,13 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
   terminalLakeId: 'terminal-lake',
   terminalLakeTransition: TERMINAL_LOWLAND_LAKE_TRANSITION,
   nodes: [
-    { id: 'hero-plunge-outlet', type: 'source', position: [420, -423], waterLevel: 3.2 },
+    createLakeNetworkNode(PLUNGE_POOL.id, {
+      id: 'hero-plunge-outlet',
+      position: [
+        WATERFALL_HYDRAULIC_FRAME.outflowStart.x,
+        WATERFALL_HYDRAULIC_FRAME.outflowStart.z,
+      ],
+    }),
     { id: 'hero-west-source', type: 'source', position: [635, -300], waterLevel: 3.15 },
     { id: 'hero-east-source', type: 'source', position: [700, -270], waterLevel: 3.4 },
     {
@@ -280,7 +339,10 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
       style: 'trunk',
       from: 'hero-plunge-outlet',
       to: 'hero-j1',
-      points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336]],
+      points: [[
+        WATERFALL_HYDRAULIC_FRAME.outflowStart.x,
+        WATERFALL_HYDRAULIC_FRAME.outflowStart.z,
+      ], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336]],
       waterLevels: [3.2, 3.05, 2.9, 2.72, 2.55, 2.38, 2.2],
       width: [5.2, 7],
       depth: [1.6, 1.6],
@@ -415,23 +477,15 @@ export const HERO_RIVER_NETWORK_DEFINITION = deepFreeze({
 
 export const MAIN_RIVER_CHANNEL = deepFreeze({
   id: 'main-river-channel',
-  points: [[420, -423], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336], [604, -337], [633, -349], [662, -351], [690, -340]],
+  points: [[
+    WATERFALL_HYDRAULIC_FRAME.outflowStart.x,
+    WATERFALL_HYDRAULIC_FRAME.outflowStart.z,
+  ], [435, -413], [460, -398], [489, -388], [518, -374], [545, -350], [575, -336], [604, -337], [633, -349], [662, -351], [690, -340]],
   waterLevels: [3.2, 3.05, 2.9, 2.72, 2.55, 2.38, 2.2, 2.05, 1.88, 1.72, 1.6],
   width: [8, 8],
   depth: [1.6, 1.6],
   influence: [7, 7],
   vegetationBuffer: [2, 2.8],
-});
-
-export const PLUNGE_POOL = deepFreeze({
-  id: 'waterfall-plunge-pool',
-  cx: 418,
-  cz: -424,
-  radius: 10,
-  waterLevel: 3.2,
-  maxDepth: 1.7,
-  edgeDepth: 0.2,
-  shoreWidth: 4,
 });
 
 export const LOWLAND_BAKE_COUNTS = deepFreeze({
@@ -457,6 +511,14 @@ const hillBounds = LOWLAND_HILLS.map((hill) => ({
   minZ: hill.cz - Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
   maxZ: hill.cz + Math.max(hill.radiusX, hill.radiusZ) * (1 + hill.shapeAmp),
 }));
+const waterfallOutletMetadata = createReachMetadata({
+  points: WATERFALL_HYDRAULIC_FRAME.outletPoints,
+  waterLevels: WATERFALL_HYDRAULIC_FRAME.outletPoints
+    .map(() => WATERFALL_HYDRAULIC_FRAME.lip.y),
+  width: WATERFALL_HYDRAULIC_FRAME.crestWidth,
+  depth: WATERFALL_HYDRAULIC_FRAME.outletWaterOffset,
+  influence: WATERFALL_HYDRAULIC_FRAME.outletInfluence,
+});
 const reachMetadata = new WeakMap(
   [
     MAIN_RIVER_CHANNEL,
@@ -568,6 +630,10 @@ export function getLowlandTerrainHeight(x, z) {
     getLowlandBaseHeight(x, z) + getLowlandHillRise(x, z),
     LOWLAND_HEIGHT_SETTINGS.maximumBakedHeight,
   );
+}
+
+export function applyWaterfallTerrainProfile(height, x, z) {
+  return getWaterfallTerrainProfileDetails(height, x, z)?.height ?? height;
 }
 
 export function getHeroRiverCorridorFrame(baseHeightOrX, xOrZ, maybeZ) {
@@ -874,7 +940,6 @@ export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
   }
 
   const lakes = [
-    PLUNGE_POOL,
     TERMINAL_LOWLAND_LAKE,
     ...LOWLAND_LAKES,
     ...SOUTHERN_LOWLAND_LAKES,
@@ -896,6 +961,14 @@ export function getLowlandWaterTerrainTarget(baseHeight, x, z) {
     height = Math.min(height, heroRiver.height);
     waterOverrideMask = Math.max(waterOverrideMask, getBakedWaterOverrideMask(heroRiver));
     strongest = chooseStrongerTarget(strongest, heroRiver);
+  }
+
+  const waterfall = getWaterfallTerrainProfileDetails(height, x, z);
+
+  if (waterfall) {
+    height = waterfall.height;
+    waterOverrideMask = Math.max(waterOverrideMask, getBakedWaterOverrideMask(waterfall));
+    strongest = chooseStrongerTarget(strongest, waterfall);
   }
 
   if (!strongest) return null;
@@ -1002,6 +1075,139 @@ function getHillRise(hill, x, z) {
 
   if (distance >= 1) return 0;
   return hill.height * (1 - smoothstep(0.08, 1, distance));
+}
+
+function getWaterfallTerrainProfileDetails(baseHeight, x, z) {
+  const frame = WATERFALL_HYDRAULIC_FRAME;
+  const outlet = getWaterfallOutletFrame(x, z);
+  let height = baseHeight;
+  let strongest = null;
+
+  if (outlet) {
+    const lateralDistance = Math.abs(outlet.lateral);
+    const lakeFade = getLakeOutsideFade(ALPINE_LAKE_BOUNDARY, x, z);
+    const lateralMask = 1 - smoothstep(
+      frame.crestWidth * 0.5,
+      frame.outletInfluence,
+      lateralDistance,
+    );
+    const endMask = 1 - smoothstep(
+      frame.lipProtectionLength,
+      frame.plungeBlendLength,
+      outlet.afterEnd,
+    );
+    const mask = lateralMask * lakeFade * endMask;
+
+    if (mask > 0) {
+      height = lerp(height, frame.lipBedY, mask);
+      strongest = {
+        featureType: 'waterfall-outlet',
+        featureId: 'waterfall-outlet-profile',
+        height,
+        mask,
+        bedHeight: frame.lipBedY,
+        waterLevel: frame.lip.y,
+      };
+    }
+  }
+
+  const poolFrame = getLakeBoundaryFrame(PLUNGE_POOL, x, z);
+
+  if (poolFrame.signedDistance <= PLUNGE_POOL.shoreWidth) {
+    const lipDx = x - frame.lip.x;
+    const lipDz = z - frame.lip.z;
+    const downstreamDistance = lipDx * frame.fallDirection.x
+      + lipDz * frame.fallDirection.z;
+    const plungeGate = smoothstep(
+      frame.lipProtectionLength,
+      frame.plungeBlendLength,
+      downstreamDistance,
+    );
+    let poolMask = plungeGate;
+    let poolBedHeight;
+
+    if (poolFrame.inside) {
+      const radiusT = poolFrame.normalizedRadius;
+      const depthT = smoothstep(0.18, 1, radiusT);
+      const depth = lerp(PLUNGE_POOL.maxDepth, PLUNGE_POOL.edgeDepth, depthT);
+
+      poolBedHeight = PLUNGE_POOL.waterLevel - depth;
+    } else {
+      const shoreDistance = poolFrame.signedDistance;
+
+      poolMask *= 1 - smoothstep(0, PLUNGE_POOL.shoreWidth, shoreDistance);
+      poolBedHeight = PLUNGE_POOL.waterLevel - PLUNGE_POOL.edgeDepth;
+    }
+
+    if (poolMask > 0) {
+      height = lerp(height, poolBedHeight, poolMask);
+      const candidate = {
+        featureType: 'lake',
+        featureId: PLUNGE_POOL.id,
+        height,
+        mask: poolMask,
+        bedHeight: poolBedHeight,
+        waterLevel: PLUNGE_POOL.waterLevel,
+      };
+
+      strongest = chooseStrongerTarget(strongest, candidate);
+    }
+  }
+
+  return strongest ? { ...strongest, height } : null;
+}
+
+function getWaterfallOutletFrame(x, z) {
+  const metadata = waterfallOutletMetadata;
+
+  if (
+    x < metadata.minX
+    || x > metadata.maxX
+    || z < metadata.minZ
+    || z > metadata.maxZ
+  ) return null;
+
+  let closest = null;
+
+  for (let index = 0; index < metadata.samples.length - 1; index += 1) {
+    const start = metadata.samples[index];
+    const end = metadata.samples[index + 1];
+    const segmentX = end.x - start.x;
+    const segmentZ = end.z - start.z;
+    const segmentLengthSq = segmentX * segmentX + segmentZ * segmentZ;
+    const segmentT = segmentLengthSq > 0
+      ? clamp(((x - start.x) * segmentX + (z - start.z) * segmentZ) / segmentLengthSq, 0, 1)
+      : 0;
+    const centerX = start.x + segmentX * segmentT;
+    const centerZ = start.z + segmentZ * segmentT;
+    const offsetX = x - centerX;
+    const offsetZ = z - centerZ;
+    const distanceToCenterline = Math.hypot(offsetX, offsetZ);
+
+    if (closest && distanceToCenterline >= closest.distanceToCenterline) continue;
+
+    const segmentLength = Math.sqrt(segmentLengthSq) || 1;
+    const tangentX = segmentX / segmentLength;
+    const tangentZ = segmentZ / segmentLength;
+
+    closest = {
+      distanceToCenterline,
+      lateral: offsetX * -tangentZ + offsetZ * tangentX,
+    };
+  }
+
+  if (!closest || closest.distanceToCenterline > WATERFALL_HYDRAULIC_FRAME.outletInfluence) {
+    return null;
+  }
+
+  const finalSample = metadata.samples.at(-1);
+  const afterEnd = Math.max(
+    0,
+    (x - finalSample.x) * finalSample.tangentX
+      + (z - finalSample.z) * finalSample.tangentZ,
+  );
+
+  return { ...closest, afterEnd };
 }
 
 function getLakeTerrainTarget(lake, baseHeight, x, z) {

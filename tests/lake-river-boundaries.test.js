@@ -24,8 +24,8 @@ const LAKES = getUniqueLakeBoundaries(
 );
 const BOUNDARY_TOLERANCE = 1e-4;
 
-test('all ten river-connected lakes share the four-meter outside-shore fade', () => {
-  assert.equal(LAKES.length, 10);
+test('all eleven river-connected lakes share the four-meter outside-shore fade', () => {
+  assert.equal(LAKES.length, 11);
 
   for (const lake of LAKES) {
     const center = getLakeCenter(lake);
@@ -74,7 +74,10 @@ test('every lake-connected reach starts or ends on the shared shoreline', () => 
           if (!lakeId) continue;
           endpointCount += 1;
           endpointLakeIds.add(lakeId);
-          const lake = getLakeBoundary(network.nodeById.get(lakeId));
+          const lakeFeature = network.lakeFeatures.find((feature) => (
+            getLakeBoundary(feature).id === lakeId
+          ));
+          const lake = getLakeBoundary(lakeFeature);
           const boundaryDistance = reach[`${endpoint}LakeBoundaryDistance`];
           const rowStart = endpoint === 'start'
             ? reach.startVertex
@@ -123,6 +126,6 @@ test('every lake-connected reach starts or ends on the shared shoreline', () => 
     }
   }
 
-  assert.equal(endpointCount, 14);
-  assert.equal(endpointLakeIds.size, 10);
+  assert.equal(endpointCount, 15);
+  assert.equal(endpointLakeIds.size, 11);
 });

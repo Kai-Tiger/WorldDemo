@@ -6,8 +6,10 @@ import {
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
 import {
   HERO_RIVER_NETWORK_DEFINITION,
+  PLUNGE_POOL,
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
+  WATERFALL_HYDRAULIC_FRAME,
 } from './lowlandHeightPlan.js';
 import {
   LOWLAND_LAKES,
@@ -41,6 +43,7 @@ export const UNIFIED_WATER_ATTRIBUTE_SCHEMA = Object.freeze({
   waterDepth: 1,
   shoreDistanceMeters: 1,
   shoreFoamMask: 1,
+  surfaceCoverage: 1,
   flowUv: 2,
   flowDirection: 2,
   junctionFlowDirection: 2,
@@ -60,6 +63,7 @@ const CIRQUE_TARN = getLakeBoundary(RIVER_NETWORK.nodeById.get('cirque-tarn'));
 const LAKE_BY_ID = new Map([
   [ALPINE_LAKE_BOUNDARY.id, ALPINE_LAKE_BOUNDARY],
   [CIRQUE_TARN.id, CIRQUE_TARN],
+  [PLUNGE_POOL.id, PLUNGE_POOL],
   ...LOWLAND_LAKES.map((lake) => [lake.id, lake]),
   ...SOUTHERN_LOWLAND_LAKES.map((lake) => [lake.id, lake]),
   [TERMINAL_LOWLAND_LAKE.id, TERMINAL_LOWLAND_LAKE],
@@ -73,6 +77,7 @@ export const RIVER_LAKE_INTERFACE_REGISTRY = Object.freeze([
   createInterface('alpine-lake-outlet', 'alpine-basin', 'alpine-outlet', 'alpine-outlet', 'start', 'alpine-lake'),
   createInterface('east-pond-outlet', 'hero-east-basin', 'east-lowland-basin', 'east-meadow-outlet', 'start', 'east-meadow-pond'),
   createInterface('east-stream-terminal-inlet', 'hero-east-basin', 'east-lowland-basin', 'east-meadow-outlet', 'end', 'terminal-lake'),
+  createInterface('hero-plunge-pool-outlet', 'hero-east-basin', 'hero-network', 'hero-main-upper', 'start', 'waterfall-plunge-pool'),
   createInterface('hero-terminal-inlet', 'hero-east-basin', 'hero-network', 'hero-main-lower', 'end', 'terminal-lake'),
   createInterface('northwest-lake-outlet', 'north-lowland-basin', 'north-lowland-basin', 'north-lake-connector', 'start', 'northwest-shallow-lake'),
   createInterface('northeast-lake-inlet', 'north-lowland-basin', 'north-lowland-basin', 'north-lake-connector', 'end', 'northeast-shallow-lake'),
@@ -105,7 +110,7 @@ export const WATER_BASIN_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({
     id: 'hero-east-basin',
-    lakeIds: Object.freeze(['east-meadow-pond', 'terminal-lake']),
+    lakeIds: Object.freeze(['waterfall-plunge-pool', 'east-meadow-pond', 'terminal-lake']),
     riverSources: Object.freeze([
       Object.freeze({ id: 'hero-network', type: 'network', network: HERO_RIVER_NETWORK }),
       Object.freeze({
@@ -397,6 +402,7 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
   const flowUv = geometry.getAttribute('flowUv');
   const shoreDistance = geometry.getAttribute('shoreDistance');
   const waterEdge = geometry.getAttribute('waterEdge');
+  const waterFade = geometry.getAttribute('waterFade');
   const flowDirection = geometry.getAttribute('flowDirection');
   const junctionFlowDirection = geometry.getAttribute('junctionFlowDirection');
   const flowSpeed = geometry.getAttribute('flowSpeed');
@@ -463,6 +469,7 @@ function appendRiverSource(builder, source, result, interfaces, terrain) {
         ? Math.max(authoredShoreDistance, 0.5)
         : authoredShoreDistance,
       shoreFoamMask: 1,
+      surfaceCoverage: waterFade?.getX(vertex) ?? 1,
       flowUv: flowUv ? [flowUv.getX(vertex), flowUv.getY(vertex)] : [0, 0],
       flowDirection: flowDirection
         ? [flowDirection.getX(vertex), flowDirection.getY(vertex)]
@@ -599,7 +606,9 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
   }));
   const patchById = new Map(transitionPatches.map((patch) => [patch.id, patch]));
   const startIndex = builder.indices.length;
-  const surfaceY = lake.waterLevel + (lake.surfaceOffset ?? WATER_SURFACE_OFFSET);
+  const surfaceY = lake.id === PLUNGE_POOL.id
+    ? WATERFALL_HYDRAULIC_FRAME.poolSurfaceY
+    : lake.waterLevel + (lake.surfaceOffset ?? WATER_SURFACE_OFFSET);
 
   for (let ring = 0; ring < ringCount; ring += 1) {
     const row = [];
@@ -635,6 +644,7 @@ function appendLakeSurface(builder, lake, attachments, terrain, reflectionTier) 
         ));
         builder.setScalar('riverInfluence', vertex, influence);
         builder.setScalar('reflectionTier', vertex, reflectionTier);
+        builder.setScalar('surfaceCoverage', vertex, 1);
       } else {
         vertex = appendLakeVertex(builder, {
           lake,
@@ -802,6 +812,7 @@ function alignRiverLakeTransitionRows(builder, attachment, terrain) {
     for (const vertex of [fullVertex, halfVertex, shoreVertex]) {
       const position = builder.getPosition(vertex);
 
+      builder.setScalar('surfaceCoverage', vertex, 1);
       builder.setScalar(
         'waterDepth',
         vertex,
@@ -836,6 +847,7 @@ function alignRiverLakeTransitionRows(builder, attachment, terrain) {
   const fullFlowU = outerSourceU + flowSign * sourceDistance;
 
   for (let lateral = 0; lateral < rowVertices.length; lateral += 1) {
+    builder.setScalar('surfaceCoverage', outerSourceRow[lateral], 1);
     const flowV = builder.getVector('flowUv', outerSourceRow[lateral])[1];
     const rows = [fullRow[lateral], halfRow[lateral], rowVertices[lateral]];
 
@@ -898,6 +910,12 @@ function appendLakeVertex(builder, {
 
   if (hasRiverSource) sourceFlowUv[0] += flowSign * inset;
   const flowUv = hasRiverSource ? sourceFlowUv : lakeFlowUv;
+  const plungeHydraulics = lake.id === PLUNGE_POOL.id && !hasRiverSource
+    ? getPlungePoolHydraulics(x, z)
+    : null;
+  const surfaceCoverage = lake.id === PLUNGE_POOL.id && !insideTransition
+    ? smoothstep(0, 0.35, inset)
+    : 1;
 
   return builder.pushVertex({
     position: [x, y, z],
@@ -908,24 +926,62 @@ function appendLakeVertex(builder, {
     waterDepth: Math.max(y - terrain.getHeightAt(x, z), 0),
     shoreDistanceMeters: Math.max(inset, insideTransition ? 0.5 : 0),
     shoreFoamMask: insideTransition ? 0 : 1,
-    flowUv,
-    flowDirection,
-    junctionFlowDirection,
-    flowSpeed: hasRiverSource
+    surfaceCoverage,
+    flowUv: plungeHydraulics?.flowUv ?? flowUv,
+    flowDirection: plungeHydraulics?.flowDirection ?? flowDirection,
+    junctionFlowDirection: plungeHydraulics?.junctionFlowDirection
+      ?? junctionFlowDirection,
+    flowSpeed: plungeHydraulics?.flowSpeed ?? (hasRiverSource
       ? builder.getScalar('flowSpeed', sourceVertex) * influenceScale
-      : 0,
-    riverInfluence: influence,
-    rapidMask: hasRiverSource
+      : 0),
+    riverInfluence: plungeHydraulics?.riverInfluence ?? influence,
+    rapidMask: plungeHydraulics?.rapidMask ?? (hasRiverSource
       ? builder.getScalar('rapidMask', sourceVertex) * influenceScale
-      : 0,
-    junctionMask: hasRiverSource
+      : 0),
+    junctionMask: plungeHydraulics?.junctionMask ?? (hasRiverSource
       ? builder.getScalar('junctionMask', sourceVertex) * influenceScale
-      : 0,
-    disturbanceMask: hasRiverSource
+      : 0),
+    disturbanceMask: plungeHydraulics?.disturbanceMask ?? (hasRiverSource
       ? builder.getScalar('disturbanceMask', sourceVertex) * influenceScale
-      : 0,
+      : 0),
     reflectionTier,
   });
+}
+
+function getPlungePoolHydraulics(x, z) {
+  const { impact, outflowDirection } = WATERFALL_HYDRAULIC_FRAME;
+  const directionLength = Math.hypot(outflowDirection.x, outflowDirection.z);
+  const directionX = outflowDirection.x / directionLength;
+  const directionZ = outflowDirection.z / directionLength;
+  const sideX = -directionZ;
+  const sideZ = directionX;
+  const deltaX = x - impact.x;
+  const deltaZ = z - impact.z;
+  const along = deltaX * directionX + deltaZ * directionZ;
+  const lateral = deltaX * sideX + deltaZ * sideZ;
+  const impactDistance = Math.hypot(deltaX, deltaZ);
+  const impactInfluence = 1 - smoothstep(2.5, 6, impactDistance);
+  const tongueInfluence = smoothstep(-0.5, 1, along)
+    * (1 - smoothstep(8, 10, along))
+    * (1 - smoothstep(1.5, 3, Math.abs(lateral)));
+  const hydraulic = Math.max(impactInfluence, tongueInfluence * 0.75);
+  const hasFlow = hydraulic > 1e-6;
+  const flowDirection = hasFlow ? [directionX, directionZ] : [0, 0];
+
+  return {
+    flowUv: [along, lateral],
+    flowDirection,
+    junctionFlowDirection: flowDirection,
+    flowSpeed: 1.65 * hydraulic,
+    riverInfluence: hydraulic,
+    rapidMask: THREE.MathUtils.clamp(
+      impactInfluence * 0.9 + tongueInfluence * 0.55,
+      0,
+      1,
+    ),
+    junctionMask: 0,
+    disturbanceMask: 0,
+  };
 }
 
 function createLakeAngularSamples(builder, lake, attachments, angleSegments) {
@@ -1061,6 +1117,10 @@ function createAlpineOutletGeometry(terrain) {
   const junctionMasks = new Float32Array(vertexCount);
   const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
   const pathLength = curve.getLength();
+  const terminalFadeStart = Math.max(
+    0,
+    1 - WATERFALL_HYDRAULIC_FRAME.lipBlendLength / pathLength,
+  );
 
   for (let row = 0; row <= longitudinalSegments; row += 1) {
     const t = row / longitudinalSegments;
@@ -1104,7 +1164,8 @@ function createAlpineOutletGeometry(terrain) {
       junctionFlowDirections[vertex * 2] = tangent.x;
       junctionFlowDirections[vertex * 2 + 1] = tangent.z;
       disturbanceMasks[vertex] = 0;
-      waterFades[vertex] = (row === 0 ? 0 : 1) * (1 - smoothstep(0.93, 1, t));
+      waterFades[vertex] = (row === 0 ? 0 : 1)
+        * (1 - smoothstep(terminalFadeStart, 1, t));
       junctionMasks[vertex] = 0;
     }
   }

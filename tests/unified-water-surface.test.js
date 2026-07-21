@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { getLakeBoundaryFrame } from '../src/lakeBoundary.js';
 import {
   RIVER_LAKE_INTERFACE_REGISTRY,
   UNIFIED_WATER_ATTRIBUTE_SCHEMA,
@@ -10,6 +11,10 @@ import {
   getRiverLakeTransitionInfluence,
   validateUnifiedWaterGeometry,
 } from '../src/unifiedWaterSurface.js';
+import {
+  PLUNGE_POOL,
+  WATERFALL_HYDRAULIC_FRAME,
+} from '../src/lowlandHeightPlan.js';
 
 const terrain = {
   getHeightAt(x, z) {
@@ -27,11 +32,11 @@ test('the scene water topology includes the eight expanded-cell basin batches', 
   assert.equal(system.group.children.length, 12);
   assert.deepEqual(
     system.batches.map((batch) => batch.userData.stats.lakeCount),
-    [2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 2],
+    [2, 3, 2, 4, 2, 2, 2, 2, 2, 2, 2, 2],
   );
   assert.deepEqual(
     system.batches.map((batch) => batch.userData.stats.interfaceCount),
-    [4, 3, 2, 6, 3, 3, 3, 3, 3, 3, 3, 3],
+    [4, 4, 2, 6, 3, 3, 3, 3, 3, 3, 3, 3],
   );
 
   for (const batch of system.batches) {
@@ -48,15 +53,16 @@ test('the scene water topology includes the eight expanded-cell basin batches', 
   disposeSystem(system);
 });
 
-test('every basin batch exposes the fixed twelve-attribute water info contract', () => {
+test('every basin batch exposes the fixed thirteen-attribute water info contract', () => {
   const system = createUnifiedWaterSystem(terrain);
   const schemaEntries = Object.entries(UNIFIED_WATER_ATTRIBUTE_SCHEMA);
 
-  assert.equal(schemaEntries.length, 12);
+  assert.equal(schemaEntries.length, 13);
   assert.deepEqual(schemaEntries, [
     ['waterDepth', 1],
     ['shoreDistanceMeters', 1],
     ['shoreFoamMask', 1],
+    ['surfaceCoverage', 1],
     ['flowUv', 2],
     ['flowDirection', 2],
     ['junctionFlowDirection', 2],
@@ -91,11 +97,11 @@ test('all river-lake interfaces own five continuous transition rows', () => {
   const patches = system.batches.flatMap((batch) => batch.userData.transitionPatches);
   const influences = getFiveRowTransitionInfluences();
 
-  assert.equal(RIVER_LAKE_INTERFACE_REGISTRY.length, 39);
-  assert.equal(system.stats.interfaceCount, 39);
-  assert.equal(system.stats.transitionPatchCount, 39);
-  assert.equal(system.stats.transitionRowCount, 195);
-  assert.equal(patches.length, 39);
+  assert.equal(RIVER_LAKE_INTERFACE_REGISTRY.length, 40);
+  assert.equal(system.stats.interfaceCount, 40);
+  assert.equal(system.stats.transitionPatchCount, 40);
+  assert.equal(system.stats.transitionRowCount, 200);
+  assert.equal(patches.length, 40);
   assert.deepEqual(
     patches.map((patch) => patch.id).sort(),
     RIVER_LAKE_INTERFACE_REGISTRY.map((entry) => entry.id).sort(),
@@ -107,7 +113,7 @@ test('all river-lake interfaces own five continuous transition rows', () => {
     }, {}),
     {
       'alpine-basin': 4,
-      'hero-east-basin': 3,
+      'hero-east-basin': 4,
       'north-lowland-basin': 2,
       'south-lowland-basin': 6,
       'northwest-outer-basin': 3,
@@ -127,6 +133,7 @@ test('all river-lake interfaces own five continuous transition rows', () => {
   for (const batch of system.batches) {
     const shoreDistance = batch.geometry.getAttribute('shoreDistanceMeters');
     const shoreFoamMask = batch.geometry.getAttribute('shoreFoamMask');
+    const surfaceCoverage = batch.geometry.getAttribute('surfaceCoverage');
     const riverInfluence = batch.geometry.getAttribute('riverInfluence');
     const transitionVertices = new Set(
       batch.userData.transitionPatches.flatMap((patch) => patch.rows.flat()),
@@ -162,6 +169,12 @@ test('all river-lake interfaces own five continuous transition rows', () => {
       ));
       assert.ok(patch.rows.flat().every(
         (vertex) => shoreFoamMask.getX(vertex) === 0,
+      ));
+      assert.ok(patch.rows.flat().every(
+        (vertex) => surfaceCoverage.getX(vertex) === 1,
+      ));
+      assert.ok(patch.outerSourceRow.every(
+        (vertex) => surfaceCoverage.getX(vertex) === 1,
       ));
 
       const positions = batch.geometry.getAttribute('position');
@@ -203,6 +216,152 @@ test('all river-lake interfaces own five continuous transition rows', () => {
     }
     assert.ok(trueWaterLandShoreVertexCount > 0);
   }
+
+  disposeSystem(system);
+});
+
+test('the hero basin owns a continuous plunge pool with localized impact hydraulics', () => {
+  const system = createUnifiedWaterSystem(terrain);
+  const heroBatch = system.batches.find(
+    (batch) => batch.userData.basinId === 'hero-east-basin',
+  );
+  const positions = heroBatch.geometry.getAttribute('position');
+  const flowUv = heroBatch.geometry.getAttribute('flowUv');
+  const flowDirection = heroBatch.geometry.getAttribute('flowDirection');
+  const junctionFlowDirection = heroBatch.geometry.getAttribute('junctionFlowDirection');
+  const flowSpeed = heroBatch.geometry.getAttribute('flowSpeed');
+  const riverInfluence = heroBatch.geometry.getAttribute('riverInfluence');
+  const rapidMask = heroBatch.geometry.getAttribute('rapidMask');
+  const junctionMask = heroBatch.geometry.getAttribute('junctionMask');
+  const disturbanceMask = heroBatch.geometry.getAttribute('disturbanceMask');
+  const surfaceCoverage = heroBatch.geometry.getAttribute('surfaceCoverage');
+  const plungePart = heroBatch.userData.stats.lakeParts.find(
+    (part) => part.id === PLUNGE_POOL.id,
+  );
+  const plungePatch = heroBatch.userData.transitionPatches.find(
+    (patch) => patch.id === 'hero-plunge-pool-outlet',
+  );
+  const transitionVertices = new Set(plungePatch.rows.flat());
+  const { impact, outflowDirection, poolSurfaceY } = WATERFALL_HYDRAULIC_FRAME;
+  const outflowLength = Math.hypot(outflowDirection.x, outflowDirection.z);
+  const directionX = outflowDirection.x / outflowLength;
+  const directionZ = outflowDirection.z / outflowLength;
+  const sideX = -directionZ;
+  const sideZ = directionX;
+  let centerVertex = -1;
+  let calmVertexCount = 0;
+  let activeVertexCount = 0;
+  let softShoreVertexCount = 0;
+  let coveredInteriorVertexCount = 0;
+
+  assert.ok(plungePart);
+  assert.ok(plungePatch);
+  assert.equal(heroBatch.userData.stats.lakeCount, 3);
+  assert.equal(heroBatch.userData.stats.interfaceCount, 4);
+
+  for (let vertex = 0; vertex < positions.count; vertex += 1) {
+    const deltaX = positions.getX(vertex) - impact.x;
+    const deltaZ = positions.getZ(vertex) - impact.z;
+    const distance = Math.hypot(deltaX, deltaZ);
+
+    if (distance < 1e-6 && Math.abs(positions.getY(vertex) - poolSurfaceY) < 1e-6) {
+      centerVertex = vertex;
+    }
+    if (
+      Math.abs(positions.getY(vertex) - poolSurfaceY) < 1e-6
+      && !transitionVertices.has(vertex)
+    ) {
+      const boundary = getLakeBoundaryFrame(
+        PLUNGE_POOL,
+        positions.getX(vertex),
+        positions.getZ(vertex),
+      );
+
+      if (Math.abs(boundary.signedDistance) < 1e-4) {
+        softShoreVertexCount += 1;
+        assert.equal(surfaceCoverage.getX(vertex), 0);
+      } else if (boundary.signedDistance <= -0.35) {
+        coveredInteriorVertexCount += 1;
+        assert.equal(surfaceCoverage.getX(vertex), 1);
+      }
+    }
+    if (distance > PLUNGE_POOL.radius + 1e-4 || transitionVertices.has(vertex)) continue;
+
+    const along = deltaX * directionX + deltaZ * directionZ;
+    const lateral = deltaX * sideX + deltaZ * sideZ;
+    const hydraulic = riverInfluence.getX(vertex);
+
+    if (hydraulic > 1e-5) {
+      activeVertexCount += 1;
+      assert.ok(
+        distance < 6 + 1e-4
+          || (along > -0.5 && along < 10 && Math.abs(lateral) < 3),
+      );
+    } else if (distance > 6 && Math.abs(lateral) > 3) {
+      calmVertexCount += 1;
+      assert.equal(flowSpeed.getX(vertex), 0);
+      assert.equal(flowDirection.getX(vertex), 0);
+      assert.equal(flowDirection.getY(vertex), 0);
+    }
+  }
+
+  assert.ok(centerVertex >= 0);
+  assert.ok(activeVertexCount > 0);
+  assert.ok(calmVertexCount > 0);
+  assert.ok(softShoreVertexCount > 0);
+  assert.ok(coveredInteriorVertexCount > 0);
+  assert.ok(Math.abs(flowUv.getX(centerVertex)) < 1e-6);
+  assert.ok(Math.abs(flowUv.getY(centerVertex)) < 1e-6);
+  assert.ok(Math.abs(flowDirection.getX(centerVertex) - directionX) < 1e-6);
+  assert.ok(Math.abs(flowDirection.getY(centerVertex) - directionZ) < 1e-6);
+  assert.ok(Math.abs(junctionFlowDirection.getX(centerVertex) - directionX) < 1e-6);
+  assert.ok(Math.abs(junctionFlowDirection.getY(centerVertex) - directionZ) < 1e-6);
+  assert.ok(Math.abs(flowSpeed.getX(centerVertex) - 1.65) < 1e-6);
+  assert.equal(riverInfluence.getX(centerVertex), 1);
+  assert.equal(rapidMask.getX(centerVertex), 1);
+  assert.equal(junctionMask.getX(centerVertex), 0);
+  assert.equal(disturbanceMask.getX(centerVertex), 0);
+  assert.equal(surfaceCoverage.getX(centerVertex), 1);
+
+  disposeSystem(system);
+});
+
+test('surface coverage keeps the outlet endpoint fade outside lake interfaces', () => {
+  const system = createUnifiedWaterSystem(terrain);
+  const alpineBatch = system.batches.find(
+    (batch) => batch.userData.basinId === 'alpine-basin',
+  );
+  const outletPart = alpineBatch.userData.stats.riverParts.find(
+    (part) => part.id === 'alpine-outlet',
+  );
+  const surfaceCoverage = alpineBatch.geometry.getAttribute('surfaceCoverage');
+  const flowUv = alpineBatch.geometry.getAttribute('flowUv');
+  const outletStart = outletPart.vertexOffset;
+  const outletEnd = outletStart + outletPart.vertexCount - 1;
+  const rowSize = 11;
+  const rowCount = 91;
+  const centerColumn = Math.floor(rowSize / 2);
+  const finalCenter = outletStart + (rowCount - 1) * rowSize + centerColumn;
+  const finalFlow = flowUv.getX(finalCenter);
+  const rowSpacing = finalFlow / (rowCount - 1);
+  let maximumFadedDistance = 0;
+
+  assert.equal(surfaceCoverage.getX(outletStart), 1);
+  assert.equal(surfaceCoverage.getX(outletEnd), 0);
+  assert.equal(outletPart.vertexCount, rowSize * rowCount);
+
+  for (let row = 0; row < rowCount; row += 1) {
+    const vertex = outletStart + row * rowSize + centerColumn;
+
+    if (surfaceCoverage.getX(vertex) >= 1 - 1e-6) continue;
+    maximumFadedDistance = Math.max(
+      maximumFadedDistance,
+      finalFlow - flowUv.getX(vertex),
+    );
+  }
+
+  assert.ok(maximumFadedDistance <= WATERFALL_HYDRAULIC_FRAME.lipBlendLength
+    + rowSpacing + 1e-5);
 
   disposeSystem(system);
 });

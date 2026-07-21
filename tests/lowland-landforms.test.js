@@ -38,6 +38,7 @@ import {
   PLUNGE_POOL,
   SOUTHERN_LOWLAND_LAKES,
   TERMINAL_LOWLAND_LAKE,
+  WATERFALL_HYDRAULIC_FRAME,
   getHeroRiverTerrainTarget,
 } from '../src/lowlandHeightPlan.js';
 
@@ -754,16 +755,21 @@ function getPlungePoolClearanceReport(terrain) {
   let sampleCount = 0;
 
   for (let ring = 0; ring <= 9; ring += 1) {
-    const radius = ring / 10 * PLUNGE_POOL.radius;
-
     for (let segment = 0; segment < 48; segment += 1) {
       const angle = segment / 48 * Math.PI * 2;
+      const radius = ring / 10 * getLakeBoundaryRadius(PLUNGE_POOL, angle);
       const x = PLUNGE_POOL.cx + Math.cos(angle) * radius;
       const z = PLUNGE_POOL.cz + Math.sin(angle) * radius;
+      const lipDx = x - WATERFALL_HYDRAULIC_FRAME.lip.x;
+      const lipDz = z - WATERFALL_HYDRAULIC_FRAME.lip.z;
+      const downstreamDistance = lipDx * WATERFALL_HYDRAULIC_FRAME.fallDirection.x
+        + lipDz * WATERFALL_HYDRAULIC_FRAME.fallDirection.z;
+
+      if (downstreamDistance < WATERFALL_HYDRAULIC_FRAME.plungeBlendLength) continue;
 
       minimumClearance = Math.min(
         minimumClearance,
-        PLUNGE_POOL.waterLevel - terrain.getHeightAt(x, z),
+        WATERFALL_HYDRAULIC_FRAME.poolSurfaceY - terrain.getHeightAt(x, z),
       );
       sampleCount += 1;
     }

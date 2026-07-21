@@ -19,10 +19,13 @@ import {
   isInRiverNetworkVegetationExclusion,
 } from './hydrology/riverNetwork.js';
 import { createRiverNetworkWaterGeometry } from './hydrology/riverNetworkWaterGeometry.js';
-import { PLUNGE_POOL } from './lowlandHeightPlan.js';
+import {
+  PLUNGE_POOL,
+  WATERFALL_HYDRAULIC_FRAME,
+  applyWaterfallTerrainProfile,
+} from './lowlandHeightPlan.js';
 import {
   ALPINE_LAKE_BOUNDARY,
-  findLakeBoundaryIntersection,
   getLakeBoundary,
   getLakeBoundaryFrame,
   getLakeBoundaryRadius,
@@ -82,19 +85,11 @@ const WIDE_WATER_FEATURE_BOUNDS = [
 ];
 const RIVER_NETWORK_FEATURE_BOUNDS = getRiverNetworkFeatureBounds();
 
-const outletShore = findLakeBoundaryIntersection(
-  ALPINE_LAKE_BOUNDARY,
-  { x: 340, z: -410 },
-  { x: 365, z: -417 },
+const OUTLET_POINTS = WATERFALL_HYDRAULIC_FRAME.outletPoints.map(
+  ([x, z]) => new THREE.Vector3(x, 0, z),
 );
-const OUTLET_POINTS = [
-  new THREE.Vector3(outletShore.x, 0, outletShore.z),
-  new THREE.Vector3(365, 0, -417),
-  new THREE.Vector3(392, 0, -419),
-  new THREE.Vector3(409, 0, -421),
-];
-const OUTLET_WIDTH = 5.2;
-const OUTLET_INFLUENCE = 8.5;
+const OUTLET_WIDTH = WATERFALL_HYDRAULIC_FRAME.crestWidth;
+const OUTLET_INFLUENCE = WATERFALL_HYDRAULIC_FRAME.outletInfluence;
 const OUTLET_GRASS_FULL_WIDTH = OUTLET_INFLUENCE + 2.5;
 const OUTLET_GRASS_BOUNDS = {
   minX: Math.min(...OUTLET_POINTS.map((point) => point.x)) - OUTLET_GRASS_FULL_WIDTH,
@@ -102,26 +97,17 @@ const OUTLET_GRASS_BOUNDS = {
   minZ: Math.min(...OUTLET_POINTS.map((point) => point.z)) - OUTLET_GRASS_FULL_WIDTH,
   maxZ: Math.max(...OUTLET_POINTS.map((point) => point.z)) + OUTLET_GRASS_FULL_WIDTH,
 };
-const OUTLET_WATER_OFFSET = 0.35;
-const WATERFALL_LIP_FOAM_LENGTH = 4.2;
-const WATERFALL_LIP_FOAM_WIDTH = 7.2;
-
-const WATERFALL_LIP = new THREE.Vector3(409, LAKE_WATER_LEVEL - 0.6, -421);
-const WATERFALL_BASE = new THREE.Vector3(418, 1.5, -424);
-const WATERFALL_WIDTH = 7.5;
-const WATERFALL_LAYERS = [
-  { name: 'WaterfallMainVeil', xOffset: 0, zOffset: 0, width: 0.72, alpha: 0.22, speed: 1.15 },
-  { name: 'WaterfallLeftThreads', xOffset: -1.7, zOffset: -0.45, width: 0.3, alpha: 0.1, speed: 1.35 },
-  { name: 'WaterfallRightThreads', xOffset: 1.7, zOffset: 0.3, width: 0.32, alpha: 0.11, speed: 1.28 },
-  { name: 'WaterfallMistVeil', xOffset: 0.3, zOffset: 0.8, width: 0.82, alpha: 0.05, speed: 0.72 },
-];
-
-const PLUNGE_CENTER = new THREE.Vector2(PLUNGE_POOL.cx, PLUNGE_POOL.cz);
-const PLUNGE_RADIUS = PLUNGE_POOL.radius;
-const PLUNGE_OUTFLOW_DIRECTION = new THREE.Vector2(0.82, 0.57).normalize();
-const PLUNGE_OUTFLOW_LENGTH = 24;
-const PLUNGE_OUTFLOW_START_WIDTH = 8.5;
-const PLUNGE_OUTFLOW_END_WIDTH = 4.2;
+const OUTLET_WATER_OFFSET = WATERFALL_HYDRAULIC_FRAME.outletWaterOffset;
+const WATERFALL_VERTICAL_SEGMENTS = 64;
+const WATERFALL_LATERAL_SEGMENTS = 16;
+const WATERFALL_LIP_FOAM_LENGTH = WATERFALL_HYDRAULIC_FRAME.lipBlendLength;
+const WATERFALL_LIP_FOAM_OVERLAP = WATERFALL_HYDRAULIC_FRAME.lipOverlapLength;
+const WATERFALL_LIP_FOAM_SURFACE_OFFSET = 0.018;
+const WATERFALL_IMPACT_RADIUS = 6;
+const WATERFALL_SPRAY_COUNT = 128;
+const WATERFALL_MIST_COUNT = 64;
+const WATERFALL_PARTICLE_COUNT = WATERFALL_SPRAY_COUNT + WATERFALL_MIST_COUNT;
+const WATERFALL_GRAVITY = 9.81;
 
 const outletCurve = new THREE.CatmullRomCurve3(OUTLET_POINTS, false, 'centripetal');
 const outletSamples = createPathSamples(outletCurve, 100);
@@ -137,12 +123,7 @@ export function applyWaterSystemTerrain(baseHeight, x, z) {
 export function applyWaterSystemMacroTerrain(baseHeight, x, z) {
   if (!isNearWaterSystem(x, z)) return baseHeight;
 
-  let height = applyLakeBasin(baseHeight, x, z);
-
-  height = applyOutletChannel(height, x, z);
-  height = applyPlungePool(height, x, z);
-
-  return height;
+  return applyWaterfallTerrainProfile(applyLakeBasin(baseHeight, x, z), x, z);
 }
 
 export function getWaterSystemMaterialFrame(baseHeight, x, z) {
@@ -174,7 +155,7 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
   const lake = getLakeFrame(x, z);
   const outlet = getPathFrame(outletSamples, x, z);
   const outletFade = getLakeOutsideFade(ALPINE_LAKE_BOUNDARY, x, z);
-  const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
+  const plungeFrame = getLakeBoundaryFrame(PLUNGE_POOL, x, z);
   const lakeBedMask = lake.inside * (1 - smoothstep(lake.lakeRadius - 1.2, lake.lakeRadius + 0.4, lake.radius));
   const lakeInnerShoreMask = lake.inside * smoothstep(lake.lakeRadius - 8, lake.lakeRadius - 1.4, lake.radius);
   const lakeOuterShoreMask = (1 - lake.inside) * (1 - smoothstep(lake.lakeRadius, lake.lakeRadius + LAKE_SHORE_WIDTH, lake.radius));
@@ -185,7 +166,7 @@ export function getWaterSystemMaterialFrame(baseHeight, x, z) {
       Math.abs(outlet.lateral),
     )) * outletFade
     : 0;
-  const plungeMask = 1 - smoothstep(PLUNGE_RADIUS * 0.45, PLUNGE_RADIUS, plungeDistance);
+  const plungeMask = 1 - smoothstep(0.45, 1, plungeFrame.normalizedRadius);
   const wetShoreMask = Math.max(
     lakeInnerShoreMask * 0.68,
     lakeOuterShoreMask,
@@ -222,9 +203,7 @@ export function isInWaterSystemVegetationExclusion(x, z, buffer = 2) {
   const outlet = getPathFrame(outletSamples, x, z);
   if (outlet && Math.abs(outlet.lateral) <= OUTLET_WIDTH * 0.5 + buffer + 1.5) return true;
 
-  const plungeDistance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
-
-  return plungeDistance <= PLUNGE_RADIUS + buffer;
+  return getLakeBoundaryFrame(PLUNGE_POOL, x, z).signedDistance <= buffer;
 }
 
 export function getFlowingWaterGrassAcceptance(x, z) {
@@ -232,9 +211,7 @@ export function getFlowingWaterGrassAcceptance(x, z) {
 
   if (lake.radius <= lake.lakeRadius + LAKE_SHORE_WIDTH + 4) return 0;
 
-  const plungeDistance = Math.hypot(x - PLUNGE_CENTER.x, z - PLUNGE_CENTER.y);
-
-  if (plungeDistance <= PLUNGE_RADIUS + 4) return 0;
+  if (getLakeBoundaryFrame(PLUNGE_POOL, x, z).signedDistance <= 4) return 0;
 
   let acceptance = Math.min(
     getRiverGrassAcceptance(x, z),
@@ -418,44 +395,6 @@ function applySouthwestShoreRaise(height, frame, x, z) {
   const raised = THREE.MathUtils.lerp(height, target, localMask * shoreBand);
 
   return Math.max(height, raised);
-}
-
-function applyOutletChannel(height, x, z) {
-  const frame = getPathFrame(outletSamples, x, z);
-
-  if (!frame) return height;
-
-  const lakeFade = getLakeOutsideFade(ALPINE_LAKE_BOUNDARY, x, z);
-
-  if (lakeFade <= 0) return height;
-
-  const lateralDistance = Math.abs(frame.lateral);
-  if (lateralDistance > OUTLET_INFLUENCE) return height;
-
-  const bedMask = 1 - smoothstep(0, OUTLET_WIDTH * 0.5, lateralDistance);
-  const bankMask = 1 - smoothstep(OUTLET_WIDTH * 0.5, OUTLET_INFLUENCE, lateralDistance);
-  const flowT = frame.distance / outletSamples[outletSamples.length - 1].distance;
-  const target = THREE.MathUtils.lerp(LAKE_WATER_LEVEL - 1.7, WATERFALL_LIP.y - 1.1, flowT);
-  const carveMask = Math.max(bedMask, bankMask * 0.45) * lakeFade;
-
-  return Math.min(height, THREE.MathUtils.lerp(height, target, carveMask));
-}
-
-function applyPlungePool(height, x, z) {
-  const distance = new THREE.Vector2(x, z).distanceTo(PLUNGE_CENTER);
-
-  if (distance > PLUNGE_RADIUS) return height;
-
-  const radiusT = distance / PLUNGE_RADIUS;
-  const depthT = smoothstep(0.18, 1, radiusT);
-  const depth = THREE.MathUtils.lerp(
-    PLUNGE_POOL.maxDepth,
-    PLUNGE_POOL.edgeDepth,
-    depthT,
-  );
-  const target = PLUNGE_POOL.waterLevel - depth;
-
-  return Math.min(height, target);
 }
 
 function createLakeWater(terrain, material) {
@@ -955,14 +894,16 @@ function clipOutletGeometryToLakeShore(geometry, terrain) {
   geometry.computeBoundingSphere();
 }
 
-function getWaterfallLip(terrain) {
-  const point = outletCurve.getPointAt(1);
+function getWaterfallLip() {
+  const { lip } = WATERFALL_HYDRAULIC_FRAME;
 
-  return new THREE.Vector3(
-    point.x,
-    getOutletSurfaceHeight(terrain, point.x, point.z),
-    point.z,
-  );
+  return new THREE.Vector3(lip.x, lip.y, lip.z);
+}
+
+function getWaterfallImpact() {
+  const { impact, poolSurfaceY } = WATERFALL_HYDRAULIC_FRAME;
+
+  return new THREE.Vector3(impact.x, poolSurfaceY, impact.z);
 }
 
 function getOutletLipSide() {
@@ -977,24 +918,30 @@ function getOutletLipForward() {
   return new THREE.Vector3(tangent.x, 0, tangent.z).normalize();
 }
 
-function createWaterfallGroup(terrain) {
+function getWaterfallOutflow() {
+  const { outflowDirection } = WATERFALL_HYDRAULIC_FRAME;
+
+  return new THREE.Vector3(outflowDirection.x, 0, outflowDirection.z).normalize();
+}
+
+function createWaterfallGroup() {
   const group = new THREE.Group();
+  const curtain = new THREE.Mesh(
+    createWaterfallGeometry(),
+    createWaterfallMaterial(),
+  );
+  const particles = createWaterfallParticles();
+
   group.name = 'WaterfallSystem';
-
-  WATERFALL_LAYERS.forEach((layer, index) => {
-    const mesh = new THREE.Mesh(createWaterfallGeometry(layer, terrain), createWaterfallMaterial(layer));
-    mesh.name = layer.name;
-    mesh.renderOrder = WATER_RENDER_ORDER.waterfall + index * 0.01;
-    group.add(mesh);
-  });
-
-  group.add(createMistParticles());
+  curtain.name = 'WaterfallMountainThinVeil';
+  curtain.renderOrder = WATER_RENDER_ORDER.waterfall;
+  group.add(curtain, particles);
 
   return group;
 }
 
-function createWaterfallLipFoam(terrain) {
-  const geometry = createWaterfallLipFoamGeometry(terrain);
+function createWaterfallLipFoam() {
+  const geometry = createWaterfallLipFoamGeometry();
   const mesh = new THREE.Mesh(geometry, createWaterfallLipFoamMaterial());
 
   mesh.name = 'WaterfallLipFoam';
@@ -1004,78 +951,79 @@ function createWaterfallLipFoam(terrain) {
 }
 
 function createConfluenceFoam() {
-  const geometry = createConfluenceFoamGeometry();
+  const geometry = createWaterfallImpactFoamGeometry();
   const mesh = new THREE.Mesh(geometry, createFoamOverlayMaterial());
   mesh.name = 'WaterfallConfluenceFoam';
+  mesh.userData.effectType = 'localized-waterfall-impact';
   mesh.renderOrder = WATER_RENDER_ORDER.foam;
 
   return mesh;
 }
 
-function createConfluenceFoamGeometry() {
-  const longitudinalSegments = 14;
-  const lateralSegments = 8;
-  const verticesPerRow = lateralSegments + 1;
-  const positions = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 3);
-  const uvs = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 2);
-  const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
-  const forward = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
+function createWaterfallImpactFoamGeometry() {
+  const radialSegments = 48;
+  const radialRings = 4;
+  const vertexCount = 1 + radialSegments * radialRings;
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const indices = [];
+  const impact = getWaterfallImpact();
+  const forward = getWaterfallOutflow();
   const side = new THREE.Vector3(-forward.z, 0, forward.x);
-  const start = new THREE.Vector3(
-    PLUNGE_CENTER.x,
-    PLUNGE_POOL.waterLevel + 0.02,
-    PLUNGE_CENTER.y,
-  );
-  let positionOffset = 0;
-  let uvOffset = 0;
 
-  for (let i = 0; i <= longitudinalSegments; i += 1) {
-    const t = i / longitudinalSegments;
-    const width = THREE.MathUtils.lerp(PLUNGE_OUTFLOW_START_WIDTH, PLUNGE_OUTFLOW_END_WIDTH, t);
-    const center = start.clone().addScaledVector(forward, t * PLUNGE_OUTFLOW_LENGTH - 3.5);
-    const edgeNoise = Math.sin(i * 1.37) * 0.45 + Math.sin(i * 2.41) * 0.22;
+  positions.set([impact.x, impact.y + 0.025, impact.z], 0);
+  uvs.set([0.5, 0.5], 0);
 
-    for (let j = 0; j <= lateralSegments; j += 1) {
-      const lateralT = j / lateralSegments;
-      const edgeT = Math.abs(lateralT - 0.5) * 2;
-      const lateral = (lateralT - 0.5) * (width + edgeNoise * edgeT);
-      const point = center.clone().addScaledVector(side, lateral);
+  for (let ring = 1; ring <= radialRings; ring += 1) {
+    const ringT = ring / radialRings;
 
-      positions[positionOffset] = point.x;
-      positions[positionOffset + 1] = point.y;
-      positions[positionOffset + 2] = point.z;
-      positionOffset += 3;
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const angle = segment / radialSegments * Math.PI * 2;
+      const edgeNoise = ring === radialRings
+        ? 0.95 + pseudoRandom(segment * 8.17) * 0.1
+        : 1;
+      const radius = WATERFALL_IMPACT_RADIUS * 0.9 * ringT * edgeNoise;
+      const downstreamShift = 0.28 * ringT * ringT;
+      const point = impact.clone()
+        .addScaledVector(side, Math.cos(angle) * radius)
+        .addScaledVector(forward, Math.sin(angle) * radius + downstreamShift);
+      const vertex = 1 + (ring - 1) * radialSegments + segment;
 
-      uvs[uvOffset] = t;
-      uvs[uvOffset + 1] = lateralT;
-      uvOffset += 2;
+      positions[vertex * 3] = point.x;
+      positions[vertex * 3 + 1] = impact.y + 0.025;
+      positions[vertex * 3 + 2] = point.z;
+      uvs[vertex * 2] = 0.5 + Math.cos(angle) * radius / (WATERFALL_IMPACT_RADIUS * 2);
+      uvs[vertex * 2 + 1] = 0.5
+        + (Math.sin(angle) * radius + downstreamShift) / (WATERFALL_IMPACT_RADIUS * 2);
     }
   }
 
-  let indexOffset = 0;
-  for (let i = 0; i < longitudinalSegments; i += 1) {
-    for (let j = 0; j < lateralSegments; j += 1) {
-      const a = i * verticesPerRow + j;
-      const b = a + 1;
-      const c = a + verticesPerRow;
-      const d = c + 1;
+  for (let segment = 0; segment < radialSegments; segment += 1) {
+    indices.push(0, 1 + segment, 1 + (segment + 1) % radialSegments);
+  }
 
-      indices[indexOffset] = a;
-      indices[indexOffset + 1] = c;
-      indices[indexOffset + 2] = b;
-      indices[indexOffset + 3] = b;
-      indices[indexOffset + 4] = c;
-      indices[indexOffset + 5] = d;
-      indexOffset += 6;
+  for (let ring = 1; ring < radialRings; ring += 1) {
+    const innerStart = 1 + (ring - 1) * radialSegments;
+    const outerStart = innerStart + radialSegments;
+
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const next = (segment + 1) % radialSegments;
+      const a = innerStart + segment;
+      const b = innerStart + next;
+      const c = outerStart + segment;
+      const d = outerStart + next;
+
+      indices.push(a, c, b, b, c, d);
     }
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
+  geometry.userData.impactRadius = WATERFALL_IMPACT_RADIUS;
 
   return geometry;
 }
@@ -1207,43 +1155,52 @@ function createPathStripGeometry(
   return geometry;
 }
 
-function createWaterfallGeometry(layer, terrain) {
-  const verticalSegments = 28;
-  const lateralSegments = 7;
-  const verticesPerRow = lateralSegments + 1;
-  const positions = new Float32Array((verticalSegments + 1) * verticesPerRow * 3);
-  const uvs = new Float32Array((verticalSegments + 1) * verticesPerRow * 2);
-  const indices = new Uint32Array(verticalSegments * lateralSegments * 6);
-  const lip = getWaterfallLip(terrain);
+function getWaterfallCurtainWidth(s) {
+  const contraction = 1 - 0.22 * smoothstep(0.04, 0.62, s);
+  const lowerSpread = 0.35 * smoothstep(0.68, 1, s);
+
+  return WATERFALL_HYDRAULIC_FRAME.crestWidth * (contraction + lowerSpread);
+}
+
+function createWaterfallGeometry() {
+  const verticesPerRow = WATERFALL_LATERAL_SEGMENTS + 1;
+  const vertexCount = (WATERFALL_VERTICAL_SEGMENTS + 1) * verticesPerRow;
+  const positions = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const fallTimes = new Float32Array(vertexCount);
+  const lateralMeters = new Float32Array(vertexCount);
+  const sheetThicknesses = new Float32Array(vertexCount);
+  const indices = new Uint32Array(
+    WATERFALL_VERTICAL_SEGMENTS * WATERFALL_LATERAL_SEGMENTS * 6,
+  );
+  const lip = getWaterfallLip();
+  const impact = getWaterfallImpact();
   const right = getOutletLipSide();
-  const forward = new THREE.Vector3(
-    WATERFALL_BASE.x - lip.x,
-    0,
-    WATERFALL_BASE.z - lip.z,
-  ).normalize();
+  const drop = lip.y - impact.y;
+  const flightTime = Math.sqrt(2 * drop / WATERFALL_GRAVITY);
   let positionOffset = 0;
   let uvOffset = 0;
+  let attributeOffset = 0;
 
-  for (let i = 0; i <= verticalSegments; i += 1) {
-    const t = i / verticalSegments;
-    const eased = t * t * (3 - 2 * t);
-    const center = new THREE.Vector3().lerpVectors(lip, WATERFALL_BASE, eased);
-    const offsetMask = smoothstep(0.04, 0.28, t);
-    center.addScaledVector(right, layer.xOffset);
-    center.addScaledVector(forward, Math.sin(t * Math.PI) * 2.8 + layer.zOffset * offsetMask);
-    const width = WATERFALL_WIDTH * layer.width * THREE.MathUtils.lerp(0.62, 1.28, t);
-    const lipBlend = 1 - smoothstep(0, 0.12, t);
+  for (let i = 0; i <= WATERFALL_VERTICAL_SEGMENTS; i += 1) {
+    const s = i / WATERFALL_VERTICAL_SEGMENTS;
+    const center = new THREE.Vector3(
+      THREE.MathUtils.lerp(lip.x, impact.x, s),
+      lip.y - drop * s * s,
+      THREE.MathUtils.lerp(lip.z, impact.z, s),
+    );
+    const width = getWaterfallCurtainWidth(s);
+    const lowerBreakup = smoothstep(0.64, 1, s);
+    const thickness = Math.max(0.055, 0.16 / Math.sqrt(1 + 4.2 * s));
 
-    for (let j = 0; j <= lateralSegments; j += 1) {
-      const lateralT = j / lateralSegments;
+    for (let j = 0; j <= WATERFALL_LATERAL_SEGMENTS; j += 1) {
+      const lateralT = j / WATERFALL_LATERAL_SEGMENTS;
       const lateral = (lateralT - 0.5) * width;
-      const breakup = Math.sin(i * 1.9 + j * 2.7) * 0.18 * t;
+      const breakup = (
+        Math.sin(i * 1.37 + j * 2.71)
+        + Math.sin(i * 0.53 - j * 1.43) * 0.55
+      ) * 0.075 * lowerBreakup * Math.abs(lateralT - 0.5) * 2;
       const point = center.clone().addScaledVector(right, lateral + breakup);
-      point.y = THREE.MathUtils.lerp(
-        point.y,
-        getOutletSurfaceHeight(terrain, point.x, point.z),
-        lipBlend,
-      );
 
       positions[positionOffset] = point.x;
       positions[positionOffset + 1] = point.y;
@@ -1251,14 +1208,19 @@ function createWaterfallGeometry(layer, terrain) {
       positionOffset += 3;
 
       uvs[uvOffset] = lateralT;
-      uvs[uvOffset + 1] = t;
+      uvs[uvOffset + 1] = s;
       uvOffset += 2;
+
+      fallTimes[attributeOffset] = s * flightTime;
+      lateralMeters[attributeOffset] = lateral;
+      sheetThicknesses[attributeOffset] = thickness;
+      attributeOffset += 1;
     }
   }
 
   let indexOffset = 0;
-  for (let i = 0; i < verticalSegments; i += 1) {
-    for (let j = 0; j < lateralSegments; j += 1) {
+  for (let i = 0; i < WATERFALL_VERTICAL_SEGMENTS; i += 1) {
+    for (let j = 0; j < WATERFALL_LATERAL_SEGMENTS; j += 1) {
       const a = i * verticesPerRow + j;
       const b = a + 1;
       const c = a + verticesPerRow;
@@ -1276,130 +1238,354 @@ function createWaterfallGeometry(layer, terrain) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('fallTime', new THREE.BufferAttribute(fallTimes, 1));
+  geometry.setAttribute('lateralMeters', new THREE.BufferAttribute(lateralMeters, 1));
+  geometry.setAttribute('sheetThickness', new THREE.BufferAttribute(sheetThicknesses, 1));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
+  geometry.userData.waterfall = Object.freeze({
+    verticalSegments: WATERFALL_VERTICAL_SEGMENTS,
+    lateralSegments: WATERFALL_LATERAL_SEGMENTS,
+    flightTime,
+    topWidth: WATERFALL_HYDRAULIC_FRAME.crestWidth,
+    impactY: impact.y,
+  });
 
   return geometry;
 }
 
-function createWaterfallLipFoamGeometry(terrain) {
-  const radialSegments = 44;
-  const lip = getWaterfallLip(terrain);
+function createWaterfallLipFoamGeometry() {
+  const longitudinalSegments = 8;
+  const lipSegment = 6;
+  const lateralSegments = WATERFALL_LATERAL_SEGMENTS;
+  const verticesPerRow = lateralSegments + 1;
+  const positions = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 3);
+  const uvs = new Float32Array((longitudinalSegments + 1) * verticesPerRow * 2);
+  const crestCoverages = new Float32Array((longitudinalSegments + 1) * verticesPerRow);
+  const indices = new Uint32Array(longitudinalSegments * lateralSegments * 6);
+  const lip = getWaterfallLip();
+  const impact = getWaterfallImpact();
   const side = getOutletLipSide();
   const forward = getOutletLipForward();
-  const positions = new Float32Array((radialSegments + 1) * 3);
-  const uvs = new Float32Array((radialSegments + 1) * 2);
-  const indices = new Uint32Array(radialSegments * 3);
-  const center = lip.clone().addScaledVector(forward, -WATERFALL_LIP_FOAM_LENGTH * 0.24);
+  const fallDistance = Math.hypot(impact.x - lip.x, impact.z - lip.z);
+  const drop = lip.y - impact.y;
+  let positionOffset = 0;
+  let uvOffset = 0;
+  let attributeOffset = 0;
 
-  positions[0] = center.x;
-  positions[1] = getOutletSurfaceHeight(terrain, center.x, center.z) + 0.08;
-  positions[2] = center.z;
-  uvs[0] = 0.5;
-  uvs[1] = 0.5;
+  for (let i = 0; i <= longitudinalSegments; i += 1) {
+    const t = i / longitudinalSegments;
+    const upstream = i <= lipSegment;
+    const upstreamT = Math.min(i / lipSegment, 1);
+    const overlapT = upstream
+      ? 0
+      : (i - lipSegment) / (longitudinalSegments - lipSegment);
+    const fallS = Math.min(
+      overlapT * WATERFALL_LIP_FOAM_OVERLAP / Math.max(fallDistance, 1e-6),
+      1,
+    );
+    const center = upstream
+      ? lip.clone().addScaledVector(
+        forward,
+        (upstreamT - 1) * WATERFALL_LIP_FOAM_LENGTH,
+      )
+      : new THREE.Vector3(
+        THREE.MathUtils.lerp(lip.x, impact.x, fallS),
+        lip.y - drop * fallS * fallS,
+        THREE.MathUtils.lerp(lip.z, impact.z, fallS),
+      );
+    const width = upstream
+      ? WATERFALL_HYDRAULIC_FRAME.crestWidth
+      : getWaterfallCurtainWidth(fallS);
+    const crestCoverage = upstream
+      ? smoothstep(0, 0.55, upstreamT)
+      : 1 - smoothstep(0, 1, overlapT);
 
-  for (let i = 0; i < radialSegments; i += 1) {
-    const angle = (i / radialSegments) * Math.PI * 2;
-    const widthNoise = 0.88 + pseudoRandom(i * 13.7) * 0.24;
-    const lengthNoise = 0.82 + pseudoRandom(i * 7.9) * 0.32;
-    const lateral = Math.cos(angle) * WATERFALL_LIP_FOAM_WIDTH * 0.5 * widthNoise;
-    const longitudinal = Math.sin(angle) * WATERFALL_LIP_FOAM_LENGTH * 0.5 * lengthNoise;
-    const point = center.clone()
-      .addScaledVector(side, lateral)
-      .addScaledVector(forward, longitudinal);
-    const vertex = i + 1;
+    center.y += WATERFALL_LIP_FOAM_SURFACE_OFFSET;
 
-    positions[vertex * 3] = point.x;
-    positions[vertex * 3 + 1] = getOutletSurfaceHeight(terrain, point.x, point.z) + 0.1;
-    positions[vertex * 3 + 2] = point.z;
-    uvs[vertex * 2] = 0.5 + (lateral / WATERFALL_LIP_FOAM_WIDTH);
-    uvs[vertex * 2 + 1] = 0.5 + (longitudinal / WATERFALL_LIP_FOAM_LENGTH);
+    for (let j = 0; j <= lateralSegments; j += 1) {
+      const lateralT = j / lateralSegments;
+      const edgeT = Math.abs(lateralT - 0.5) * 2;
+      const widthNoise = (
+        Math.sin(i * 1.17 + j * 2.31)
+        + Math.sin(i * 2.07 - j * 0.73) * 0.5
+      ) * 0.045 * edgeT * (upstream ? 1 - upstreamT : 0);
+      const lateral = (lateralT - 0.5)
+        * width
+        * (1 + (upstream ? 0.04 * (1 - upstreamT) : 0) + widthNoise);
+      const point = center.clone().addScaledVector(side, lateral);
+
+      positions[positionOffset] = point.x;
+      positions[positionOffset + 1] = point.y;
+      positions[positionOffset + 2] = point.z;
+      positionOffset += 3;
+      uvs[uvOffset] = lateralT;
+      uvs[uvOffset + 1] = t;
+      uvOffset += 2;
+      crestCoverages[attributeOffset] = crestCoverage;
+      attributeOffset += 1;
+    }
   }
 
-  for (let i = 0; i < radialSegments; i += 1) {
-    const next = i === radialSegments - 1 ? 1 : i + 2;
+  let indexOffset = 0;
+  for (let i = 0; i < longitudinalSegments; i += 1) {
+    for (let j = 0; j < lateralSegments; j += 1) {
+      const a = i * verticesPerRow + j;
+      const b = a + 1;
+      const c = a + verticesPerRow;
+      const d = c + 1;
 
-    indices[i * 3] = 0;
-    indices[i * 3 + 1] = i + 1;
-    indices[i * 3 + 2] = next;
+      indices[indexOffset] = a;
+      indices[indexOffset + 1] = c;
+      indices[indexOffset + 2] = b;
+      indices[indexOffset + 3] = b;
+      indices[indexOffset + 4] = c;
+      indices[indexOffset + 5] = d;
+      indexOffset += 6;
+    }
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute(
+    'crestCoverage',
+    new THREE.BufferAttribute(crestCoverages, 1),
+  );
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
+  geometry.userData.crestWidth = WATERFALL_HYDRAULIC_FRAME.crestWidth;
+  geometry.userData.crestLength = WATERFALL_LIP_FOAM_LENGTH;
+  geometry.userData.crestOverlapLength = WATERFALL_LIP_FOAM_OVERLAP;
+  geometry.userData.lipRow = lipSegment;
+  geometry.userData.rowSize = verticesPerRow;
 
   return geometry;
 }
 
-function createWaterfallMaterial(layer) {
-  return new THREE.ShaderMaterial({
+function createWaterfallMaterial() {
+  const material = new THREE.ShaderMaterial({
+    name: 'WaterfallMountainThinVeilMaterial',
     side: THREE.DoubleSide,
     transparent: true,
     forceSinglePass: true,
     depthWrite: false,
     depthTest: true,
+    premultipliedAlpha: true,
+    blending: THREE.NormalBlending,
+    extensions: { derivatives: true },
     uniforms: createWaterUniforms({
-      uLayerAlpha: { value: layer.alpha },
-      uFallSpeed: { value: layer.speed },
+      tSceneColor: { value: null },
+      tSceneDepth: { value: null },
+      tWaterDepth: { value: null },
+      tEnvironmentMap: { value: null },
+      uResolution: { value: new THREE.Vector2(1, 1) },
+      uProjectionMatrixInverse: { value: new THREE.Matrix4() },
+      uCameraWorldMatrix: { value: new THREE.Matrix4() },
+      uViewMatrix: { value: new THREE.Matrix4() },
+      uSunDirection: { value: VISUAL_ENVIRONMENT.sun.direction.clone() },
+      uSunColor: { value: new THREE.Color(VISUAL_ENVIRONMENT.sun.glowColor) },
+      uHasEnvironmentMap: { value: 0 },
+      uWaterEffectOpticsReady: { value: 0 },
     }),
     vertexShader: `
+      uniform float uTime;
+
+      attribute float fallTime;
+      attribute float lateralMeters;
+      attribute float sheetThickness;
+
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying vec3 vWorldNormal;
+      varying float vFallTime;
+      varying float vLateralMeters;
+      varying float vSheetThickness;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
       void main() {
         vUv = uv;
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vFallTime = fallTime;
+        vLateralMeters = lateralMeters;
+        vSheetThickness = sheetThickness;
+        float displacementMask = smoothstep(0.05, 0.34, uv.y)
+          * (1.0 - smoothstep(0.9, 1.0, uv.y));
+        float normalDisplacement = (
+          sin(lateralMeters * 2.8 + fallTime * 8.0 - uTime * 4.6)
+          + sin(lateralMeters * 6.1 - fallTime * 5.2 + uTime * 2.1) * 0.42
+        ) * 0.055 * displacementMask;
+        vec3 displacedPosition = position + normal * normalDisplacement;
+        vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
         vWorldPosition = worldPosition.xyz;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
         ${WATER_FOG_VERTEX_GLSL}
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: `
+      uniform sampler2D tSceneColor;
+      uniform sampler2D tSceneDepth;
+      uniform sampler2D tWaterDepth;
+      uniform sampler2D tEnvironmentMap;
+
       uniform float uTime;
-      uniform float uLayerAlpha;
-      uniform float uFallSpeed;
+      uniform float uHasEnvironmentMap;
+      uniform float uWaterEffectOpticsReady;
+      uniform vec2 uResolution;
+      uniform mat4 uProjectionMatrixInverse;
+      uniform mat4 uViewMatrix;
       uniform vec3 uCameraPosition;
+      uniform vec3 uSunDirection;
+      uniform vec3 uSunColor;
       uniform vec3 uShallowColor;
       uniform vec3 uDeepColor;
       uniform vec3 uFoamColor;
-      uniform vec3 uSunReflectionColor;
 
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying vec3 vWorldNormal;
+      varying float vFallTime;
+      varying float vLateralMeters;
+      varying float vSheetThickness;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
       ${WATER_NOISE_GLSL}
 
-      void main() {
-        float edge = smoothstep(0.0, 0.16, vUv.x) * (1.0 - smoothstep(0.84, 1.0, vUv.x));
-        float fallUv = vUv.y * 6.0 - uTime * uFallSpeed * 2.4;
-        float longStreak = smoothstep(0.4, 0.8, waterNoise2(vec2(vUv.x * 12.0, fallUv * 1.8)));
-        float fineStreak = smoothstep(0.55, 0.88, waterNoise(vec2(vUv.x * 38.0 + 3.0, fallUv * 3.2)));
-        float lowerBreakup = smoothstep(0.35, 1.0, vUv.y);
-        float curtainNoise = waterNoise2(vec2(vUv.x * 7.0 + uTime * 0.25, vUv.y * 9.0));
-        float broken = mix(0.86, smoothstep(0.34, 0.72, curtainNoise), lowerBreakup);
-        float gaps = smoothstep(0.28, 0.54, waterNoise2(vec2(vUv.x * 4.2 - uTime * 0.08, vUv.y * 2.7)));
-        float whiteWater = max(longStreak, fineStreak * 0.82);
-        vec3 baseColor = mix(uDeepColor * vec3(0.84, 0.94, 0.96), uShallowColor, 0.52);
-        vec3 color = mix(baseColor, uFoamColor, whiteWater * 0.72);
-        color += uSunReflectionColor * fineStreak * 0.06;
-        float alpha = edge * broken * gaps * uLayerAlpha * mix(0.5, 1.0, whiteWater);
-        alpha += smoothstep(0.78, 1.0, vUv.y) * fineStreak * gaps * 0.018;
+      float reconstructViewDistance(vec2 uv, float depth) {
+        vec4 viewPosition = uProjectionMatrixInverse * vec4(
+          uv * 2.0 - 1.0,
+          depth * 2.0 - 1.0,
+          1.0
+        );
+        viewPosition /= max(viewPosition.w, 0.0001);
+        return -viewPosition.z;
+      }
 
-        gl_FragColor = vec4(color, alpha);
-        ${WATER_FOG_FRAGMENT_GLSL}
+      vec2 equirectangularUv(vec3 direction) {
+        vec3 unitDirection = normalize(direction);
+        return vec2(
+          atan(unitDirection.z, unitDirection.x) / 6.2831853 + 0.5,
+          asin(clamp(unitDirection.y, -1.0, 1.0)) / 3.14159265 + 0.5
+        );
+      }
+
+      void main() {
+        float phase = vFallTime - uTime;
+        float edgeDistance = min(vUv.x, 1.0 - vUv.x);
+        float edgeAa = max(fwidth(vUv.x) * 1.5, 0.006);
+        float edgeCoverage = smoothstep(0.0, 0.055 + edgeAa, edgeDistance);
+        float macroStreak = waterNoise2(vec2(vLateralMeters * 0.78, phase * 3.4));
+        float fineStreak = waterNoise(vec2(vLateralMeters * 3.8 + 9.7, phase * 8.2));
+        float whiteWater = smoothstep(0.48, 0.82, macroStreak * 0.68 + fineStreak * 0.52);
+        float lowerBreakup = smoothstep(0.64, 0.9, vUv.y);
+        float strandWave = sin(vUv.x * 31.4159265 + phase * 2.1) * 0.5 + 0.5;
+        float strandNoise = waterNoise2(vec2(vLateralMeters * 1.34, phase * 1.7));
+        float strandField = strandWave * 0.62 + strandNoise * 0.38;
+        float strandAa = max(fwidth(strandField) * 1.15, 0.025);
+        float strands = smoothstep(0.46 - strandAa, 0.46 + strandAa, strandField);
+        float coverage = edgeCoverage * mix(1.0, strands, lowerBreakup);
+        coverage *= smoothstep(0.0, 0.055, vUv.y);
+
+        if (coverage < 0.012) discard;
+
+        vec3 worldNormal = normalize(vWorldNormal + vec3(
+          (macroStreak - 0.5) * 0.28,
+          (fineStreak - 0.5) * 0.12,
+          (fineStreak - macroStreak) * 0.22
+        ));
+        if (!gl_FrontFacing) worldNormal = -worldNormal;
+        vec3 viewDirection = normalize(uCameraPosition - vWorldPosition);
+        vec3 viewNormal = normalize(mat3(uViewMatrix) * worldNormal);
+        vec3 baseColor = mix(uDeepColor, uShallowColor, 0.64);
+        vec3 refractedColor = baseColor;
+        float depthVisibility = 1.0;
+
+        if (uWaterEffectOpticsReady > 0.5) {
+          vec2 screenUv = clamp(
+            gl_FragCoord.xy / max(uResolution, vec2(1.0)),
+            vec2(0.001),
+            vec2(0.999)
+          );
+          float fragmentDistance = reconstructViewDistance(screenUv, gl_FragCoord.z);
+          float refractionPixels = mix(2.4, 0.4, smoothstep(0.56, 1.0, vUv.y));
+          vec2 refractedUv = clamp(
+            screenUv + viewNormal.xy * refractionPixels / max(uResolution, vec2(1.0)),
+            vec2(0.001),
+            vec2(0.999)
+          );
+          float candidateDepth = texture2D(tSceneDepth, refractedUv).r;
+          float candidateDistance = reconstructViewDistance(refractedUv, candidateDepth);
+          if (candidateDistance <= fragmentDistance + 0.02) refractedUv = screenUv;
+          refractedColor = texture2D(tSceneColor, refractedUv).rgb;
+
+          float sceneDepth = texture2D(tSceneDepth, screenUv).r;
+          float sceneDistance = reconstructViewDistance(screenUv, sceneDepth);
+          float rockIntersection = sceneDepth >= 0.999999
+            ? 1.0
+            : smoothstep(-0.04, 0.22, sceneDistance - fragmentDistance);
+          float waterDepth = texture2D(tWaterDepth, screenUv).r;
+          float poolVisibility = 1.0;
+          if (waterDepth < 0.999999) {
+            float waterDistance = reconstructViewDistance(screenUv, waterDepth);
+            poolVisibility = smoothstep(-0.035, 0.18, waterDistance - fragmentDistance);
+          }
+          depthVisibility = rockIntersection * poolVisibility;
+        }
+
+        float aeration = clamp(
+          whiteWater * 0.7 + smoothstep(0.55, 1.0, vUv.y) * 0.58,
+          0.0,
+          1.0
+        );
+        vec3 transmission = exp(-vSheetThickness * vec3(1.9, 1.15, 0.78));
+        vec3 color = refractedColor * transmission
+          + baseColor * (1.0 - transmission) * 0.92;
+        color = mix(color, uFoamColor, aeration * 0.76);
+
+        float fresnel = 0.02037 + 0.97963 * pow(
+          1.0 - max(dot(worldNormal, viewDirection), 0.0),
+          5.0
+        );
+        vec3 reflectionColor = uShallowColor;
+        if (uHasEnvironmentMap > 0.5) {
+          vec3 reflectedDirection = reflect(-viewDirection, worldNormal);
+          reflectionColor = texture2D(
+            tEnvironmentMap,
+            equirectangularUv(reflectedDirection)
+          ).rgb;
+        }
+        color = mix(color, reflectionColor, fresnel * (1.0 - aeration) * 0.34);
+
+        vec3 lightDirection = normalize(uSunDirection);
+        vec3 halfDirection = normalize(viewDirection + lightDirection);
+        float sunSpecular = pow(max(dot(worldNormal, halfDirection), 0.0), 72.0);
+        color += uSunColor * sunSpecular * (1.0 - aeration) * 0.32;
+
+        float alpha = coverage
+          * depthVisibility
+          * mix(0.34, 0.68, aeration)
+          * mix(0.92, 0.74, fresnel);
+        if (alpha < 0.008) discard;
+        float waterFogFactor = 1.0 - exp(
+          -uWaterFogDensity * uWaterFogDensity * vWaterFogDepth * vWaterFogDepth
+        );
+        color = mix(color, uWaterFogColor, clamp(waterFogFactor, 0.0, 1.0));
+        gl_FragColor = vec4(color * alpha, alpha);
       }
     `,
   });
+
+  material.userData.waterEffectOptics = true;
+  material.userData.waterfallStyle = 'mountain-thin-veil';
+
+  return material;
 }
 
 function createFoamOverlayMaterial() {
   return new THREE.ShaderMaterial({
+    name: 'WaterfallImpactFoamMaterial',
     side: THREE.DoubleSide,
     transparent: true,
     forceSinglePass: true,
@@ -1429,15 +1615,27 @@ function createFoamOverlayMaterial() {
       ${WATER_NOISE_GLSL}
 
       void main() {
-        float lateral = abs(vUv.y - 0.5) * 2.0;
-        float startFade = smoothstep(0.04, 0.24, vUv.x);
-        float tailFade = 1.0 - smoothstep(0.62, 1.0, vUv.x);
-        float lateralFade = 1.0 - smoothstep(0.58, 1.0, lateral);
-        float center = 1.0 - smoothstep(0.12, 0.76, lateral);
-        float broken = smoothstep(0.34, 0.8, waterNoise2(vUv * vec2(16.0, 24.0) + vec2(-uTime * 0.32, uTime * 0.08)));
-        float threads = smoothstep(0.48, 0.86, waterNoise(vUv * vec2(7.0, 48.0) + vec2(-uTime * 0.16, uTime * 0.22)));
-        float impact = 1.0 - smoothstep(0.1, 0.42, vUv.x);
-        float alpha = (impact * 0.16 + center * max(broken * 0.22, threads * 0.12)) * startFade * tailFade * lateralFade;
+        vec2 centered = (vUv - vec2(0.5)) * 2.0;
+        float radius = length(centered);
+        float outerFade = 1.0 - smoothstep(0.74, 0.96, radius);
+        float core = 1.0 - smoothstep(0.08, 0.42, radius);
+        float ring = smoothstep(0.18, 0.42, radius)
+          * (1.0 - smoothstep(0.62, 0.88, radius));
+        float broken = smoothstep(
+          0.38,
+          0.78,
+          waterNoise2(centered * 7.2 + vec2(-uTime * 0.45, uTime * 0.17))
+        );
+        float fine = smoothstep(
+          0.54,
+          0.88,
+          waterNoise(centered * 18.0 + vec2(uTime * 0.28, -uTime * 0.21))
+        );
+        float downstreamBias = smoothstep(-0.62, 0.48, centered.y);
+        float alpha = outerFade * (
+          core * mix(0.2, 0.38, fine)
+          + ring * max(broken * 0.3, fine * 0.18)
+        ) * mix(0.82, 1.0, downstreamBias);
 
         gl_FragColor = vec4(uFoamColor, alpha);
         ${WATER_FOG_FRAGMENT_GLSL}
@@ -1448,6 +1646,7 @@ function createFoamOverlayMaterial() {
 
 function createWaterfallLipFoamMaterial() {
   return new THREE.ShaderMaterial({
+    name: 'WaterfallCrestFoamMaterial',
     side: THREE.DoubleSide,
     transparent: true,
     forceSinglePass: true,
@@ -1455,12 +1654,16 @@ function createWaterfallLipFoamMaterial() {
     depthTest: true,
     uniforms: createWaterUniforms(),
     vertexShader: `
+      attribute float crestCoverage;
+
       varying vec2 vUv;
       varying vec3 vWorldPosition;
+      varying float vCrestCoverage;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
       void main() {
         vUv = uv;
+        vCrestCoverage = crestCoverage;
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
         ${WATER_FOG_VERTEX_GLSL}
@@ -1473,18 +1676,30 @@ function createWaterfallLipFoamMaterial() {
       uniform vec3 uShallowColor;
 
       varying vec2 vUv;
+      varying float vCrestCoverage;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
       ${WATER_NOISE_GLSL}
 
       void main() {
-        vec2 centered = vUv - vec2(0.5);
-        float radial = 1.0 - smoothstep(0.18, 0.58, length(centered));
-        float downstream = smoothstep(0.22, 0.72, vUv.y);
-        float broken = smoothstep(0.34, 0.8, waterNoise2(vUv * vec2(18.0, 11.0) + vec2(-uTime * 0.3, uTime * 0.08)));
-        float fine = smoothstep(0.52, 0.88, waterNoise(vUv * vec2(42.0, 24.0) + vec2(uTime * 0.18, -uTime * 0.13)));
-        float alpha = radial * mix(0.07, 0.24, max(broken, fine * 0.62)) * mix(0.65, 1.0, downstream);
-        vec3 color = mix(uShallowColor, uFoamColor, max(broken, downstream));
+        float edge = smoothstep(0.0, 0.08, vUv.x)
+          * (1.0 - smoothstep(0.92, 1.0, vUv.x));
+        float crest = smoothstep(0.44, 1.0, vUv.y);
+        float broken = smoothstep(
+          0.38,
+          0.78,
+          waterNoise2(vUv * vec2(16.0, 10.0) + vec2(-uTime * 0.38, uTime * 0.09))
+        );
+        float fine = smoothstep(
+          0.54,
+          0.88,
+          waterNoise(vUv * vec2(44.0, 25.0) + vec2(uTime * 0.22, -uTime * 0.17))
+        );
+        float coverage = edge
+          * vCrestCoverage
+          * mix(0.58, 1.0, max(broken, fine));
+        float alpha = coverage * mix(0.12, 0.34, crest);
+        vec3 color = mix(uShallowColor, uFoamColor, max(broken * 0.72, crest));
 
         gl_FragColor = vec4(color, alpha);
         ${WATER_FOG_FRAGMENT_GLSL}
@@ -1493,76 +1708,190 @@ function createWaterfallLipFoamMaterial() {
   });
 }
 
-function createMistParticles() {
-  const count = 72;
-  const positions = new Float32Array(count * 3);
-  const randoms = new Float32Array(count);
-  const outflow = new THREE.Vector3(PLUNGE_OUTFLOW_DIRECTION.x, 0, PLUNGE_OUTFLOW_DIRECTION.y);
+function createWaterfallParticles() {
+  const positions = new Float32Array(WATERFALL_PARTICLE_COUNT * 3);
+  const velocities = new Float32Array(WATERFALL_PARTICLE_COUNT * 3);
+  const randoms = new Float32Array(WATERFALL_PARTICLE_COUNT);
+  const particleTypes = new Float32Array(WATERFALL_PARTICLE_COUNT);
+  const lifetimes = new Float32Array(WATERFALL_PARTICLE_COUNT);
+  const pointSizes = new Float32Array(WATERFALL_PARTICLE_COUNT);
+  const impact = getWaterfallImpact();
+  const outflow = getWaterfallOutflow();
   const side = new THREE.Vector3(-outflow.z, 0, outflow.x);
 
-  for (let i = 0; i < count; i += 1) {
-    const r = pseudoRandom(i * 12.2);
-    const lateral = (pseudoRandom(i * 4.7) - 0.5) * 5.2;
-    const downstream = pseudoRandom(i * 9.3) * 7.4 - 1.8;
-    const lift = pseudoRandom(i * 2.1) * 7.2;
-    const point = WATERFALL_BASE.clone()
+  for (let i = 0; i < WATERFALL_PARTICLE_COUNT; i += 1) {
+    const seed = pseudoRandom(i * 12.2 + 3.7);
+    const isMist = i >= WATERFALL_SPRAY_COUNT;
+    const lateralRange = isMist ? 4.4 : 3.2;
+    const downstreamRange = isMist ? 4.6 : 2.4;
+    const lateral = (pseudoRandom(i * 4.7 + 1.3) - 0.5) * lateralRange;
+    const downstream = pseudoRandom(i * 9.3 + 2.1) * downstreamRange - 0.8;
+    const point = impact.clone()
       .addScaledVector(side, lateral)
       .addScaledVector(outflow, downstream);
+    const sideVelocity = (pseudoRandom(i * 3.1 + 0.7) - 0.5) * (isMist ? 0.55 : 3.4);
+    const forwardVelocity = isMist
+      ? 0.28 + pseudoRandom(i * 5.8 + 0.4) * 0.62
+      : 0.45 + pseudoRandom(i * 5.8 + 0.4) * 1.9;
+    const verticalVelocity = isMist
+      ? 0.34 + pseudoRandom(i * 8.9 + 1.1) * 0.72
+      : 3.1 + pseudoRandom(i * 8.9 + 1.1) * 3.8;
+    const velocity = outflow.clone()
+      .multiplyScalar(forwardVelocity)
+      .addScaledVector(side, sideVelocity);
+    velocity.y = verticalVelocity;
 
     positions[i * 3] = point.x;
-    positions[i * 3 + 1] = WATERFALL_BASE.y + lift;
+    positions[i * 3 + 1] = impact.y + 0.08 + pseudoRandom(i * 2.1) * 0.14;
     positions[i * 3 + 2] = point.z;
-    randoms[i] = r;
+    velocities[i * 3] = velocity.x;
+    velocities[i * 3 + 1] = velocity.y;
+    velocities[i * 3 + 2] = velocity.z;
+    randoms[i] = seed;
+    particleTypes[i] = isMist ? 1 : 0;
+    lifetimes[i] = isMist
+      ? 2.3 + pseudoRandom(i * 6.2 + 0.9) * 1.4
+      : 0.72 + pseudoRandom(i * 6.2 + 0.9) * 0.42;
+    pointSizes[i] = isMist
+      ? 10 + pseudoRandom(i * 7.4 + 1.8) * 9
+      : 3.4 + pseudoRandom(i * 7.4 + 1.8) * 4.8;
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
   geometry.setAttribute('randomSeed', new THREE.BufferAttribute(randoms, 1));
+  geometry.setAttribute('particleType', new THREE.BufferAttribute(particleTypes, 1));
+  geometry.setAttribute('lifetime', new THREE.BufferAttribute(lifetimes, 1));
+  geometry.setAttribute('pointSize', new THREE.BufferAttribute(pointSizes, 1));
+  geometry.userData.sprayCount = WATERFALL_SPRAY_COUNT;
+  geometry.userData.mistCount = WATERFALL_MIST_COUNT;
+  geometry.boundingSphere = new THREE.Sphere(
+    new THREE.Vector3(impact.x, impact.y + 3, impact.z),
+    9,
+  );
 
   const material = new THREE.ShaderMaterial({
+    name: 'WaterfallSprayMistMaterial',
     transparent: true,
     depthWrite: false,
     depthTest: true,
-    uniforms: createWaterUniforms(),
+    premultipliedAlpha: true,
+    blending: THREE.NormalBlending,
+    uniforms: createWaterUniforms({
+      tSceneDepth: { value: null },
+      tWaterDepth: { value: null },
+      uResolution: { value: new THREE.Vector2(1, 1) },
+      uProjectionMatrixInverse: { value: new THREE.Matrix4() },
+      uCameraWorldMatrix: { value: new THREE.Matrix4() },
+      uViewMatrix: { value: new THREE.Matrix4() },
+      uWaterEffectOpticsReady: { value: 0 },
+      uPoolSurfaceY: { value: WATERFALL_HYDRAULIC_FRAME.poolSurfaceY },
+    }),
     vertexShader: `
       uniform float uTime;
+      uniform float uPoolSurfaceY;
 
+      attribute vec3 velocity;
       attribute float randomSeed;
+      attribute float particleType;
+      attribute float lifetime;
+      attribute float pointSize;
 
       varying float vAlpha;
+      varying float vParticleType;
       ${WATER_FOG_VERTEX_PARS_GLSL}
 
       void main() {
+        float age = mod(uTime + randomSeed * lifetime, lifetime);
+        float lifeT = age / lifetime;
         vec3 animated = position;
-        animated.x += sin(uTime * 0.7 + randomSeed * 11.0) * 0.48;
-        animated.y += fract(uTime * 0.075 + randomSeed) * 3.2;
-        animated.z += cos(uTime * 0.62 + randomSeed * 9.0) * 0.42;
-        vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
+        if (particleType < 0.5) {
+          animated += velocity * age;
+          animated.y -= 4.905 * age * age;
+          vAlpha = sin(lifeT * 3.14159265)
+            * smoothstep(uPoolSurfaceY + 0.01, uPoolSurfaceY + 0.18, animated.y)
+            * mix(0.24, 0.48, randomSeed);
+        } else {
+          animated += velocity * age;
+          animated.x += sin(age * 1.7 + randomSeed * 17.0) * 0.38 * lifeT;
+          animated.z += cos(age * 1.3 + randomSeed * 13.0) * 0.34 * lifeT;
+          vAlpha = sin(lifeT * 3.14159265) * mix(0.045, 0.105, randomSeed);
+        }
+        vec4 worldPosition = modelMatrix * vec4(animated, 1.0);
+        vec4 mvPosition = viewMatrix * worldPosition;
         gl_Position = projectionMatrix * mvPosition;
-        gl_PointSize = (5.0 + randomSeed * 8.0) * (180.0 / -mvPosition.z);
-        vAlpha = 0.012 + randomSeed * 0.018;
-        vWaterFogDepth = -mvPosition.z;
+        gl_PointSize = pointSize * (180.0 / max(-mvPosition.z, 0.01));
+        vParticleType = particleType;
+        ${WATER_FOG_VERTEX_GLSL}
       }
     `,
     fragmentShader: `
+      uniform sampler2D tSceneDepth;
+      uniform sampler2D tWaterDepth;
+      uniform float uWaterEffectOpticsReady;
+      uniform vec2 uResolution;
+      uniform mat4 uProjectionMatrixInverse;
+
       varying float vAlpha;
+      varying float vParticleType;
       uniform vec3 uFoamColor;
       uniform vec3 uHorizonReflectionColor;
       ${WATER_FOG_FRAGMENT_PARS_GLSL}
 
+      float reconstructViewDistance(vec2 uv, float depth) {
+        vec4 viewPosition = uProjectionMatrixInverse * vec4(
+          uv * 2.0 - 1.0,
+          depth * 2.0 - 1.0,
+          1.0
+        );
+        viewPosition /= max(viewPosition.w, 0.0001);
+        return -viewPosition.z;
+      }
+
       void main() {
         vec2 centered = gl_PointCoord - vec2(0.5);
         float d = length(centered);
-        float alpha = (1.0 - smoothstep(0.1, 0.5, d)) * vAlpha;
-        vec3 mistColor = mix(uHorizonReflectionColor, uFoamColor, 0.62);
-        gl_FragColor = vec4(mistColor, alpha);
-        ${WATER_FOG_FRAGMENT_GLSL}
+        float profile = mix(
+          1.0 - smoothstep(0.2, 0.5, d),
+          1.0 - smoothstep(0.05, 0.5, d),
+          vParticleType
+        );
+        float depthFade = 1.0;
+        if (uWaterEffectOpticsReady > 0.5) {
+          vec2 screenUv = clamp(
+            gl_FragCoord.xy / max(uResolution, vec2(1.0)),
+            vec2(0.001),
+            vec2(0.999)
+          );
+          float fragmentDistance = reconstructViewDistance(screenUv, gl_FragCoord.z);
+          float sceneDepth = texture2D(tSceneDepth, screenUv).r;
+          if (sceneDepth < 0.999999) {
+            float sceneDistance = reconstructViewDistance(screenUv, sceneDepth);
+            depthFade *= smoothstep(-0.03, 0.42, sceneDistance - fragmentDistance);
+          }
+          float waterDepth = texture2D(tWaterDepth, screenUv).r;
+          if (waterDepth < 0.999999) {
+            float waterDistance = reconstructViewDistance(screenUv, waterDepth);
+            depthFade *= smoothstep(-0.025, 0.26, waterDistance - fragmentDistance);
+          }
+        }
+        float alpha = profile * vAlpha * depthFade;
+        if (alpha < 0.004) discard;
+        vec3 color = mix(uFoamColor, uHorizonReflectionColor, vParticleType * 0.38);
+        float waterFogFactor = 1.0 - exp(
+          -uWaterFogDensity * uWaterFogDensity * vWaterFogDepth * vWaterFogDepth
+        );
+        color = mix(color, uWaterFogColor, clamp(waterFogFactor, 0.0, 1.0));
+        gl_FragColor = vec4(color * alpha, alpha);
       }
     `,
   });
+  material.userData.waterEffectOptics = true;
+  material.userData.waterfallParticleCount = WATERFALL_PARTICLE_COUNT;
 
   const points = new THREE.Points(geometry, material);
-  points.name = 'WaterfallMistParticles';
+  points.name = 'WaterfallSprayMistParticles';
   points.renderOrder = WATER_RENDER_ORDER.mist;
 
   return points;

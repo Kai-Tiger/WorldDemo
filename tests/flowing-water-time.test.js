@@ -6,8 +6,10 @@ test('golden-shot water stays live unless deterministic capture is requested', a
   const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
 
   assert.match(source, /const captureMode = query\.get\('capture'\) === '1';/);
+  assert.match(source, /const requestedCaptureTime = Number\.parseFloat\(query\.get\('captureTime'\) \?\? ''\);/);
+  assert.match(source, /const captureTime = Number\.isFinite\(requestedCaptureTime\) \? requestedCaptureTime : 18\.5;/);
   assert.match(source, /const visualTime = goldenShot \? 18\.5 : clock\.elapsedTime;/);
-  assert.match(source, /const flowingWaterTime = captureMode \? 18\.5 : clock\.elapsedTime;/);
+  assert.match(source, /const flowingWaterTime = captureMode \? captureTime : clock\.elapsedTime;/);
   assert.match(source, /unifiedWaterSystem\.update\(flowingWaterTime, camera\);/);
   assert.match(source, /postProcessing\.setWaterTime\(flowingWaterTime\);/);
   assert.match(

@@ -53,6 +53,8 @@ const resolutionScaleValue = document.querySelector('#resolution-scale-value');
 const query = new URLSearchParams(window.location.search);
 const debugMode = query.get('debug') === '1';
 const captureMode = query.get('capture') === '1';
+const requestedCaptureTime = Number.parseFloat(query.get('captureTime') ?? '');
+const captureTime = Number.isFinite(requestedCaptureTime) ? requestedCaptureTime : 18.5;
 const goldenShot = getGoldenShotFromLocation();
 const initialQualityKey = query.get('quality') || DEFAULT_RENDER_QUALITY;
 let renderQuality = getRenderQualityPreset(initialQualityKey);
@@ -368,7 +370,7 @@ function animate(now) {
   const deltaTime = Math.min(clock.getDelta(), 0.05);
   const frameMs = deltaTime * 1000;
   const visualTime = goldenShot ? 18.5 : clock.elapsedTime;
-  const flowingWaterTime = captureMode ? 18.5 : clock.elapsedTime;
+  const flowingWaterTime = captureMode ? captureTime : clock.elapsedTime;
 
   updateFrameTiming(frameMs);
   updateDynamicResolution(now);
