@@ -437,7 +437,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
 
     assert.equal(
       material.customProgramCacheKey(),
-      `layered-terrain-pbr-v14-cell-bomb-${level}`,
+      `layered-terrain-pbr-v15-raised-snowline-${level}`,
     );
   }
 });
@@ -488,7 +488,12 @@ test('every material LOD cell-bombs one snow layer over the grass-or-rock base',
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
   for (const material of Object.values(materials)) {
-    const { fragmentParameters, mapFragment } = material.userData.terrainShaderSource;
+    const {
+      vertexParameters,
+      vertexAssignments,
+      fragmentParameters,
+      mapFragment,
+    } = material.userData.terrainShaderSource;
     const groundStart = mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)');
     const transitionStart = mapFragment.indexOf('else if (terrainGrassBlendMask > 0.10)', groundStart);
     const rockStart = mapFragment.indexOf('\nelse {', transitionStart);
@@ -500,9 +505,13 @@ test('every material LOD cell-bombs one snow layer over the grass-or-rock base',
     const snowSource = mapFragment.slice(snowOverlayStart, mountainTrailStart);
     const waterSource = mapFragment.slice(waterOverrideStart);
 
+    assert.match(vertexParameters, /attribute float edgeMountainMask;/);
+    assert.match(vertexAssignments, /vTerrainEdgeMountainMask = edgeMountainMask;/);
+    assert.match(fragmentParameters, /varying float vTerrainEdgeMountainMask;/);
     assert.match(fragmentParameters, /uniform sampler2D uSnowTexture;/);
     assert.match(mapFragment, /float terrainSnowLineHeight = terrainHeight/);
     assert.match(mapFragment, /1\.0 - smoothstep\(55\.0, 90\.0, terrainNoisyHeight\)/);
+    assert.match(mapFragment, /vTerrainEdgeMountainMask \* 100\.0/);
     assert.match(mapFragment, /smoothstep\(55\.0, 130\.0, terrainSnowLineHeight\)/);
     assert.match(mapFragment, /smoothstep\(0\.30, 0\.78, terrainBaseNormal\.y\)/);
     assert.match(mapFragment, /float terrainSnowMacroCoverage = smoothstep\(/);
@@ -531,7 +540,7 @@ test('every material LOD cell-bombs one snow layer over the grass-or-rock base',
   }
 });
 
-test('snowline coverage keeps low terrain and cliffs bare while covering high gentle slopes', () => {
+test('snowline coverage keeps central low terrain and cliffs bare', () => {
   assert.equal(getSnowlineCoverage(35, 0.9), 0);
   assert.ok(getSnowlineCoverage(90, 0.9) >= 0.4);
   assert.ok(getSnowlineCoverage(90, 0.9) <= 0.55);
@@ -539,6 +548,16 @@ test('snowline coverage keeps low terrain and cliffs bare while covering high ge
   assert.equal(getSnowlineCoverage(140, 0.25), 0);
   assert.ok(getSnowlineCoverage(140, 0.5) >= 0.2);
   assert.ok(getSnowlineCoverage(140, 0.5) <= 0.35);
+});
+
+test('perimeter mountain mask raises the physical snowline by exactly 100 meters', () => {
+  assert.equal(
+    getSnowlineCoverage(190, 0.9, 0.5, 0.5, 1),
+    getSnowlineCoverage(90, 0.9),
+  );
+  assert.equal(getSnowlineCoverage(135, 0.9, 0.5, 0.5, 1), 0);
+  assert.equal(getSnowlineCoverage(240, 0.9, 0.5, 0.5, 1), 1);
+  assert.equal(getSnowlineCoverage(240, 0.25, 0.5, 0.5, 1), 0);
 });
 
 test('terrain macro midtone lift affects grass but not the rock fallback or water overrides', () => {
@@ -572,8 +591,16 @@ test('terrain macro midtone lift affects grass but not the rock fallback or wate
   }
 });
 
-function getSnowlineCoverage(height, normalY, macroX = 0.5, macroZ = 0.5) {
-  const snowLineHeight = height + (macroX - 0.5) * 24 + (macroZ - 0.5) * 8;
+function getSnowlineCoverage(
+  height,
+  normalY,
+  macroX = 0.5,
+  macroZ = 0.5,
+  edgeMountainMask = 0,
+) {
+  const snowLineHeight = height - edgeMountainMask * 100
+    + (macroX - 0.5) * 24
+    + (macroZ - 0.5) * 8;
   const elevation = smoothstep(55, 130, snowLineHeight);
   const slope = smoothstep(0.3, 0.78, normalY);
 

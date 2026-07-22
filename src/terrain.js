@@ -31,6 +31,7 @@ import { MAP_SIZE } from './vegetationConfig.js';
 import { getExpandedTerrainBaseHeight } from './expandedTerrainPlan.js';
 import {
   getActiveEdgeHeightFields,
+  getEdgeMountainProtection,
   loadEdgeHeightFields,
   sampleEdgeHeightFields,
   setActiveEdgeHeightFields,
@@ -1052,6 +1053,11 @@ export class Terrain {
     arrays.waterSystemMasks[waterMaskOffset + 3] = waterSystemFrame.plungeMask;
     arrays.smallLakeMasks[vertexIndex] = worldSpaceWaterBedMask;
     arrays.mountainTrailMasks[vertexIndex] = mountainTrailMask;
+    arrays.edgeMountainMasks[vertexIndex] = getEdgeMountainProtection(
+      worldX,
+      worldZ,
+      this.edgeHeightFields,
+    );
   }
 
   sampleSurfaceAt(
@@ -1415,6 +1421,7 @@ function createChunkArrays(segments) {
     waterSystemMasks: new Float32Array(vertexCount * 4),
     smallLakeMasks: new Float32Array(vertexCount),
     mountainTrailMasks: new Float32Array(vertexCount),
+    edgeMountainMasks: new Float32Array(vertexCount),
     indices: new Uint32Array(segments * segments * 6),
   };
 }
@@ -1489,6 +1496,7 @@ function createSurfaceGeometry(arrays, minX, minZ) {
   geometry.setAttribute('waterSystemMask', new THREE.BufferAttribute(arrays.waterSystemMasks, 4));
   geometry.setAttribute('smallLakesMask', new THREE.BufferAttribute(arrays.smallLakeMasks, 1));
   geometry.setAttribute('mountainTrailMask', new THREE.BufferAttribute(arrays.mountainTrailMasks, 1));
+  geometry.setAttribute('edgeMountainMask', new THREE.BufferAttribute(arrays.edgeMountainMasks, 1));
   geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
   geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, false);
   return geometry;

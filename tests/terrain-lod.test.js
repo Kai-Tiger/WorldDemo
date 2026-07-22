@@ -127,6 +127,45 @@ test('runtime terrain uses injected edge fields for sampling and chunk vertices'
   assert.ok(Math.abs(sampledVertexHeight - terrain.getHeightAt(sampleX, sampleZ)) < 1e-5);
 });
 
+test('terrain surface geometry aligns and refreshes edge mountain masks', () => {
+  const terrain = createTerrain({
+    edgeHeightFields: createConstantEdgeHeightFields(0, { north: 0.75 }),
+  });
+
+  terrain.requestChunkBuild(12, 12, 32, 0);
+  terrain.requestChunkBuild(12, 23, 32, 0);
+  terrain.processChunkBuilds(Number.POSITIVE_INFINITY);
+
+  const centerGeometry = terrain.loadedChunks.get('12,12').surface.geometry;
+  const centerPositions = centerGeometry.getAttribute('position');
+  const centerMasks = centerGeometry.getAttribute('edgeMountainMask');
+  const edgeRecord = terrain.loadedChunks.get('12,23');
+  const edgeGeometry = edgeRecord.surface.geometry;
+  const edgePositions = edgeGeometry.getAttribute('position');
+  const edgeMasks = edgeGeometry.getAttribute('edgeMountainMask');
+
+  assert.equal(centerMasks.count, centerPositions.count);
+  assert.equal(edgeMasks.count, edgePositions.count);
+  assert.ok(centerMasks.array.every((value) => Math.abs(value) < 1e-6));
+
+  const verticesPerSide = edgeRecord.segments + 1;
+  const northEdgeStart = edgeRecord.segments * verticesPerSide;
+
+  for (let x = 0; x < verticesPerSide; x += 1) {
+    assert.ok(edgeMasks.getX(northEdgeStart + x) > 0.99);
+  }
+
+  edgeMasks.setX(northEdgeStart, 0);
+  terrain.updateLoadedChunkSurface(edgeRecord, {
+    minX: edgePositions.getX(northEdgeStart),
+    maxX: edgePositions.getX(northEdgeStart),
+    minZ: edgePositions.getZ(northEdgeStart),
+    maxZ: edgePositions.getZ(northEdgeStart),
+  });
+
+  assert.ok(edgeMasks.getX(northEdgeStart) > 0.99);
+});
+
 test('coarse visual LOD widens normal sampling without changing detailed surface queries', () => {
   const terrain = createTerrain();
   const centerCoordinate = -3072 + 128;

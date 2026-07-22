@@ -23,6 +23,7 @@ attribute vec2 riverBedCoord;
 attribute vec4 waterSystemMask;
 attribute float smallLakesMask;
 attribute float mountainTrailMask;
+attribute float edgeMountainMask;
 
 varying vec2 vTerrainRiverBedCoord;
 varying vec3 vTerrainWorldPosition;
@@ -36,6 +37,7 @@ varying float vTerrainRiverConfluenceMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
 varying float vTerrainMountainTrailMask;
+varying float vTerrainEdgeMountainMask;
 varying vec4 vTerrainMacro;
 
 float terrainVertexHash(vec2 value) {
@@ -96,6 +98,7 @@ vTerrainRiverConfluenceMask = riverConfluenceMask;
 vTerrainWaterSystemMask = waterSystemMask;
 vTerrainSmallLakesMask = smallLakesMask;
 vTerrainMountainTrailMask = mountainTrailMask;
+vTerrainEdgeMountainMask = edgeMountainMask;
 vTerrainMacro = vec4(
   terrainVertexNoise(terrainWorldPosition.xz * 0.012 + vec2(2.8, -7.1)),
   terrainVertexNoise(terrainWorldPosition.xz * 0.0065 + vec2(-8.0, 4.0)),
@@ -133,6 +136,7 @@ varying float vTerrainRiverConfluenceMask;
 varying vec4 vTerrainWaterSystemMask;
 varying float vTerrainSmallLakesMask;
 varying float vTerrainMountainTrailMask;
+varying float vTerrainEdgeMountainMask;
 varying vec4 vTerrainMacro;
 
 float terrainHash(vec2 value) {
@@ -663,6 +667,7 @@ float terrainGrassBlendMask = clamp(
 );
 float terrainGrassBlend = smoothstep(0.10, 0.74, terrainGrassBlendMask);
 float terrainSnowLineHeight = terrainHeight
+  - vTerrainEdgeMountainMask * 100.0
   + (vTerrainMacro.x - 0.5) * 24.0
   + (vTerrainMacro.z - 0.5) * 8.0;
 float terrainSnowElevation = smoothstep(55.0, 130.0, terrainSnowLineHeight);
@@ -1083,7 +1088,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v14-cell-bomb-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v15-raised-snowline-${level}`;
 
   return material;
 }
