@@ -85,6 +85,10 @@ const HEIGHT_SMOOTHING_KERNEL_WEIGHT = HEIGHT_SMOOTHING_KERNEL
   .flat()
   .reduce((total, weight) => total + weight, 0);
 
+function getTerrainNormalSampleDistance(vertexStep) {
+  return Math.max(NORMAL_SAMPLE_DISTANCE, vertexStep * 2);
+}
+
 export class Terrain {
   constructor(heightData, width, height, textures, options = {}) {
     this.heightData = heightData;
@@ -508,6 +512,7 @@ export class Terrain {
           worldX,
           worldZ,
           task.surfaceHeightCache,
+          getTerrainNormalSampleDistance(task.vertexStep),
         );
         task.vertexIndex += 1;
         processed += 1;
@@ -937,7 +942,14 @@ export class Terrain {
         const worldX = record.minX + x * vertexStep;
         const worldZ = record.minZ + z * vertexStep;
 
-        this.writeSurfaceVertex(record.arrays, vertexIndex, worldX, worldZ);
+        this.writeSurfaceVertex(
+          record.arrays,
+          vertexIndex,
+          worldX,
+          worldZ,
+          null,
+          getTerrainNormalSampleDistance(vertexStep),
+        );
       }
     }
 
@@ -988,12 +1000,20 @@ export class Terrain {
     }
   }
 
-  writeSurfaceVertex(arrays, vertexIndex, worldX, worldZ, surfaceHeightCache = null) {
+  writeSurfaceVertex(
+    arrays,
+    vertexIndex,
+    worldX,
+    worldZ,
+    surfaceHeightCache = null,
+    normalSampleDistance = NORMAL_SAMPLE_DISTANCE,
+  ) {
     const sample = this.sampleSurfaceAt(
       worldX,
       worldZ,
       this.surfaceSampleScratch,
       surfaceHeightCache,
+      normalSampleDistance,
     );
     const riverFrame = getRiverMaterialFrame(sample.baseHeight, worldX, worldZ);
     const waterSystemFrame = getWaterSystemMaterialFrame(sample.baseHeight, worldX, worldZ);
@@ -1034,16 +1054,22 @@ export class Terrain {
     arrays.mountainTrailMasks[vertexIndex] = mountainTrailMask;
   }
 
-  sampleSurfaceAt(x, z, target = {}, surfaceHeightCache = null) {
+  sampleSurfaceAt(
+    x,
+    z,
+    target = {},
+    surfaceHeightCache = null,
+    normalSampleDistance = NORMAL_SAMPLE_DISTANCE,
+  ) {
     const baseHeight = this.getBaseHeightAt(x, z);
     const height = this.getSurfaceHeightFromBase(baseHeight, x, z);
     this.setCachedSurfaceHeight(surfaceHeightCache, x, z, height);
-    const normalLeft = this.getCachedSurfaceHeight(x - NORMAL_SAMPLE_DISTANCE, z, surfaceHeightCache);
-    const normalRight = this.getCachedSurfaceHeight(x + NORMAL_SAMPLE_DISTANCE, z, surfaceHeightCache);
-    const normalDown = this.getCachedSurfaceHeight(x, z - NORMAL_SAMPLE_DISTANCE, surfaceHeightCache);
-    const normalUp = this.getCachedSurfaceHeight(x, z + NORMAL_SAMPLE_DISTANCE, surfaceHeightCache);
+    const normalLeft = this.getCachedSurfaceHeight(x - normalSampleDistance, z, surfaceHeightCache);
+    const normalRight = this.getCachedSurfaceHeight(x + normalSampleDistance, z, surfaceHeightCache);
+    const normalDown = this.getCachedSurfaceHeight(x, z - normalSampleDistance, surfaceHeightCache);
+    const normalUp = this.getCachedSurfaceHeight(x, z + normalSampleDistance, surfaceHeightCache);
     const normalX = normalLeft - normalRight;
-    const normalY = NORMAL_SAMPLE_DISTANCE * 2;
+    const normalY = normalSampleDistance * 2;
     const normalZ = normalDown - normalUp;
     const normalLength = Math.hypot(normalX, normalY, normalZ) || 1;
     const groundLeft = this.getCachedSurfaceHeight(x - GROUND_MASK_SAMPLE_DISTANCE, z, surfaceHeightCache);

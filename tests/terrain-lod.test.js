@@ -127,6 +127,26 @@ test('runtime terrain uses injected edge fields for sampling and chunk vertices'
   assert.ok(Math.abs(sampledVertexHeight - terrain.getHeightAt(sampleX, sampleZ)) < 1e-5);
 });
 
+test('coarse visual LOD widens normal sampling without changing detailed surface queries', () => {
+  const terrain = createTerrain();
+  const centerCoordinate = -3072 + 128;
+
+  terrain.getBaseHeightAt = (x) => 80 + Math.sin(x * Math.PI / 16) * 8;
+  terrain.getSurfaceHeightFromBase = (baseHeight) => baseHeight;
+
+  const detailedSample = terrain.sampleSurfaceAt(centerCoordinate, centerCoordinate, {});
+
+  terrain.requestChunkBuild(0, 0, 32, 0);
+  terrain.processChunkBuilds(Number.POSITIVE_INFINITY);
+
+  const normals = terrain.loadedChunks.get('0,0').surface.geometry.getAttribute('normal');
+  const centerVertex = 16 * 33 + 16;
+  const coarseNormalY = normals.getY(centerVertex);
+
+  assert.ok(detailedSample.normalY < 0.8);
+  assert.ok(coarseNormalY > 0.99);
+});
+
 test('painting imported edge terrain does not mutate the editable center heightmap', () => {
   const terrain = createTerrain({
     edgeHeightFields: createConstantEdgeHeightFields(0.75),

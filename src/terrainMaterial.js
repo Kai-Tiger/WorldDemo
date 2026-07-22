@@ -159,6 +159,42 @@ vec2 terrainRotateQuarterInverse(vec2 value, float turn) {
   return vec2(-value.y, value.x);
 }
 
+float terrainAlpineCellNoise(vec2 value) {
+  vec2 cell = floor(value);
+  vec2 local = fract(value);
+  vec2 blend = local * local * (3.0 - 2.0 * local);
+  float a = terrainHash(cell);
+  float b = terrainHash(cell + vec2(1.0, 0.0));
+  float c = terrainHash(cell + vec2(0.0, 1.0));
+  float d = terrainHash(cell + vec2(1.0, 1.0));
+  return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+}
+
+vec2 terrainAlpineBombOffset(vec2 baseUv, float seed) {
+  vec2 coarseUv = baseUv * 0.34 + vec2(seed * 1.73, -seed * 0.91);
+  vec2 detailUv = baseUv * 0.73 + vec2(-seed * 0.47, seed * 1.31);
+  vec2 coarseOffset = vec2(
+    terrainAlpineCellNoise(coarseUv),
+    terrainAlpineCellNoise(coarseUv + vec2(19.1, -7.3))
+  ) - 0.5;
+  vec2 detailOffset = vec2(
+    terrainAlpineCellNoise(detailUv + vec2(5.7, 11.9)),
+    terrainAlpineCellNoise(detailUv + vec2(-13.3, 3.1))
+  ) - 0.5;
+  return coarseOffset * 2.2 + detailOffset * 0.45;
+}
+
+vec4 sampleTerrainAlpineBombed(
+  sampler2D terrainTexture,
+  vec2 baseUv,
+  vec2 baseUvDx,
+  vec2 baseUvDy,
+  float seed
+) {
+  vec2 uv = baseUv + terrainAlpineBombOffset(baseUv, seed);
+  return texture2DGradEXT(terrainTexture, uv, baseUvDx, baseUvDy);
+}
+
 float terrainForestFloorCellTurn(vec2 cell) {
   return floor(terrainHash(cell + vec2(31.3, 11.7)) * 4.0);
 }
@@ -368,21 +404,69 @@ vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
   return mix(primary, secondary, 0.32);
 }
 
-vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+vec3 sampleTerrainRock(
+  vec3 worldPosition,
+  vec3 worldNormal,
+  float textureWorldSize,
+  vec3 worldPositionDx,
+  vec3 worldPositionDy
+) {
   vec3 blend = pow(abs(worldNormal), vec3(4.0));
   blend /= max(blend.x + blend.y + blend.z, 0.0001);
-  vec3 xSample = texture2D(uRockTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb;
-  vec3 ySample = texture2D(uRockTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb;
-  vec3 zSample = texture2D(uRockTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 xSample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.zy / textureWorldSize,
+    worldPositionDx.zy / textureWorldSize,
+    worldPositionDy.zy / textureWorldSize,
+    3.0
+  ).rgb;
+  vec3 ySample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.xz / textureWorldSize,
+    worldPositionDx.xz / textureWorldSize,
+    worldPositionDy.xz / textureWorldSize,
+    5.0
+  ).rgb;
+  vec3 zSample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.xy / textureWorldSize,
+    worldPositionDx.xy / textureWorldSize,
+    worldPositionDy.xy / textureWorldSize,
+    7.0
+  ).rgb;
   return xSample * blend.x + ySample * blend.y + zSample * blend.z;
 }
 
-vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+vec3 sampleTerrainRockNormal(
+  vec3 worldPosition,
+  vec3 worldNormal,
+  float textureWorldSize,
+  vec3 worldPositionDx,
+  vec3 worldPositionDy
+) {
   vec3 blend = pow(abs(worldNormal), vec3(4.0));
   blend /= max(blend.x + blend.y + blend.z, 0.0001);
-  vec3 xNormal = texture2D(uRockNormalTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
-  vec3 yNormal = texture2D(uRockNormalTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
-  vec3 zNormal = texture2D(uRockNormalTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 xNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.zy / textureWorldSize,
+    worldPositionDx.zy / textureWorldSize,
+    worldPositionDy.zy / textureWorldSize,
+    3.0
+  ).rgb * 2.0 - 1.0;
+  vec3 yNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.xz / textureWorldSize,
+    worldPositionDx.xz / textureWorldSize,
+    worldPositionDy.xz / textureWorldSize,
+    5.0
+  ).rgb * 2.0 - 1.0;
+  vec3 zNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.xy / textureWorldSize,
+    worldPositionDx.xy / textureWorldSize,
+    worldPositionDy.xy / textureWorldSize,
+    7.0
+  ).rgb * 2.0 - 1.0;
   vec3 xWorld = vec3(
     xNormal.z * worldNormal.x,
     xNormal.y + worldNormal.y,
@@ -407,21 +491,69 @@ vec3 sampleTerrainLayer(sampler2D terrainTexture, vec2 uv, float seed) {
   return texture2D(terrainTexture, uv + vec2(seed * 0.37, -seed * 0.21)).rgb;
 }
 
-vec3 sampleTerrainRock(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+vec3 sampleTerrainRock(
+  vec3 worldPosition,
+  vec3 worldNormal,
+  float textureWorldSize,
+  vec3 worldPositionDx,
+  vec3 worldPositionDy
+) {
   vec3 blend = pow(abs(worldNormal), vec3(4.0));
   blend /= max(blend.x + blend.y + blend.z, 0.0001);
-  vec3 xSample = texture2D(uRockTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb;
-  vec3 ySample = texture2D(uRockTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb;
-  vec3 zSample = texture2D(uRockTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb;
+  vec3 xSample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.zy / textureWorldSize,
+    worldPositionDx.zy / textureWorldSize,
+    worldPositionDy.zy / textureWorldSize,
+    3.0
+  ).rgb;
+  vec3 ySample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.xz / textureWorldSize,
+    worldPositionDx.xz / textureWorldSize,
+    worldPositionDy.xz / textureWorldSize,
+    5.0
+  ).rgb;
+  vec3 zSample = sampleTerrainAlpineBombed(
+    uRockTexture,
+    worldPosition.xy / textureWorldSize,
+    worldPositionDx.xy / textureWorldSize,
+    worldPositionDy.xy / textureWorldSize,
+    7.0
+  ).rgb;
   return xSample * blend.x + ySample * blend.y + zSample * blend.z;
 }
 
-vec3 sampleTerrainRockNormal(vec3 worldPosition, vec3 worldNormal, float textureWorldSize) {
+vec3 sampleTerrainRockNormal(
+  vec3 worldPosition,
+  vec3 worldNormal,
+  float textureWorldSize,
+  vec3 worldPositionDx,
+  vec3 worldPositionDy
+) {
   vec3 blend = pow(abs(worldNormal), vec3(4.0));
   blend /= max(blend.x + blend.y + blend.z, 0.0001);
-  vec3 xNormal = texture2D(uRockNormalTexture, worldPosition.zy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
-  vec3 yNormal = texture2D(uRockNormalTexture, worldPosition.xz / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
-  vec3 zNormal = texture2D(uRockNormalTexture, worldPosition.xy / textureWorldSize + vec2(21.0, 6.0)).rgb * 2.0 - 1.0;
+  vec3 xNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.zy / textureWorldSize,
+    worldPositionDx.zy / textureWorldSize,
+    worldPositionDy.zy / textureWorldSize,
+    3.0
+  ).rgb * 2.0 - 1.0;
+  vec3 yNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.xz / textureWorldSize,
+    worldPositionDx.xz / textureWorldSize,
+    worldPositionDy.xz / textureWorldSize,
+    5.0
+  ).rgb * 2.0 - 1.0;
+  vec3 zNormal = sampleTerrainAlpineBombed(
+    uRockNormalTexture,
+    worldPosition.xy / textureWorldSize,
+    worldPositionDx.xy / textureWorldSize,
+    worldPositionDy.xy / textureWorldSize,
+    7.0
+  ).rgb * 2.0 - 1.0;
   vec3 xWorld = vec3(
     xNormal.z * worldNormal.x,
     xNormal.y + worldNormal.y,
@@ -452,19 +584,43 @@ function createTerrainMapFragment(level) {
   const isMedium = level === TERRAIN_MATERIAL_LOD.MEDIUM;
   const sampleNormal = isNear || isMedium;
   const rockColor = isNear || isMedium
-    ? 'sampleTerrainRock(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62)'
-    : 'sampleTerrainLayer(uRockTexture, terrainAlpineUv * 0.62, 7.0)';
+    ? `sampleTerrainRock(
+      vTerrainWorldPosition,
+      terrainBaseNormal,
+      uAlpineTextureWorldSize / 0.62,
+      terrainWorldPositionDx,
+      terrainWorldPositionDy
+    )`
+    : `sampleTerrainAlpineBombed(
+      uRockTexture,
+      terrainAlpineUv * 0.62,
+      terrainAlpineUvDx * 0.62,
+      terrainAlpineUvDy * 0.62,
+      7.0
+    ).rgb`;
   const rockNormal = sampleNormal
     ? `terrainSurfaceNormal = normalize(mix(
     terrainSurfaceNormal,
-    sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
+    sampleTerrainRockNormal(
+      vTerrainWorldPosition,
+      terrainBaseNormal,
+      uAlpineTextureWorldSize / 0.62,
+      terrainWorldPositionDx,
+      terrainWorldPositionDy
+    ),
     0.5
   ));`
     : '';
   const rockTransitionNormal = sampleNormal
     ? `normalize(mix(
     terrainBaseNormal,
-    sampleTerrainRockNormal(vTerrainWorldPosition, terrainBaseNormal, uAlpineTextureWorldSize / 0.62),
+    sampleTerrainRockNormal(
+      vTerrainWorldPosition,
+      terrainBaseNormal,
+      uAlpineTextureWorldSize / 0.62,
+      terrainWorldPositionDx,
+      terrainWorldPositionDy
+    ),
     0.5
   ))`
     : 'terrainBaseNormal';
@@ -511,11 +667,32 @@ float terrainSnowLineHeight = terrainHeight
   + (vTerrainMacro.z - 0.5) * 8.0;
 float terrainSnowElevation = smoothstep(55.0, 130.0, terrainSnowLineHeight);
 float terrainSnowSlope = smoothstep(0.30, 0.78, terrainBaseNormal.y);
-float terrainSnowCoverage = smoothstep(
+float terrainSnowDetailedCoverage = smoothstep(
   0.12,
   0.88,
   terrainSnowElevation * terrainSnowSlope
     + (vTerrainMacro.z - 0.5) * 0.22
+);
+float terrainSnowMacroSlope = mix(
+  0.68,
+  1.0,
+  clamp(terrainBaseNormal.y, 0.0, 1.0)
+);
+float terrainSnowMacroCoverage = smoothstep(
+  0.25,
+  0.85,
+  terrainSnowElevation * terrainSnowMacroSlope
+    + (vTerrainMacro.z - 0.5) * 0.08
+);
+float terrainSnowDistanceFade = smoothstep(
+  180.0,
+  420.0,
+  distance(cameraPosition, vTerrainWorldPosition)
+);
+float terrainSnowCoverage = mix(
+  terrainSnowDetailedCoverage,
+  terrainSnowMacroCoverage,
+  terrainSnowDistanceFade
 );
 float terrainRiverBankBreakup = clamp(
   vTerrainMacro.z * 0.72 + vTerrainMacro.x * 0.28,
@@ -571,9 +748,15 @@ float terrainWaterBedMask = max(
 vec2 terrainForestFloorUv = vTerrainWorldPosition.xz / uForestFloorTextureWorldSize;
 vec2 terrainForestFloorUvDx = dFdx(terrainForestFloorUv);
 vec2 terrainForestFloorUvDy = dFdy(terrainForestFloorUv);
+vec3 terrainWorldPositionDx = dFdx(vTerrainWorldPosition);
+vec3 terrainWorldPositionDy = dFdy(vTerrainWorldPosition);
 vec2 terrainAlpineUv = vTerrainWorldPosition.xz / uAlpineTextureWorldSize;
+vec2 terrainAlpineUvDx = terrainWorldPositionDx.xz / uAlpineTextureWorldSize;
+vec2 terrainAlpineUvDy = terrainWorldPositionDy.xz / uAlpineTextureWorldSize;
 vec2 terrainSnowUv = vTerrainWorldPosition.xz / (uAlpineTextureWorldSize * 1.35)
   + vec2(6.4, -3.7);
+vec2 terrainSnowUvDx = terrainWorldPositionDx.xz / (uAlpineTextureWorldSize * 1.35);
+vec2 terrainSnowUvDy = terrainWorldPositionDy.xz / (uAlpineTextureWorldSize * 1.35);
 ${normalDeclarations}
 vec3 terrainBaseColor;
 float terrainRoughness = 0.9;
@@ -598,7 +781,13 @@ terrainBaseColor *= mix(
 );
 
 if (terrainSnowCoverage > 0.01) {
-  vec3 terrainSnowColor = texture2D(uSnowTexture, terrainSnowUv).rgb
+  vec3 terrainSnowColor = sampleTerrainAlpineBombed(
+    uSnowTexture,
+    terrainSnowUv,
+    terrainSnowUvDx,
+    terrainSnowUvDy,
+    11.0
+  ).rgb
     * vec3(0.90, 0.94, 1.0);
   terrainBaseColor = mix(terrainBaseColor, terrainSnowColor, terrainSnowCoverage);
   terrainSurfaceNormal = normalize(mix(
@@ -894,7 +1083,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v13-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v14-cell-bomb-${level}`;
 
   return material;
 }

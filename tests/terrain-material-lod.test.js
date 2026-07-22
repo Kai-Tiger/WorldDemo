@@ -154,21 +154,46 @@ test('terrain vertex relief is camera-local and leaves water corridors undisplac
   }
 });
 
-test('the globally used Medium material triplanar-samples rock color and normal', () => {
-  const { medium } = createTerrainMaterials(createTextures(), createOptions());
+test('the globally used Medium material cell-bombs triplanar rock color and normal together', () => {
+  const materials = createTerrainMaterials(createTextures(), createOptions());
+  const medium = getTerrainMaterialForSegments(materials, 64);
   const { fragmentParameters, mapFragment } = medium.userData.terrainShaderSource;
+  const bombOffsetSource = getShaderFunction(fragmentParameters, 'terrainAlpineBombOffset');
+  const bombedColorSource = getShaderFunction(
+    fragmentParameters,
+    'sampleTerrainAlpineBombed',
+  );
   const rockColorSource = getShaderFunction(fragmentParameters, 'sampleTerrainRock');
   const rockNormalSource = getShaderFunction(fragmentParameters, 'sampleTerrainRockNormal');
 
+  assert.equal((bombOffsetSource.match(/terrainAlpineCellNoise\(/g) ?? []).length, 4);
+  assert.match(bombedColorSource, /terrainAlpineBombOffset\(baseUv, seed\)/);
+  assert.match(
+    bombedColorSource,
+    /texture2DGradEXT\(terrainTexture, uv, baseUvDx, baseUvDy\)/,
+  );
+  assert.doesNotMatch(bombedColorSource, /texture2D\(/);
+  assert.equal((rockColorSource.match(/sampleTerrainAlpineBombed\(/g) ?? []).length, 3);
+  assert.equal((rockNormalSource.match(/sampleTerrainAlpineBombed\(/g) ?? []).length, 3);
   assert.match(rockColorSource, /worldPosition\.zy/);
   assert.match(rockColorSource, /worldPosition\.xz/);
   assert.match(rockColorSource, /worldPosition\.xy/);
+  assert.doesNotMatch(rockColorSource, /texture2D\(/);
   assert.match(rockNormalSource, /uRockNormalTexture/);
+  assert.doesNotMatch(rockNormalSource, /texture2D\(/);
+  for (const seed of ['3.0', '5.0', '7.0']) {
+    assert.ok(rockColorSource.includes(seed));
+    assert.ok(rockNormalSource.includes(seed));
+  }
   assert.match(rockNormalSource, /xNormal\.z \* worldNormal\.x/);
   assert.match(rockNormalSource, /yNormal\.z \* worldNormal\.y/);
   assert.match(rockNormalSource, /zNormal\.z \* worldNormal\.z/);
   assert.doesNotMatch(rockNormalSource, /axisSign/);
-  assert.match(mapFragment, /sampleTerrainRockNormal\(vTerrainWorldPosition/);
+  assert.match(mapFragment, /sampleTerrainRockNormal\(\s*vTerrainWorldPosition/);
+  assert.ok(
+    mapFragment.indexOf('vec3 terrainWorldPositionDx = dFdx')
+      < mapFragment.indexOf('if (terrainGrassBlendMask >= 0.74)'),
+  );
 });
 
 test('terrain materials keep river gravel scoped outside the natural ground branches', () => {
@@ -300,7 +325,10 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
     assert.match(transitionSource, /vec3 terrainGrassColor/);
     assert.match(transitionSource, /vec3 terrainRockColor/);
     assert.match(transitionSource, /sampleTerrainForestFloorColor\(/);
-    assert.match(transitionSource, /sampleTerrainRock\(|sampleTerrainLayer\(uRockTexture/);
+    assert.match(
+      transitionSource,
+      /sampleTerrainRock\(|sampleTerrainAlpineBombed\(\s*uRockTexture/,
+    );
     assert.match(
       transitionSource,
       /mix\(terrainRockColor, terrainGrassColor, terrainGrassBlend\)/,
@@ -308,7 +336,10 @@ test('every material LOD softly blends forest floor into the rock fallback', () 
     assert.match(transitionSource, /terrainSurfaceNormal = normalize\(mix\(/);
     assert.match(transitionSource, /vec3\(0\.80, 0\.79, 0\.76\)/);
     assert.match(transitionSource, /mix\(0\.55, 0\.92, terrainGrassTechnical\.g\)/);
-    assert.match(rockSource, /sampleTerrainRock\(|sampleTerrainLayer\(uRockTexture/);
+    assert.match(
+      rockSource,
+      /sampleTerrainRock\(|sampleTerrainAlpineBombed\(\s*uRockTexture/,
+    );
     assert.match(rockSource, /vec3\(0\.80, 0\.79, 0\.76\)/);
     assert.match(rockSource, /terrainRoughness = 0\.80/);
     assert.doesNotMatch(rockSource, /sampleTerrainForestFloor|uForestFloor/);
@@ -404,7 +435,10 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
       assert.equal((mapFragment.match(/sampleTerrainForestFloorNormal\(/g) ?? []).length, 2);
     }
 
-    assert.equal(material.customProgramCacheKey(), `layered-terrain-pbr-v13-${level}`);
+    assert.equal(
+      material.customProgramCacheKey(),
+      `layered-terrain-pbr-v14-cell-bomb-${level}`,
+    );
   }
 });
 
@@ -450,7 +484,7 @@ test('derived terrain PBR assets are tiered linear KTX2 textures', async () => {
   }
 });
 
-test('every material LOD uses one world-space snow sample over the grass-or-rock base', () => {
+test('every material LOD cell-bombs one snow layer over the grass-or-rock base', () => {
   const materials = createTerrainMaterials(createTextures(), createOptions());
 
   for (const material of Object.values(materials)) {
@@ -460,22 +494,38 @@ test('every material LOD uses one world-space snow sample over the grass-or-rock
     const rockStart = mapFragment.indexOf('\nelse {', transitionStart);
     const macroStart = mapFragment.indexOf('terrainBaseColor *= mix(');
     const snowOverlayStart = mapFragment.indexOf('if (terrainSnowCoverage > 0.01)');
+    const mountainTrailStart = mapFragment.indexOf('float terrainMountainTrailMask');
     const waterOverrideStart = mapFragment.indexOf('// River, lake, snowmelt and plunge masks');
     const rockSource = mapFragment.slice(rockStart, macroStart);
+    const snowSource = mapFragment.slice(snowOverlayStart, mountainTrailStart);
+    const waterSource = mapFragment.slice(waterOverrideStart);
 
     assert.match(fragmentParameters, /uniform sampler2D uSnowTexture;/);
     assert.match(mapFragment, /float terrainSnowLineHeight = terrainHeight/);
     assert.match(mapFragment, /1\.0 - smoothstep\(55\.0, 90\.0, terrainNoisyHeight\)/);
     assert.match(mapFragment, /smoothstep\(55\.0, 130\.0, terrainSnowLineHeight\)/);
     assert.match(mapFragment, /smoothstep\(0\.30, 0\.78, terrainBaseNormal\.y\)/);
+    assert.match(mapFragment, /float terrainSnowMacroCoverage = smoothstep\(/);
+    assert.match(
+      mapFragment,
+      /distance\(cameraPosition, vTerrainWorldPosition\)/,
+    );
+    assert.match(
+      mapFragment,
+      /mix\(\s*terrainSnowDetailedCoverage,\s*terrainSnowMacroCoverage,\s*terrainSnowDistanceFade/,
+    );
     assert.match(mapFragment, /uAlpineTextureWorldSize \* 1\.35/);
-    assert.equal((mapFragment.match(/texture2D\(uSnowTexture, terrainSnowUv\)/g) ?? []).length, 1);
+    assert.equal((snowSource.match(/sampleTerrainAlpineBombed\(/g) ?? []).length, 1);
+    assert.match(snowSource, /uSnowTexture/);
+    assert.doesNotMatch(snowSource, /texture2D\(/);
     assert.doesNotMatch(mapFragment, /sampleTerrainLayer\(uSnowTexture/);
+    assert.doesNotMatch(waterSource, /sampleTerrainAlpineBombed/);
     assert.ok(groundStart >= 0);
     assert.ok(transitionStart > groundStart);
     assert.ok(rockStart > transitionStart);
     assert.ok(macroStart > rockStart);
     assert.ok(snowOverlayStart > macroStart);
+    assert.ok(mountainTrailStart > snowOverlayStart);
     assert.ok(waterOverrideStart > snowOverlayStart);
     assert.doesNotMatch(rockSource, /GroundDirt|terrainGroundMacroWeight = 1\.0;/);
   }
