@@ -55,9 +55,9 @@ test('one far-tree batch covers the full map with a bounded silhouette sample', 
     minHeight = Math.min(minHeight, sizeValues[index + 1]);
     maxHeight = Math.max(maxHeight, sizeValues[index + 1]);
   }
-  assert.ok(minWidth >= 4.91 && maxWidth <= 11.81, [minWidth, maxWidth]);
-  assert.ok(minHeight >= 11.47 && maxHeight <= 28.33, [minHeight, maxHeight]);
-  assert.ok(maxWidth > 11.7 && maxHeight > 28.1, [maxWidth, maxHeight]);
+  assert.ok(minWidth >= 5.89 && maxWidth <= 14.17, [minWidth, maxWidth]);
+  assert.ok(minHeight >= 13.75 && maxHeight <= 34.0, [minHeight, maxHeight]);
+  assert.ok(maxWidth > 14.0 && maxHeight > 33.7, [maxWidth, maxHeight]);
 
   const cellCounts = new Map();
   const positions = field.mesh.geometry.attributes.instancePosition.array;
