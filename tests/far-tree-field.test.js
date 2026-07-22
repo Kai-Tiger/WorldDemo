@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  FAR_TREE_FADE_WIDTH,
   FAR_TREE_SPACING,
   createFarTreeField,
 } from '../src/farTreeField.js';
@@ -82,8 +83,13 @@ test('far trees cross-fade after detailed tree zones and remain visible to the w
 
   assert.deepEqual(uniforms.uViewerPosition.value.toArray(), [120, -340]);
   assert.equal(uniforms.uNearDistance.value, 520);
+  assert.equal(FAR_TREE_FADE_WIDTH, 320);
+  assert.equal(uniforms.uFadeWidth.value, FAR_TREE_FADE_WIDTH);
   assert.equal(uniforms.uViewDistance.value, WORLD_VIEW_DISTANCE);
-  assert.match(field.mesh.material.fragmentShader, /uNearDistance - uFadeWidth/);
+  assert.match(
+    field.mesh.material.fragmentShader,
+    /uNearDistance - uFadeWidth,\s*uNearDistance,/,
+  );
   assert.match(field.mesh.material.fragmentShader, /uViewDistance - uEdgeFade/);
   assert.match(field.mesh.material.fragmentShader, /crownWidth/);
 

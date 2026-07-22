@@ -13,11 +13,11 @@ import {
 } from './vegetationConfig.js';
 
 export const FAR_TREE_SPACING = 28;
+export const FAR_TREE_FADE_WIDTH = 320;
 
 const HALF_MAP_SIZE = MAP_SIZE / 2;
 const FAR_TREE_DENSITY = 0.70;
 const FAR_TREE_WATER_BUFFER = Math.max(TREE_RIVER_BUFFER, 10);
-const FAR_TREE_FADE_WIDTH = 80;
 const FAR_TREE_EDGE_FADE = 640;
 const FAR_TREE_MIN_HEIGHT = 14;
 const FAR_TREE_MAX_HEIGHT = 24;
@@ -275,7 +275,7 @@ function createFarTreeMaterial() {
         float silhouette = max(crown * step(0.12, vUv.y), trunk);
         float nearFade = smoothstep(
           uNearDistance - uFadeWidth,
-          uNearDistance + uFadeWidth,
+          uNearDistance,
           vViewerDistance
         );
         float farFade = 1.0 - smoothstep(
