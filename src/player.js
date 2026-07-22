@@ -31,6 +31,7 @@ export class Player {
     this.moveDirection = new THREE.Vector3();
     this.cameraForward = new THREE.Vector3();
     this.cameraRight = new THREE.Vector3();
+    this.nextHorizontalPosition = new THREE.Vector2();
     this.mixer = null;
     this.idleAction = null;
     this.walkAction = null;
@@ -193,7 +194,7 @@ export class Player {
     this.currentAction = nextAction;
   }
 
-  update(deltaTime, input, camera, terrain) {
+  update(deltaTime, input, camera, terrain, worldCollision = null) {
     this.mixer?.update(deltaTime);
 
     this.cameraForward.copy(camera.getWorldDirection(this.cameraForward));
@@ -236,14 +237,28 @@ export class Player {
 
       this.moveDirection.normalize();
       const speed = isAirborne ? AIR_SPEED : GROUND_SPEED;
-      const nextX = THREE.MathUtils.clamp(
+      let nextX = THREE.MathUtils.clamp(
         this.group.position.x + this.moveDirection.x * speed * deltaTime,
         -MAP_BOUNDARY, MAP_BOUNDARY,
       );
-      const nextZ = THREE.MathUtils.clamp(
+      let nextZ = THREE.MathUtils.clamp(
         this.group.position.z + this.moveDirection.z * speed * deltaTime,
         -MAP_BOUNDARY, MAP_BOUNDARY,
       );
+
+      if (worldCollision) {
+        this.nextHorizontalPosition.set(nextX, nextZ);
+        worldCollision.resolveMovement(
+          this.group.position,
+          this.nextHorizontalPosition,
+          this.group.position.y,
+          this.group.position.y + PLAYER_HEIGHT,
+          PLAYER_RADIUS,
+          this.nextHorizontalPosition,
+        );
+        nextX = THREE.MathUtils.clamp(this.nextHorizontalPosition.x, -MAP_BOUNDARY, MAP_BOUNDARY);
+        nextZ = THREE.MathUtils.clamp(this.nextHorizontalPosition.y, -MAP_BOUNDARY, MAP_BOUNDARY);
+      }
       const isDroppingOffEdge = !this.isHovering && this.isDroppingOffEdge(terrain, nextX, nextZ);
 
       if (!isAirborne && !isDroppingOffEdge && !this.canStandAt(terrain, nextX, nextZ)) {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildLeafDecals } from './leafDecals.js';
 import {
   buildTreeInstancedMeshes,
+  createTreeColliders,
   createTreePlacementIterator,
   replaceSpawnAreaTrees,
   updateTreeSwayUniforms,
@@ -13,7 +14,7 @@ const DEFAULT_UPDATE_BUDGET_MS = 1;
 const DEFAULT_TREE_DISTANCE = 760;
 
 export class TreeManager {
-  constructor(terrain, treeModels, leafTextures, farTreeField = null) {
+  constructor(terrain, treeModels, leafTextures, farTreeField = null, worldCollision = null) {
     this.terrain = terrain;
     this.treeModels = treeModels;
     this.leafTextures = leafTextures;
@@ -25,6 +26,7 @@ export class TreeManager {
     this.shadowNeedsUpdate = true;
     this.generationCursor = 0;
     this.farTreeField = farTreeField;
+    this.worldCollision = worldCollision;
     if (farTreeField) this.group.add(farTreeField.mesh);
   }
 
@@ -46,7 +48,13 @@ export class TreeManager {
     for (const chunk of loadedChunks) {
       if (this.zones.has(chunk.key)) continue;
 
-      const zone = new TreeZone(this.terrain, this.treeModels, this.leafTextures, chunk);
+      const zone = new TreeZone(
+        this.terrain,
+        this.treeModels,
+        this.leafTextures,
+        chunk,
+        this.worldCollision,
+      );
       this.zones.set(chunk.key, zone);
       this.group.add(zone.group);
       this.shadowNeedsUpdate = true;
@@ -127,7 +135,7 @@ export class TreeManager {
 }
 
 export class TreeZone {
-  constructor(terrain, treeModels, leafTextures, chunk) {
+  constructor(terrain, treeModels, leafTextures, chunk, worldCollision = null) {
     this.terrain = terrain;
     this.treeModels = treeModels;
     this.leafTextures = leafTextures;
@@ -146,6 +154,7 @@ export class TreeZone {
     this.isGenerating = true;
     this.leafGroup = null;
     this.isDisposed = false;
+    this.worldCollision = worldCollision;
   }
 
   processGeneration(steps) {
@@ -162,6 +171,10 @@ export class TreeZone {
     }
 
     buildTreeInstancedMeshes(placements, this.treeModels, this.group);
+    this.worldCollision?.replaceOwner(
+      this,
+      createTreeColliders(placements, this.treeModels),
+    );
     this.leafGroup = buildLeafDecals(placements, this.terrain, this.leafTextures);
     this.group.add(this.leafGroup);
     this.iterator = null;
@@ -178,6 +191,7 @@ export class TreeZone {
   dispose() {
     if (this.isDisposed) return;
     this.isDisposed = true;
+    this.worldCollision?.removeOwner(this);
 
     if (this.group.parent) {
       this.group.parent.remove(this.group);

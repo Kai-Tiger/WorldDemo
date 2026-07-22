@@ -13,6 +13,7 @@ import { createCompressedTextureLoader } from './compressedTextureLoader.js';
 import { PLAYER_SPAWN_POSITION } from './spawn.js';
 import { createFarTreeField } from './farTreeField.js';
 import { fitExpandedWaterToTerrain } from './expandedTerrainPlan.js';
+import { WorldCollision } from './worldCollision.js';
 
 const SHADOW_CAMERA_SIZE = 120;
 
@@ -42,6 +43,7 @@ export async function createScene(renderer, quality) {
   }
   scene.add(terrain.group);
   const unifiedWaterSystem = createUnifiedWaterSystem(terrain);
+  const worldCollision = new WorldCollision();
   const grassManager = createDeferredManager('GrassManager');
   const treeManager = createDeferredManager('TreeManager');
 
@@ -91,9 +93,10 @@ export async function createScene(renderer, quality) {
       treeModels,
       leafTextures,
       createFarTreeField(terrain),
+      worldCollision,
     ));
   }).finally(() => compressedTextureLoader.dispose());
-  const heroRocksReady = createHeroRocks(terrain).then((heroRocks) => {
+  const heroRocksReady = createHeroRocks(terrain, worldCollision).then((heroRocks) => {
     scene.add(heroRocks);
     return heroRocks;
   });
@@ -106,6 +109,7 @@ export async function createScene(renderer, quality) {
     treeManager,
     sunLight,
     clouds,
+    worldCollision,
     backgroundReady: Promise.all([vegetationReady, heroRocksReady]),
   };
 }

@@ -58,6 +58,9 @@ const TREE_CANOPY_BACKLIGHT_STRENGTH = 0.28;
 const TREE_CANOPY_BACKLIGHT_COLOR = new THREE.Color(0x789a4b);
 const TREE_WIND_DIRECTION = new THREE.Vector2(GRASS_WIND_X, GRASS_WIND_Z).normalize();
 const TREE_SWAY_PROGRAM_KEY = 'tree-canopy-sway-world-wind-v1';
+const TREE_COLLISION_RADIUS_RATIO = 0.04;
+const TREE_COLLISION_RADIUS_MIN = 0.4;
+const TREE_COLLISION_RADIUS_MAX = 1.15;
 
 const loader = new GLTFLoader();
 
@@ -120,7 +123,18 @@ function extractMeshes(scene, isSpawnTree = false) {
     };
   });
 
-  return { meshes, swayUniforms };
+  return {
+    meshes,
+    swayUniforms,
+    collision: {
+      radius: THREE.MathUtils.clamp(
+        modelHeight * TREE_COLLISION_RADIUS_RATIO,
+        TREE_COLLISION_RADIUS_MIN,
+        TREE_COLLISION_RADIUS_MAX,
+      ),
+      height: modelHeight,
+    },
+  };
 }
 
 export function getTreeMeshRole(meshName = '', materialName = '') {
@@ -443,6 +457,30 @@ export function buildTreeInstancedMeshes(placements, treeModels, parent) {
       parent.add(instanced);
     }
   }
+}
+
+export function createTreeColliders(placements, treeModels) {
+  const colliders = [];
+  const position = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+
+  for (const placement of placements) {
+    const collision = treeModels[placement.modelIndex]?.collision;
+
+    if (!collision) continue;
+
+    placement.matrix.decompose(position, rotation, scale);
+    colliders.push({
+      x: position.x,
+      z: position.z,
+      radius: collision.radius * Math.max(Math.abs(scale.x), Math.abs(scale.z)),
+      minY: position.y,
+      maxY: position.y + collision.height * Math.abs(scale.y),
+    });
+  }
+
+  return colliders;
 }
 
 export async function generateAllTreePlacements(terrain) {

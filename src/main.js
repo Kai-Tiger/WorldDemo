@@ -87,6 +87,7 @@ const {
   treeManager,
   sunLight,
   clouds,
+  worldCollision,
   backgroundReady,
 } = await createScene(renderer, renderQuality);
 const hemisphereLight = scene.children.find((child) => child.isHemisphereLight);
@@ -378,7 +379,7 @@ function animate(now) {
     player.setAnimationTime(1.1);
     applyGoldenShot(goldenShot, terrain, player, camera);
   } else {
-    player.update(deltaTime, input, camera, terrain);
+    player.update(deltaTime, input, camera, terrain, worldCollision);
   }
   terrain.update(player.position);
   if (toggleTrees.checked) {

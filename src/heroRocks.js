@@ -70,7 +70,7 @@ export function getHeroRiverRockPlacements() {
   return placements;
 }
 
-export function createHeroRiverRockInstances(assets, terrain) {
+export function createHeroRiverRockInstances(assets, terrain, colliders = null) {
   const group = new THREE.Group();
   const placementsByModel = new Map();
 
@@ -84,7 +84,7 @@ export function createHeroRiverRockInstances(assets, terrain) {
   group.name = 'HeroRiverRockSetDressing';
 
   for (const [modelIndex, placements] of placementsByModel) {
-    const { geometry, material, height } = createInstancedRockPrototype(
+    const { geometry, material, height, width, depth } = createInstancedRockPrototype(
       assets[modelIndex].scene,
     );
     const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
@@ -110,6 +110,13 @@ export function createHeroRiverRockInstances(assets, terrain) {
       scale.setScalar(uniformScale);
       matrix.compose(position, quaternion, scale);
       mesh.setMatrixAt(index, matrix);
+      colliders?.push({
+        x: position.x,
+        z: position.z,
+        radius: Math.hypot(width, depth) * uniformScale * 0.5,
+        minY: position.y,
+        maxY: position.y + placement.height,
+      });
     }
 
     mesh.instanceMatrix.needsUpdate = true;
@@ -120,9 +127,10 @@ export function createHeroRiverRockInstances(assets, terrain) {
   return group;
 }
 
-export async function createHeroRocks(terrain) {
+export async function createHeroRocks(terrain, worldCollision = null) {
   const assets = await Promise.all(ROCK_PATHS.map((path) => loader.loadAsync(path)));
   const group = new THREE.Group();
+  const colliders = [];
 
   group.name = 'HeroRockSetDressing';
 
@@ -137,6 +145,7 @@ export async function createHeroRocks(terrain) {
     rock.scale.setScalar(scale);
     rock.updateMatrixWorld(true);
     const scaledBox = new THREE.Box3().setFromObject(rock);
+    const scaledSize = scaledBox.getSize(new THREE.Vector3());
 
     const center = scaledBox.getCenter(new THREE.Vector3());
     const groundY = placement.y ?? terrain.getHeightAt(placement.x, placement.z);
@@ -157,9 +166,17 @@ export async function createHeroRocks(terrain) {
     instance.rotation.y = placement.yaw;
     instance.add(rock);
     group.add(instance);
+    colliders.push({
+      x: placement.x,
+      z: placement.z,
+      radius: Math.hypot(scaledSize.x, scaledSize.z) * 0.5,
+      minY: groundY,
+      maxY: groundY + scaledSize.y,
+    });
   }
 
-  group.add(createHeroRiverRockInstances(assets, terrain));
+  group.add(createHeroRiverRockInstances(assets, terrain, colliders));
+  worldCollision?.replaceOwner(group, colliders);
 
   return group;
 }
@@ -181,10 +198,12 @@ function createInstancedRockPrototype(scene) {
   const box = geometry.boundingBox;
   const center = box.getCenter(new THREE.Vector3());
   const height = Math.max(box.max.y - box.min.y, 0.001);
+  const width = box.max.x - box.min.x;
+  const depth = box.max.z - box.min.z;
 
   geometry.translate(-center.x, -box.min.y, -center.z);
 
-  return { geometry, material, height };
+  return { geometry, material, height, width, depth };
 }
 
 function cloneRiverRockMaterial(source) {
