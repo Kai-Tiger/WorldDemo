@@ -54,6 +54,12 @@ const CHUNK_BUILD_VERTEX_BATCH_SIZE = 128;
 const CHUNK_BUILD_INDEX_BATCH_SIZE = 1024;
 const CHUNK_BUILD_SKIRT_BATCH_SIZE = 64;
 const CHUNK_SKIRT_BOTTOM_MARGIN = 2;
+const CHUNK_EDGE_NEIGHBORS = [
+  { x: 0, z: -1 },
+  { x: 0, z: 1 },
+  { x: -1, z: 0 },
+  { x: 1, z: 0 },
+];
 const HEIGHT_BRUSH_DIRTY_PADDING = 7;
 const PRIORITY_MISSING_CENTER = 0;
 const PRIORITY_CENTER_UPGRADE = 10;
@@ -155,11 +161,10 @@ export class Terrain {
   async prepareInitialChunk(centerPosition) {
     const centerChunkX = this.getChunkCoord(centerPosition.x);
     const centerChunkZ = this.getChunkCoord(centerPosition.z);
-    const centerKey = this.getChunkKey(centerChunkX, centerChunkZ);
 
     this.centerChunkX = centerChunkX;
     this.centerChunkZ = centerChunkZ;
-    this.scheduleInitialChunks(this.getAllChunkKeys(), centerKey);
+    this.scheduleInitialChunks(this.getAllChunkKeys());
 
     await new Promise((resolve) => {
       const advance = () => {
@@ -294,18 +299,21 @@ export class Terrain {
     }
   }
 
-  scheduleInitialChunks(keys, centerKey) {
+  scheduleInitialChunks(keys) {
     const distantSegments = this.lodSegments.at(-1);
 
     for (const key of keys) {
       const { x, z } = this.parseChunkKey(key);
-      const isCenter = key === centerKey;
-      const segments = isCenter
+      const isInitialNeighborhood = Math.max(
+        Math.abs(x - this.centerChunkX),
+        Math.abs(z - this.centerChunkZ),
+      ) <= 1;
+      const segments = isInitialNeighborhood
         ? this.getDesiredChunkSegments(x, z)
         : distantSegments;
       const priority = this.getChunkBuildPriority(x, z, segments);
 
-      this.requestChunkBuild(x, z, segments, priority, false, isCenter);
+      this.requestChunkBuild(x, z, segments, priority, false, isInitialNeighborhood);
     }
   }
 
@@ -644,6 +652,33 @@ export class Terrain {
     }
     this.loadedChunks.set(task.key, next);
     this.pendingChunks.delete(task.key);
+    this.refreshChunkSkirtEdges(next);
+  }
+
+  refreshChunkSkirtEdges(record) {
+    this.updateChunkSkirtEdges(record);
+
+    for (const offset of CHUNK_EDGE_NEIGHBORS) {
+      const neighbor = this.loadedChunks.get(this.getChunkKey(
+        record.chunkX + offset.x,
+        record.chunkZ + offset.z,
+      ));
+
+      if (neighbor) this.updateChunkSkirtEdges(neighbor);
+    }
+  }
+
+  updateChunkSkirtEdges(record) {
+    const visibleEdges = CHUNK_EDGE_NEIGHBORS.map((offset) => {
+      const neighbor = this.loadedChunks.get(this.getChunkKey(
+        record.chunkX + offset.x,
+        record.chunkZ + offset.z,
+      ));
+
+      return !neighbor || neighbor.segments !== record.segments;
+    });
+
+    setSkirtVisibleEdges(record.skirt.geometry, record.segments, visibleEdges);
   }
 
   isChunkBuildTaskCurrent(task) {
@@ -974,6 +1009,7 @@ export class Terrain {
         record.minZ,
         record.edgeMinimums,
       );
+      this.updateChunkSkirtEdges(record);
       previousGeometry.dispose();
     }
   }
@@ -1507,11 +1543,8 @@ function createSkirtGeometry(surfacePositions, segments, minX, minZ, edgeMinimum
   const positions = new Float32Array(4 * verticesPerSide * 2 * 3);
   const indices = new Uint32Array(4 * segments * 6);
   let vertexOffset = 0;
-  let indexOffset = 0;
 
   for (let edge = 0; edge < 4; edge += 1) {
-    const edgeVertexOffset = vertexOffset;
-
     for (let i = 0; i < verticesPerSide; i += 1) {
       const sourceIndex = getEdgeSurfaceVertexIndex(edge, i, segments, verticesPerSide);
       const sourceOffset = sourceIndex * 3;
@@ -1527,6 +1560,25 @@ function createSkirtGeometry(surfacePositions, segments, minX, minZ, edgeMinimum
       positions[bottomOffset + 2] = surfacePositions[sourceOffset + 2];
       vertexOffset += 2;
     }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  setSkirtVisibleEdges(geometry, segments, [true, true, true, true]);
+  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, true);
+  return geometry;
+}
+
+function setSkirtVisibleEdges(geometry, segments, visibleEdges) {
+  const indices = geometry.index.array;
+  const verticesPerEdge = (segments + 1) * 2;
+  let indexOffset = 0;
+
+  for (let edge = 0; edge < 4; edge += 1) {
+    if (!visibleEdges[edge]) continue;
+
+    const edgeVertexOffset = edge * verticesPerEdge;
 
     for (let i = 0; i < segments; i += 1) {
       const topFirst = edgeVertexOffset + i * 2;
@@ -1544,11 +1596,9 @@ function createSkirtGeometry(surfacePositions, segments, minX, minZ, edgeMinimum
     }
   }
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.boundingSphere = createChunkBoundingSphere(minX, minZ, true);
-  return geometry;
+  geometry.setDrawRange(0, indexOffset);
+  geometry.index.needsUpdate = true;
+  geometry.userData.visibleEdges = [...visibleEdges];
 }
 
 function getEdgeSurfaceVertexIndex(edge, index, segments, verticesPerSide) {

@@ -216,8 +216,12 @@ test('quality presets keep the center at 256 and use preset values for rings', (
   assert.equal(terrain.buildBudgetMs, 5);
 });
 
-test('initial readiness waits until every terrain chunk is loaded', async () => {
-  const terrain = createTerrain();
+test('initial readiness loads the center neighborhood at target detail before resolving', async () => {
+  const terrain = createTerrain({
+    minimumSegmentsForChunk: ({ chunkX, chunkZ }) => (
+      chunkX === 12 && chunkZ === 10 ? 256 : 0
+    ),
+  });
   const animationFrames = [];
   const initialBuildBudgets = [];
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
@@ -237,8 +241,10 @@ test('initial readiness waits until every terrain chunk is loaded', async () => 
     assert.equal(terrain.loadedChunks.size, 0);
     assert.equal(terrain.pendingChunks.size, 576);
     assert.equal(terrain.pendingChunks.get('13,10').segments, 256);
+    assert.equal(terrain.pendingChunks.get('12,10').segments, 256);
     assert.equal(terrain.pendingChunks.get('0,0').segments, 32);
     assert.equal(terrain.pendingChunks.get('13,10').skirtSampleStep, 1);
+    assert.equal(terrain.pendingChunks.get('12,10').skirtSampleStep, 1);
     assert.equal(terrain.pendingChunks.get('0,0').skirtSampleStep, 8);
     assert.equal(animationFrames.length, 1);
 
@@ -453,6 +459,33 @@ test('LOD replacement retains the old surface until an atomic swap and disposes 
       assert.ok(Math.abs(skirtPositions[bottomVertex * 3 + 1] - expectedBottom) < 0.0001);
     }
   }
+});
+
+test('equal-LOD neighbors hide their shared skirts and mismatched neighbors retain them', () => {
+  const terrain = createTerrain({ now: () => 0 });
+
+  terrain.requestChunkBuild(0, 0, 64, 0);
+  terrain.processChunkBuilds();
+  const left = terrain.loadedChunks.get('0,0');
+
+  assert.deepEqual(left.skirt.geometry.userData.visibleEdges, [true, true, true, true]);
+  assert.equal(left.skirt.geometry.drawRange.count, 4 * 64 * 6);
+
+  terrain.requestChunkBuild(1, 0, 64, 0);
+  terrain.processChunkBuilds();
+  const right = terrain.loadedChunks.get('1,0');
+
+  assert.deepEqual(left.skirt.geometry.userData.visibleEdges, [true, true, true, false]);
+  assert.deepEqual(right.skirt.geometry.userData.visibleEdges, [true, true, false, true]);
+  assert.equal(left.skirt.geometry.drawRange.count, 3 * 64 * 6);
+  assert.equal(right.skirt.geometry.drawRange.count, 3 * 64 * 6);
+
+  terrain.requestChunkBuild(1, 0, 128, 0);
+  terrain.processChunkBuilds();
+  const upgradedRight = terrain.loadedChunks.get('1,0');
+
+  assert.deepEqual(left.skirt.geometry.userData.visibleEdges, [true, true, true, true]);
+  assert.deepEqual(upgradedRight.skirt.geometry.userData.visibleEdges, [true, true, true, true]);
 });
 
 test('deadline slicing keeps work pending and a revision cancels stale work', () => {
