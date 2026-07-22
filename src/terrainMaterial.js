@@ -666,8 +666,10 @@ float terrainGrassBlendMask = clamp(
   1.0
 );
 float terrainGrassBlend = smoothstep(0.10, 0.74, terrainGrassBlendMask);
+float terrainSnowRegionalRaise = smoothstep(0.20, 0.75, vTerrainMacro.w) * 100.0;
+float terrainSnowRetention = 1.0 - smoothstep(0.62, 0.74, vTerrainMacro.w);
 float terrainSnowLineHeight = terrainHeight
-  - vTerrainEdgeMountainMask * 100.0
+  - vTerrainEdgeMountainMask * (100.0 + terrainSnowRegionalRaise)
   + (vTerrainMacro.x - 0.5) * 24.0
   + (vTerrainMacro.z - 0.5) * 8.0;
 float terrainSnowElevation = smoothstep(55.0, 130.0, terrainSnowLineHeight);
@@ -698,7 +700,7 @@ float terrainSnowCoverage = mix(
   terrainSnowDetailedCoverage,
   terrainSnowMacroCoverage,
   terrainSnowDistanceFade
-);
+) * mix(1.0, terrainSnowRetention, vTerrainEdgeMountainMask);
 float terrainRiverBankBreakup = clamp(
   vTerrainMacro.z * 0.72 + vTerrainMacro.x * 0.28,
   0.0,
@@ -1088,7 +1090,7 @@ function createTerrainMaterialVariant(level, terrainUniforms) {
         '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= terrainOcclusion;\nreflectedLight.indirectSpecular *= mix(terrainOcclusion, 1.0, 0.35);',
       );
   };
-  material.customProgramCacheKey = () => `layered-terrain-pbr-v15-raised-snowline-${level}`;
+  material.customProgramCacheKey = () => `layered-terrain-pbr-v16-varied-snow-${level}`;
 
   return material;
 }

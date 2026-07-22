@@ -437,7 +437,7 @@ test('forest-floor color and normal share four-cell world-space bombing with sta
 
     assert.equal(
       material.customProgramCacheKey(),
-      `layered-terrain-pbr-v15-raised-snowline-${level}`,
+      `layered-terrain-pbr-v16-varied-snow-${level}`,
     );
   }
 });
@@ -509,9 +509,20 @@ test('every material LOD cell-bombs one snow layer over the grass-or-rock base',
     assert.match(vertexAssignments, /vTerrainEdgeMountainMask = edgeMountainMask;/);
     assert.match(fragmentParameters, /varying float vTerrainEdgeMountainMask;/);
     assert.match(fragmentParameters, /uniform sampler2D uSnowTexture;/);
+    assert.match(
+      mapFragment,
+      /smoothstep\(0\.20, 0\.75, vTerrainMacro\.w\) \* 100\.0/,
+    );
+    assert.match(
+      mapFragment,
+      /1\.0 - smoothstep\(0\.62, 0\.74, vTerrainMacro\.w\)/,
+    );
     assert.match(mapFragment, /float terrainSnowLineHeight = terrainHeight/);
     assert.match(mapFragment, /1\.0 - smoothstep\(55\.0, 90\.0, terrainNoisyHeight\)/);
-    assert.match(mapFragment, /vTerrainEdgeMountainMask \* 100\.0/);
+    assert.match(
+      mapFragment,
+      /vTerrainEdgeMountainMask \* \(100\.0 \+ terrainSnowRegionalRaise\)/,
+    );
     assert.match(mapFragment, /smoothstep\(55\.0, 130\.0, terrainSnowLineHeight\)/);
     assert.match(mapFragment, /smoothstep\(0\.30, 0\.78, terrainBaseNormal\.y\)/);
     assert.match(mapFragment, /float terrainSnowMacroCoverage = smoothstep\(/);
@@ -522,6 +533,10 @@ test('every material LOD cell-bombs one snow layer over the grass-or-rock base',
     assert.match(
       mapFragment,
       /mix\(\s*terrainSnowDetailedCoverage,\s*terrainSnowMacroCoverage,\s*terrainSnowDistanceFade/,
+    );
+    assert.match(
+      mapFragment,
+      /\* mix\(1\.0, terrainSnowRetention, vTerrainEdgeMountainMask\)/,
     );
     assert.match(mapFragment, /uAlpineTextureWorldSize \* 1\.35/);
     assert.equal((snowSource.match(/sampleTerrainAlpineBombed\(/g) ?? []).length, 1);
@@ -558,6 +573,22 @@ test('perimeter mountain mask raises the physical snowline by exactly 100 meters
   assert.equal(getSnowlineCoverage(135, 0.9, 0.5, 0.5, 1), 0);
   assert.equal(getSnowlineCoverage(240, 0.9, 0.5, 0.5, 1), 1);
   assert.equal(getSnowlineCoverage(240, 0.25, 0.5, 0.5, 1), 0);
+});
+
+test('perimeter climate varies snowlines and leaves warm mountains snow-free', () => {
+  const centralCold = getSnowlineCoverages(140, 0.9, 0.5, 0.5, 0, 0);
+  const centralWarm = getSnowlineCoverages(140, 0.9, 0.5, 0.5, 0, 1);
+  const snowyMountain = getSnowlineCoverages(340, 0.9, 0.5, 0.5, 1, 0);
+  const raisedMountain = getSnowlineCoverages(240, 0.9, 0.5, 0.5, 1, 0.5);
+  const warmMountain = getSnowlineCoverages(340, 0.9, 0.5, 0.5, 1, 1);
+
+  assert.deepEqual(centralWarm, centralCold);
+  assert.ok(snowyMountain.detailed >= 0.8);
+  assert.ok(snowyMountain.macro >= 0.8);
+  assert.ok(raisedMountain.detailed < getSnowlineCoverage(240, 0.9, 0.5, 0.5, 1, 0));
+  assert.equal(warmMountain.detailed, 0);
+  assert.equal(warmMountain.macro, 0);
+  assert.equal(getSnowlineCoverage(340, 0.25, 0.5, 0.5, 1, 0), 0);
 });
 
 test('terrain macro midtone lift affects grass but not the rock fallback or water overrides', () => {
@@ -597,14 +628,52 @@ function getSnowlineCoverage(
   macroX = 0.5,
   macroZ = 0.5,
   edgeMountainMask = 0,
+  macroW = 0,
 ) {
-  const snowLineHeight = height - edgeMountainMask * 100
+  return getSnowlineCoverages(
+    height,
+    normalY,
+    macroX,
+    macroZ,
+    edgeMountainMask,
+    macroW,
+  ).detailed;
+}
+
+function getSnowlineCoverages(
+  height,
+  normalY,
+  macroX = 0.5,
+  macroZ = 0.5,
+  edgeMountainMask = 0,
+  macroW = 0,
+) {
+  const regionalRaise = smoothstep(0.2, 0.75, macroW) * 100;
+  const retention = 1 - smoothstep(0.62, 0.74, macroW);
+  const snowLineHeight = height - edgeMountainMask * (100 + regionalRaise)
     + (macroX - 0.5) * 24
     + (macroZ - 0.5) * 8;
   const elevation = smoothstep(55, 130, snowLineHeight);
-  const slope = smoothstep(0.3, 0.78, normalY);
+  const detailedSlope = smoothstep(0.3, 0.78, normalY);
+  const macroSlope = THREE.MathUtils.lerp(
+    0.68,
+    1,
+    THREE.MathUtils.clamp(normalY, 0, 1),
+  );
+  const snowRetention = THREE.MathUtils.lerp(1, retention, edgeMountainMask);
 
-  return smoothstep(0.12, 0.88, elevation * slope + (macroZ - 0.5) * 0.22);
+  return {
+    detailed: smoothstep(
+      0.12,
+      0.88,
+      elevation * detailedSlope + (macroZ - 0.5) * 0.22,
+    ) * snowRetention,
+    macro: smoothstep(
+      0.25,
+      0.85,
+      elevation * macroSlope + (macroZ - 0.5) * 0.08,
+    ) * snowRetention,
+  };
 }
 
 function getShaderFunction(source, name) {
