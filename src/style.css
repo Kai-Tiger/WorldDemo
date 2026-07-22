@@ -235,6 +235,45 @@ body.is-ready #loading-screen {
   color: rgba(245, 247, 251, 0.72);
 }
 
+#combat-hud {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 2;
+  display: grid;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  background: rgba(17, 19, 24, 0.72);
+  color: rgba(245, 247, 251, 0.78);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+.combat-stats,
+.combat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.combat-stats strong {
+  color: #f5f7fb;
+  font-weight: 600;
+}
+
+.combat-controls {
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.combat-controls kbd {
+  color: #e6c98c;
+  font: inherit;
+}
+
 #game {
   display: block;
   width: 100vw;

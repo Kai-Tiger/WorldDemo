@@ -2,17 +2,23 @@ export class Input {
   constructor(target) {
     this.target = target;
     this.keys = new Set();
+    this.pressedKeys = new Set();
     this.pointerDelta = { x: 0, y: 0 };
     this.wheelDelta = 0;
     this.isDragging = false;
     this.pointerInputEnabled = true;
 
     window.addEventListener('keydown', (event) => {
+      if (!this.keys.has(event.code)) this.pressedKeys.add(event.code);
       this.keys.add(event.code);
     });
 
     window.addEventListener('keyup', (event) => {
       this.keys.delete(event.code);
+    });
+    window.addEventListener('blur', () => this.clearKeyboard());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.clearKeyboard();
     });
 
     target.addEventListener('pointerdown', (event) => {
@@ -55,6 +61,17 @@ export class Input {
 
   isKeyDown(code) {
     return this.keys.has(code);
+  }
+
+  consumePressed(code) {
+    const wasPressed = this.pressedKeys.has(code);
+    this.pressedKeys.delete(code);
+    return wasPressed;
+  }
+
+  clearKeyboard() {
+    this.keys.clear();
+    this.pressedKeys.clear();
   }
 
   setPointerInputEnabled(enabled) {

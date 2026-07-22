@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import './style.css';
 import { Input } from './input.js';
 import { Player } from './player.js';
+import { Enemy, isTargetInAttackArc } from './enemy.js';
+import { createEnemySpawnPositions } from './enemySpawns.js';
+import { SpellSystem } from './spellSystem.js';
 import { createScene } from './scene.js';
 import { applyEnvironmentLighting } from './environmentLighting.js';
 import { applyGoldenShot, getGoldenShotFromLocation } from './goldenShots.js';
@@ -34,6 +37,9 @@ const DYNAMIC_RESOLUTION = Object.freeze({
 });
 const PLAYER_FILL_COLOR = 0xb7d3df;
 const PLAYER_FILL_INTENSITY = 120;
+const PLAYER_MELEE_RANGE = 2.64;
+const PLAYER_MELEE_ANGLE_DEGREES = 90;
+const EXPECTED_ENEMY_COUNT = 6;
 const canvas = document.querySelector('#game');
 const positionX = document.querySelector('#position-x');
 const positionZ = document.querySelector('#position-z');
@@ -50,6 +56,10 @@ const geometryValue = document.querySelector('#geometry-value');
 const textureValue = document.querySelector('#texture-value');
 const programValue = document.querySelector('#program-value');
 const resolutionScaleValue = document.querySelector('#resolution-scale-value');
+const playerHpValue = document.querySelector('#player-hp');
+const playerMpValue = document.querySelector('#player-mp');
+const playerStaminaValue = document.querySelector('#player-stamina');
+const enemyCountValue = document.querySelector('#enemy-count');
 const query = new URLSearchParams(window.location.search);
 const debugMode = query.get('debug') === '1';
 const captureMode = query.get('capture') === '1';
@@ -135,6 +145,24 @@ player.position.y = player.getGroundHeight(terrain, player.position.x, player.po
 applyRenderQuality(renderQuality, false);
 terrain.update();
 scene.add(player.group);
+const enemySpawnPositions = createEnemySpawnPositions(terrain, player.position, {
+  count: EXPECTED_ENEMY_COUNT,
+});
+const enemies = enemySpawnPositions.map((spawnPosition) => {
+  const enemy = new Enemy(spawnPosition);
+  scene.add(enemy.group);
+  return enemy;
+});
+const spellSystem = new SpellSystem(scene);
+
+if (enemies.length < EXPECTED_ENEMY_COUNT) {
+  console.warn(`Placed ${enemies.length} of ${EXPECTED_ENEMY_COUNT} requested enemies.`);
+}
+
+Promise.all([player.ready, ...enemies.map((enemy) => enemy.ready)]).then(() => {
+  shadowController.invalidate();
+  shadowController.refreshMaterials();
+});
 shadowController.refreshMaterials();
 const playerFillTarget = new THREE.Object3D();
 playerFillTarget.position.y = 1;
@@ -158,6 +186,7 @@ if (!applyGoldenShot(goldenShot, terrain, player, camera)) {
 
 createTerrainEditor(terrain, camera, scene, canvas, input);
 const clock = new THREE.Clock();
+const playerSpellForward = new THREE.Vector3();
 let fpsFrameCount = 0;
 let fpsLastUpdate = performance.now();
 let smoothedFrameMs = 16.7;
@@ -259,6 +288,51 @@ function updatePlayerFillLight() {
     .add(player.position);
   playerFillLight.position.y += 2.4;
   playerFillLight.target.updateMatrixWorld();
+}
+
+function updateCombat(deltaTime) {
+  let hitInfo = player.consumeAttackHitWindow();
+
+  while (hitInfo) {
+    const damage = Math.round(player.getAttackDamage() * hitInfo.damageMul);
+    const range = PLAYER_MELEE_RANGE * hitInfo.rangeMul;
+
+    for (const enemy of enemies) {
+      if (
+        enemy.isAlive()
+        && isTargetInAttackArc(
+          player.position,
+          player.group.rotation.y,
+          enemy.position,
+          range,
+          PLAYER_MELEE_ANGLE_DEGREES,
+        )
+      ) {
+        enemy.takeDamage(damage);
+      }
+    }
+
+    hitInfo = player.consumeAttackHitWindow();
+  }
+
+  const spellRelease = player.consumeSpellRelease();
+  if (spellRelease) {
+    spellSystem.cast(
+      player.position,
+      player.getForward(playerSpellForward),
+      spellRelease.damage,
+    );
+  }
+
+  spellSystem.update(deltaTime, enemies, terrain);
+  for (const enemy of enemies) enemy.update(deltaTime, player, terrain, enemies);
+}
+
+function updateCombatHud() {
+  playerHpValue.textContent = `${Math.ceil(player.getHp())}/${player.getMaxHp()}`;
+  playerMpValue.textContent = `${Math.ceil(player.getMp())}/${player.getMaxMp()}`;
+  playerStaminaValue.textContent = `${Math.ceil(player.getStamina())}/${player.getMaxStamina()}`;
+  enemyCountValue.textContent = enemies.filter((enemy) => enemy.isAlive()).length.toString();
 }
 
 function updateFps(now) {
@@ -377,9 +451,11 @@ function animate(now) {
   updateDynamicResolution(now);
   if (goldenShot) {
     player.setAnimationTime(1.1);
+    for (const enemy of enemies) enemy.setAnimationTime(0.6);
     applyGoldenShot(goldenShot, terrain, player, camera);
   } else {
     player.update(deltaTime, input, camera, terrain, worldCollision);
+    updateCombat(deltaTime);
   }
   terrain.update(player.position);
   if (toggleTrees.checked) {
@@ -394,6 +470,7 @@ function animate(now) {
   positionX.textContent = player.position.x.toFixed(2);
   positionZ.textContent = player.position.z.toFixed(2);
   positionY.textContent = player.position.y.toFixed(2);
+  updateCombatHud();
   unifiedWaterSystem.update(flowingWaterTime, camera);
   postProcessing.setWaterTime(flowingWaterTime);
   if (toggleGrass.checked) {
@@ -427,6 +504,8 @@ function animate(now) {
 window.addEventListener('resize', resize);
 window.addEventListener('pagehide', (event) => {
   if (!event.persisted) {
+    spellSystem.dispose();
+    for (const enemy of enemies) enemy.dispose();
     shadowController.dispose();
     waterRenderController.dispose();
     postProcessing.dispose();

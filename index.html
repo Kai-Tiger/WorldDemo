@@ -65,6 +65,20 @@
       <button id="terrain-editor-save" class="terrain-editor-button" type="button">Save</button>
       <button id="terrain-editor-close" class="terrain-editor-button" type="button">Close</button>
     </section>
+    <section id="combat-hud" aria-label="Combat status">
+      <div class="combat-stats">
+        <span>HP <strong id="player-hp">200/200</strong></span>
+        <span>MP <strong id="player-mp">100/100</strong></span>
+        <span>STA <strong id="player-stamina">100/100</strong></span>
+        <span>Enemies <strong id="enemy-count">0</strong></span>
+      </div>
+      <div class="combat-controls">
+        <span><kbd>WASD</kbd> Move</span>
+        <span><kbd>J</kbd> Attack</span>
+        <span><kbd>K</kbd> Guard</span>
+        <span><kbd>E</kbd> Fireball</span>
+      </div>
+    </section>
     <canvas id="game"></canvas>
     <script type="module" src="/src/main.js"></script>
   </body>
