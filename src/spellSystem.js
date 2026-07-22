@@ -102,9 +102,6 @@ export class SpellSystem {
     ringB.rotation.y = Math.PI / 2;
     group.add(ringB);
 
-    const light = new THREE.PointLight(0xff6b1a, 35, 10, 2);
-    group.add(light);
-
     const trailPositions = new Float32Array(TRAIL_POINT_COUNT * 3);
     for (let index = 0; index < TRAIL_POINT_COUNT; index += 1) {
       trailPositions[index * 3] = origin.x;

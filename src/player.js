@@ -569,7 +569,11 @@ export class Player {
   }
 
   updateSpellRelease(deltaTime) {
-    if (this.actionState !== 'spell' || this.spellReleaseReady) return;
+    if (
+      this.actionState !== 'spell'
+      || this.spellReleaseReady
+      || this.spellReleaseTimer <= 0
+    ) return;
 
     this.spellReleaseTimer -= deltaTime;
     if (this.spellReleaseTimer <= 0) this.spellReleaseReady = true;

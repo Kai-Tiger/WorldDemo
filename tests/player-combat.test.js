@@ -142,7 +142,7 @@ test('a melee step emits one hit event inside its animation window', () => {
   assert.equal(player.consumeAttackHitWindow(), false);
 });
 
-test('spell release consumes mana and becomes available after its delay', () => {
+test('one spell action releases exactly one fireball after its delay', () => {
   const player = createCombatPlayer();
   player.spellAction = { name: 'spell' };
   player.setAction = () => {};
@@ -153,6 +153,8 @@ test('spell release consumes mana and becomes available after its delay', () => 
   assert.equal(player.consumeSpellRelease(), false);
   player.updateSpellRelease(0.02);
   assert.deepEqual(player.consumeSpellRelease(), { damage: 52 });
+  assert.equal(player.consumeSpellRelease(), false);
+  player.updateSpellRelease(0.02);
   assert.equal(player.consumeSpellRelease(), false);
 });
 
@@ -199,6 +201,11 @@ test('a cast fireball damages its first enemy once and is removed', () => {
     spells.cast(new THREE.Vector3(), new THREE.Vector3(0, 0, 1), 52),
     true,
   );
+  let projectileLights = 0;
+  scene.traverse((object) => {
+    if (object.isPointLight) projectileLights += 1;
+  });
+  assert.equal(projectileLights, 0);
   spells.update(0.1, [enemy], terrain);
   spells.update(0.1, [enemy], terrain);
 
