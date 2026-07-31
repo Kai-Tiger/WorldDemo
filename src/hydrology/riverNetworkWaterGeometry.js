@@ -40,6 +40,11 @@ const CONFLUENCE_ARC_STEP = Math.PI / 24;
 const CONFLUENCE_RADIAL_SPACING = 4;
 const MAX_CONFLUENCE_RADIAL_SEGMENTS = 6;
 const LAKE_LEVEL_BLEND_LENGTH = 12;
+const SHORE_VARIATION_SCALE = 0.07;
+const SHORE_VARIATION_MIN = 0.06;
+const SHORE_VARIATION_MAX = 0.55;
+const SHORE_VARIATION_FADE_LENGTH = 8;
+const TWO_PI = Math.PI * 2;
 
 export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain) {
   if (!network?.reaches?.length || !network.nodeById) {
@@ -115,6 +120,13 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
       );
       const rowStartVertex = getVertexCount(data);
       const rowVertices = [];
+      const shoreVariation = getShoreVariation(
+        reach,
+        distance,
+        startDistance,
+        endDistance,
+        frame.width,
+      );
       const flowAdjustments = getConfluenceFlowAdjustments(
         reach,
         distance,
@@ -130,8 +142,15 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
       for (let lateralIndex = 0; lateralIndex <= tessellation.lateralSegments; lateralIndex += 1) {
         const lateralT = lateralIndex / tessellation.lateralSegments;
         const lateral = (lateralT - 0.5) * frame.width;
-        let x = frame.x + sideX * lateral;
-        let z = frame.z + sideZ * lateral;
+        const edgeWeight = Math.pow(Math.abs(lateralT * 2 - 1), 3);
+        const edgeOffset = lateralT < 0.5
+          ? -shoreVariation.left
+          : shoreVariation.right;
+        const deformedLateral = lateral + edgeWeight * edgeOffset;
+        const leftBoundary = frame.width * -0.5 - shoreVariation.left;
+        const rightBoundary = frame.width * 0.5 + shoreVariation.right;
+        let x = frame.x + sideX * deformedLateral;
+        let z = frame.z + sideZ * deformedLateral;
 
         ({ x, z } = projectLakeTransitionVertex(
           x,
@@ -142,7 +161,7 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
         const vertexLakeFade = getReachLakeFade(reachLakeTransitions, x, z);
         const waterEdge = 1 - Math.abs(lateralT * 2 - 1);
         let flowU = nodeFlowCoordinates.get(reach.from) + distance;
-        let flowV = lateral;
+        let flowV = deformedLateral;
 
         for (const adjustment of flowAdjustments) {
           const deltaX = x - adjustment.x;
@@ -172,7 +191,10 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
           junctionMask: 0,
           viewDistance,
           waterDepth: getWaterDepth(frame, waterEdge, x, z, terrain),
-          shoreDistance: frame.width * 0.5 * waterEdge,
+          shoreDistance: Math.max(Math.min(
+            deformedLateral - leftBoundary,
+            rightBoundary - deformedLateral,
+          ), 0),
           flowSpeed: frame.flowSpeed,
           rapidMask: frame.rapidMask,
           flowDirectionX: tangent.x,
@@ -307,6 +329,60 @@ export function createRiverNetworkWaterGeometry(network = RIVER_NETWORK, terrain
       junctions: junctionStats,
     },
   };
+}
+
+function getShoreVariation(reach, distance, startDistance, endDistance, width) {
+  let fade = smoothstep(
+    0,
+    SHORE_VARIATION_FADE_LENGTH,
+    distance - startDistance,
+  ) * smoothstep(
+    0,
+    SHORE_VARIATION_FADE_LENGTH,
+    endDistance - distance,
+  );
+
+  for (const disturbance of reach.disturbances ?? []) {
+    fade *= smoothstep(
+      disturbance.radius * 1.5,
+      disturbance.radius * 3.5,
+      Math.abs(distance - disturbance.distanceM),
+    );
+  }
+
+  const amplitude = THREE.MathUtils.clamp(
+    width * SHORE_VARIATION_SCALE,
+    SHORE_VARIATION_MIN,
+    SHORE_VARIATION_MAX,
+  ) * fade;
+  const leftPhase = getStablePhase(reach.id, 0x9e3779b9);
+  const rightPhase = getStablePhase(reach.id, 0x85ebca6b) + Math.PI * 0.71;
+  const getInset = (phase) => amplitude * (
+    0.1 + (sampleShoreNoise(distance, phase) * 0.5 + 0.5) * 0.9
+  );
+
+  return {
+    left: -getInset(leftPhase),
+    right: -getInset(rightPhase),
+  };
+}
+
+function sampleShoreNoise(distance, phase) {
+  return (
+    Math.sin(distance * 0.29 + phase)
+    + Math.sin(distance * 0.73 + phase * 1.7) * 0.45
+    + Math.sin(distance * 1.31 - phase * 0.6) * 0.2
+  ) / 1.65;
+}
+
+function getStablePhase(id, salt) {
+  let hash = salt >>> 0;
+
+  for (let index = 0; index < id.length; index += 1) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 16777619);
+  }
+
+  return (hash >>> 0) / 0xffffffff * TWO_PI;
 }
 
 function createReachTrims(network, lakeTransitions) {

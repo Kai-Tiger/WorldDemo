@@ -176,6 +176,56 @@ test('reach strips preserve metric downstream UVs, monotonic water levels, and a
   }
 });
 
+test('river shoreline varies within the authored corridor and keeps endpoint seams exact', () => {
+  const network = createSingleReachNetwork(0, 'trunk');
+  const { geometry, stats } = createRiverNetworkWaterGeometry(network);
+  const position = geometry.getAttribute('position');
+  const uv = geometry.getAttribute('uv');
+  const reachStats = stats.reaches[0];
+  const reach = network.reachById.get(reachStats.id);
+  let variedWidthRows = 0;
+  let asymmetricRows = 0;
+
+  for (let row = 0; row < reachStats.rowCount; row += 1) {
+    const rowStart = reachStats.startVertex + row * reachStats.rowSize;
+    const rowEnd = rowStart + reachStats.rowSize - 1;
+    const distance = uv.getX(rowStart) - reachStats.flowStart;
+    const expected = sampleCompiledReach(reach, distance);
+    const actualWidth = Math.hypot(
+      position.getX(rowEnd) - position.getX(rowStart),
+      position.getZ(rowEnd) - position.getZ(rowStart),
+    );
+    const edgeMidpointOffset = Math.hypot(
+      (position.getX(rowStart) + position.getX(rowEnd)) * 0.5 - expected.x,
+      (position.getZ(rowStart) + position.getZ(rowEnd)) * 0.5 - expected.z,
+    );
+
+    assert.ok(Math.abs(actualWidth - expected.width) <= expected.width * 0.18 + 1e-5);
+    if (Math.abs(actualWidth - expected.width) > 0.05) variedWidthRows += 1;
+    if (edgeMidpointOffset > expected.width * 0.005) asymmetricRows += 1;
+  }
+
+  const firstRow = reachStats.startVertex;
+  const lastRow = firstRow + (reachStats.rowCount - 1) * reachStats.rowSize;
+
+  for (const [rowStart, distance] of [
+    [firstRow, reachStats.startDistance],
+    [lastRow, reachStats.endDistance],
+  ]) {
+    const rowEnd = rowStart + reachStats.rowSize - 1;
+    const expected = sampleCompiledReach(reach, distance);
+    const actualWidth = Math.hypot(
+      position.getX(rowEnd) - position.getX(rowStart),
+      position.getZ(rowEnd) - position.getZ(rowStart),
+    );
+
+    assert.ok(Math.abs(actualWidth - expected.width) < 1e-4);
+  }
+
+  assert.ok(variedWidthRows > reachStats.rowCount * 0.6);
+  assert.ok(asymmetricRows > reachStats.rowCount * 0.3);
+});
+
 test('authored fallback depth shallows toward each shore in metric distance', () => {
   const { geometry, stats } = result;
   const waterDepth = geometry.getAttribute('waterDepth');
@@ -236,14 +286,18 @@ test('reach strips encode signed lateral flow coordinates in meters', () => {
     const left = reach.startVertex + row * reach.rowSize;
     const center = left + Math.floor(reach.rowSize / 2);
     const right = left + reach.rowSize - 1;
-    const width = Math.hypot(
-      position.getX(right) - position.getX(left),
-      position.getZ(right) - position.getZ(left),
+    const leftDistance = Math.hypot(
+      position.getX(center) - position.getX(left),
+      position.getZ(center) - position.getZ(left),
+    );
+    const rightDistance = Math.hypot(
+      position.getX(right) - position.getX(center),
+      position.getZ(right) - position.getZ(center),
     );
 
-    assert.ok(Math.abs(flowUv.getY(left) + width * 0.5) < 1e-5);
+    assert.ok(Math.abs(flowUv.getY(left) + leftDistance) < 1e-5);
     assert.equal(flowUv.getY(center), 0);
-    assert.ok(Math.abs(flowUv.getY(right) - width * 0.5) < 1e-5);
+    assert.ok(Math.abs(flowUv.getY(right) - rightDistance) < 1e-5);
   }
 });
 
@@ -866,8 +920,22 @@ function orientation(a, b, point) {
 function sampleCompiledReach(reach, distance) {
   const samples = reach.samples;
 
-  if (distance <= samples[0].distance) return samples[0];
-  if (distance >= samples.at(-1).distance) return samples.at(-1);
+  if (distance <= samples[0].distance) {
+    return {
+      x: samples[0].point.x,
+      z: samples[0].point.z,
+      width: samples[0].width,
+      waterLevel: samples[0].waterLevel,
+    };
+  }
+  if (distance >= samples.at(-1).distance) {
+    return {
+      x: samples.at(-1).point.x,
+      z: samples.at(-1).point.z,
+      width: samples.at(-1).width,
+      waterLevel: samples.at(-1).waterLevel,
+    };
+  }
 
   const endIndex = samples.findIndex((sample) => sample.distance >= distance);
   const start = samples[endIndex - 1];
@@ -875,6 +943,8 @@ function sampleCompiledReach(reach, distance) {
   const t = (distance - start.distance) / (end.distance - start.distance);
 
   return {
+    x: start.point.x + (end.point.x - start.point.x) * t,
+    z: start.point.z + (end.point.z - start.point.z) * t,
     width: start.width + (end.width - start.width) * t,
     waterLevel: start.waterLevel + (end.waterLevel - start.waterLevel) * t,
   };
