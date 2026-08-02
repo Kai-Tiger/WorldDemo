@@ -58,7 +58,7 @@ build(
         ("gpt-5-6-luna-max-vista.png", "GPT 5.6 Luna Max", "luna-max"),
         ("gpt-5-5-vista.png", "GPT 5.5 xhigh", "~/Desktop/5.5"),
         ("deepseek-v4-flash-vista.png", "DeepSeek V4", "codex-ds-flash"),
-        ("gpt-5-6-sol-vista.png", "GPT 5.6 Sol", "test/sol-2"),
+        ("gpt-5-6-sol-vista.png", "GPT 5.6 Sol xhigh", "~/Desktop/5.6 · :4174"),
         ("glm-5-2-vista.png", "GLM 5.2", "feat/GLM-5-2"),
         ("gpt-5-6-luna-medium-vista.png", "GPT 5.6 Luna Medium", "gpt-luna"),
     ],
@@ -74,6 +74,7 @@ build(
         ("deepseek-v4-flash-waterfall.png", "DeepSeek V4", "committed fixed shot"),
         ("glm-5-2-waterfall.png", "GLM 5.2", "verified fixed shot"),
         ("gpt-5-6-luna-medium-waterfall.png", "GPT 5.6 Luna Medium", "committed fixed shot"),
+        ("gpt-5-6-sol-waterfall.png", "GPT 5.6 Sol xhigh", "verified live fixed shot · :4174"),
     ],
     panel=(480, 270),
 )
@@ -83,9 +84,9 @@ build(
     3,
     [
         ("gpt-5-6-luna-max-spawn.png", "GPT 5.6 Luna Max", "third-person, T-pose"),
-        ("gpt-5-5-spawn.png", "GPT 5.5 xhigh", "third-person, T-pose"),
+        ("gpt-5-5-spawn.png", "GPT 5.5 xhigh", "third-person, water occludes player"),
         ("deepseek-v4-flash-spawn.png", "DeepSeek V4", "first-person; player absent"),
-        ("gpt-5-6-sol-spawn.png", "GPT 5.6 Sol", "third-person, visible player"),
+        ("gpt-5-6-sol-spawn.png", "GPT 5.6 Sol xhigh", "third-person, visible player"),
         ("glm-5-2-spawn.png", "GLM 5.2", "third-person, T-pose"),
         ("gpt-5-6-luna-medium-spawn.png", "GPT 5.6 Luna Medium", "third-person, visible player"),
     ],

@@ -8,34 +8,34 @@
 
 ## 结论摘要
 
-本轮重新核实了 7 个实现的精确来源、生产构建、固定 `vista`、`spawn` 第三人称画面、浏览器错误和 15 秒连续 HUD 性能窗口。评分改为四个一级维度完全等权：**指令遵循度 25、代码逻辑 25、视觉效果 25、性能帧率 25**。
+本轮在既有全量复核基础上，重新核实并替换了两个先前映射错误的候选：`4174 → /Users/likai.lear/Desktop/5.6 → GPT 5.6 Sol xhigh`，`5173 → /Users/likai.lear/Desktop/5.5 → GPT 5.5 xhigh`。两者均重新检查源码、生产构建、固定 `vista`、`spawn`、`waterfall`、浏览器错误和 15 次连续 HUD 性能窗口。评分仍为四个一级维度完全等权：**指令遵循度 25、代码逻辑 25、视觉效果 25、性能帧率 25**。
 
 `main` 只作为最佳视觉效果标杆，用于帮助判断其他实现与目标成片效果的距离；它不参与排名，不计算总分，也不进入任何评分明细。
 
 纯模型排名为：
 
-1. **GPT 5.6 Luna Max（69.0）**：指定资产、冻结布局、水文和第三人称框架覆盖较全，宏观画面可读；湖河边界、瀑布和 T-pose 仍未过产品门槛，renderer 统计也失真。
-2. **GPT 5.5 xhigh（67.5）**：代码确实引用了项目树木、全部草模型与草贴图，并非“完全未使用”；但 ready 允许 fallback 植被继续存在，最终湖河/瀑布固定机位交付差、角色 T-pose。其性能分高于 Sol-2，原因是本轮实际 FPS 更高且 renderer 负载统计可信得多。
-3. **DeepSeek V4 Flash max（60.25）**：系统拆分和水文代码较强，但实际 `spawn` 仍是第一人称、看不到角色，大量树木横倒或悬浮；第三人称子项记 0 分。
-4. **GPT 5.6 Sol xhigh（58.25）**：第三人称角色可见，湖泊主体也存在；但草顶点着色器编译失败，HUD 仅报 1 call / 0k tris，47.9 FPS 不能视为完整负载成绩。
+1. **GPT 5.6 Sol xhigh（78.0）**：冻结布局、水文、固定机位、第三人称和 metrics 交付完整，约 307.9 万三角形下仍保持 66.8 FPS；主要扣分是项目 grass GLB 虽加载却没有用于绘制，最终以程序化锥体草替代，水系也偏直、偏亮。
+2. **GPT 5.6 Luna Max（69.0）**：指定资产、冻结布局、水文和第三人称框架覆盖较全，宏观画面可读；湖河边界、瀑布和 T-pose 仍未过产品门槛，renderer 统计也失真。
+3. **GPT 5.5 xhigh（68.5）**：实际绘制了项目树木、全部草模型与草贴图，5173 实测裸 FPS 最高；但 ready 允许 fallback 先行交付，湖面关闭深度测试后严重遮挡玩家，水系比例、构图和角色动画仍未过门槛。
+4. **DeepSeek V4 Flash max（60.25）**：系统拆分和水文代码较强，但实际 `spawn` 仍是第一人称、看不到角色，大量树木横倒或悬浮；第三人称子项记 0 分。
 5. **GPT 5.6 Luna Medium（52.0）**：第三人称与基本固定机位可运行，帧率高；代码和画面仍是强简化原型，等价可见负载很低。
-6. **GLM 5.2 xhigh（48.75）**：表面 FPS 最高，但水体 shader、ready 初始化和地形孔洞均有运行时错误，角色也是 T-pose；高帧率主要建立在缺失负载上。
+6. **GLM 5.2 xhigh（48.75）**：表面 FPS 很高，但水体 shader、ready 初始化和地形孔洞均有运行时错误，角色也是 T-pose；高帧率主要建立在缺失负载上。
 
 6 个纯模型实现均未通过题面规定的产品等价门槛。该排名只评价列出的具体快照，不代表模型品牌的一般能力。
 
 ## 1. 模型与证据来源
 
-| 评测项 | 来源 | 对应模型 | 精确依据 |
-| --- | --- | --- | --- |
-| 视觉标杆 | `main` | GPT 5.6 Sol ultra + 手动调试 | 实现基线 `3c5b2ba` |
-| GPT 5.5 | `~/Desktop/5.5` | GPT 5.5 xhigh | 2026-08-02 当前目录隔离快照 |
-| Luna Max | `luna-max` | GPT 5.6 Luna Max | `ced157a` |
-| Luna Medium | `gpt-luna` | GPT 5.6 Luna Medium | `632e8da` |
-| DeepSeek | `codex-ds-flash` | DeepSeek V4 Flash max | `cc12c0a` |
-| Sol | `test/sol-2` | GPT 5.6 Sol xhigh | `8bc682b` |
-| GLM | `feat/GLM-5-2` | GLM 5.2 xhigh | `51c3480` |
+| 评测项 | 对应模型 | 精确依据 |
+| --- | --- | --- |
+| 视觉标杆 | GPT 5.6 Sol ultra + 手动调试 | `main`，实现基线 `3c5b2ba` |
+| GPT 5.5 | GPT 5.5 xhigh | `/Users/likai.lear/Desktop/5.5` 当前目录；`:5173` Vite dev 服务，构建另行通过 |
+| Luna Max | GPT 5.6 Luna Max | `luna-max@ced157a` |
+| Luna Medium | GPT 5.6 Luna Medium | `gpt-luna@632e8da` |
+| DeepSeek | DeepSeek V4 Flash max | `codex-ds-flash@cc12c0a` |
+| Sol | GPT 5.6 Sol xhigh | `/Users/likai.lear/Desktop/5.6` 当前目录；`:4174` production preview |
+| GLM | GLM 5.2 xhigh | `feat/GLM-5-2@51c3480` |
 
-`~/Desktop/5.5` 不是 Git 仓库，因此报告只记录复制时间和隔离快照，不虚构提交号。Luna Medium 与 Luna Max 均作为独立候选保留；本报告不设置两者之间的专项演进评分。
+`~/Desktop/5.5` 与 `~/Desktop/5.6` 都不是 Git 仓库，因此报告记录当前目录、运行进程与复测时间，不虚构提交号。Luna Medium 与 Luna Max 均作为独立候选保留；本报告不设置两者之间的专项演进评分。
 
 `main` 仅保留来源信息和视觉截图，不进入后续六个纯模型的指令、代码、视觉、性能评分。
 
@@ -47,7 +47,7 @@
 | --- | ---: | --- | --- |
 | 指令遵循度 | 25 | 指定资产 7、冻结布局/水文 6、第三人称 4、固定机位/API/metrics 5、禁止项 3 | 看源码路径与最终运行结果；只写 URL 不等于成功交付 |
 | 代码逻辑 | 25 | 架构职责 7、数据/算法 7、运行正确性 6、测试/可观测性 5 | 构建和单测是证据，但不能抵消浏览器 shader、ready 或资产方向错误 |
-| 视觉效果 | 25 | 地形 5、水系 4.5、植被 4.5、构图/完整性 4.5、材质/光照 3.75、稳定性 2.75 | 以 production preview 最终帧为主，分别观察贴图、树木、草地、河流、湖泊、瀑布和角色 |
+| 视觉效果 | 25 | 地形 5、水系 4.5、植被 4.5、构图/完整性 4.5、材质/光照 3.75、稳定性 2.75 | 以指定服务最终帧为主，分别观察贴图、树木、草地、河流、湖泊、瀑布和角色 |
 | 性能帧率 | 25 | 稳态 FPS 10、等价可见负载 8、帧稳定性 4、指标可信度 3 | 高 FPS 不能补偿未绘制的草、水体或地形；renderer 统计失真会单独扣分 |
 
 ### 不可补偿原则
@@ -60,39 +60,39 @@
 
 ## 3. 总体排名
 
-| 名次 | 来源 | 对应模型 | 指令 /25 | 代码 /25 | 视觉 /25 | 性能 /25 | 总分 /100 | 产品门槛 |
-| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 1 | `luna-max` | GPT 5.6 Luna Max | 19.5 | 19.5 | 13.0 | 17.0 | **69.0** | 未通过：水体/瀑布几何化、玩家 T-pose |
-| 2 | `~/Desktop/5.5` | GPT 5.5 xhigh | 18.5 | 20.0 | 9.0 | 20.0 | **67.5** | 未通过：固定机位水系主体缺失、fallback ready、玩家 T-pose |
-| 3 | `codex-ds-flash` | DeepSeek V4 Flash max | 15.5 | 19.0 | 11.25 | 14.5 | **60.25** | 未通过：第一人称替代第三人称、树木方向错误 |
-| 4 | `test/sol-2` | GPT 5.6 Sol xhigh | 16.5 | 16.5 | 12.75 | 12.5 | **58.25** | 未通过：草 shader 失败、湖面几何错误、指标失真 |
-| 5 | `gpt-luna` | GPT 5.6 Luna Medium | 16.5 | 11.0 | 6.5 | 18.0 | **52.0** | 未通过：强简化原型、等价负载低 |
-| 6 | `feat/GLM-5-2` | GLM 5.2 xhigh | 15.0 | 14.5 | 5.25 | 14.0 | **48.75** | 未通过：地形黑洞、水体 shader/ready 错误、玩家 T-pose |
+| 名次 | 对应模型 | 指令 /25 | 代码 /25 | 视觉 /25 | 性能 /25 | 总分 /100 | 产品门槛 |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | GPT 5.6 Sol xhigh | 20.5 | 20.0 | 15.5 | 22.0 | **78.0** | 未通过：指定 grass GLB 加载但未绘制，程序化锥体草替代 |
+| 2 | GPT 5.6 Luna Max | 19.5 | 19.5 | 13.0 | 17.0 | **69.0** | 未通过：水体/瀑布几何化、玩家 T-pose |
+| 3 | GPT 5.5 xhigh | 18.0 | 20.0 | 9.5 | 21.0 | **68.5** | 未通过：fallback ready、水面遮挡玩家、T-pose |
+| 4 | DeepSeek V4 Flash max | 15.5 | 19.0 | 11.25 | 14.5 | **60.25** | 未通过：第一人称替代第三人称、树木方向错误 |
+| 5 | GPT 5.6 Luna Medium | 16.5 | 11.0 | 6.5 | 18.0 | **52.0** | 未通过：强简化原型、等价负载低 |
+| 6 | GLM 5.2 xhigh | 15.0 | 14.5 | 5.25 | 14.0 | **48.75** | 未通过：地形黑洞、水体 shader/ready 错误、玩家 T-pose |
 
 ## 4. 指令遵循度
 
 ### 评分明细
 
-| 来源 | 指定资产 /7 | 冻结布局/水文 /6 | 第三人称 /4 | 固定机位/API/metrics /5 | 禁止项 /3 | 指令总分 /25 |
+| 对应模型 | 指定资产 /7 | 冻结布局/水文 /6 | 第三人称 /4 | 固定机位/API/metrics /5 | 禁止项 /3 | 指令总分 /25 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `luna-max` | 6.0 | 4.5 | 2.5 | 3.5 | 3.0 | **19.5** |
-| `~/Desktop/5.5` | 5.5 | 4.0 | 2.5 | 3.5 | 3.0 | **18.5** |
-| `test/sol-2` | 4.0 | 4.0 | 3.5 | 2.0 | 3.0 | **16.5** |
-| `gpt-luna` | 4.0 | 3.5 | 3.5 | 2.5 | 3.0 | **16.5** |
-| `codex-ds-flash` | 5.0 | 4.5 | 0.0 | 3.0 | 3.0 | **15.5** |
-| `feat/GLM-5-2` | 4.0 | 3.5 | 2.5 | 2.0 | 3.0 | **15.0** |
+| GPT 5.6 Sol xhigh | 4.5 | 5.0 | 3.5 | 4.5 | 3.0 | **20.5** |
+| GPT 5.6 Luna Max | 6.0 | 4.5 | 2.5 | 3.5 | 3.0 | **19.5** |
+| GPT 5.5 xhigh | 5.5 | 4.5 | 1.5 | 3.5 | 3.0 | **18.0** |
+| GPT 5.6 Luna Medium | 4.0 | 3.5 | 3.5 | 2.5 | 3.0 | **16.5** |
+| DeepSeek V4 Flash max | 5.0 | 4.5 | 0.0 | 3.0 | 3.0 | **15.5** |
+| GLM 5.2 xhigh | 4.0 | 3.5 | 2.5 | 2.0 | 3.0 | **15.0** |
 
 ### 关键核实
 
-- **GPT 5.5 并非完全没有使用项目草/树模型。** `src/vegetation/vegetationSystem.js` 明确列出 `tree_01.glb`–`tree_04.glb`、`tree_spawn.glb`，生成 VarA–VarF × LOD0–2 的 18 个 grass GLB URL，并使用项目 KTX2 草贴图、`GLTFLoader` 与 `MeshoptDecoder`。扣分点是交付语义：构造时先创建 fallback，延迟后才加载真实资产；应用没有等待 `vegetation.ready` 就把 grass/trees 标为 loaded，`ready` 因而不能保证最终植被已 settled。截图中的稀疏树群和直立块也证明资产路径存在不等于画面交付成功。
+- **GPT 5.6 Sol xhigh 的指定草资产只做到“加载”，没有做到“用于最终渲染”。** `/Users/likai.lear/Desktop/5.6/src/scene/ColdMountainApp.js` 生成 VarA–VarF × LOD0–2 的 18 个 grass GLB URL，也加载项目 KTX2 草贴图；但 `grassRenderAssets` 随后统一改用 `THREE.ConeGeometry`，运行摘要更明确报告 `grassGeometryMode: "procedural-fallback"`。因此指定资产不能给满分，画面中密集亮绿色锥体草也与源码相互印证。
+- **GPT 5.5 并非完全没有使用项目草/树模型。** `src/vegetation/vegetationSystem.js` 明确列出 `tree_01.glb`–`tree_04.glb`、`tree_spawn.glb`，生成 VarA–VarF × LOD0–2 的 18 个 grass GLB URL，并使用项目 KTX2 草贴图、`GLTFLoader` 与 `MeshoptDecoder`，最终实例化几何确实来自这些资产。扣分点是交付语义：构造时先创建 fallback，延迟后才加载真实资产；应用没有等待 `vegetation.ready` 就把 grass/trees 标为 loaded，`ready` 因而不能保证最终植被已 settled。`spawn` 固定机位又被关闭深度测试的湖面严重遮挡，第三人称最终画面不完整。
 - **Luna Max** 同样引用全部树和草模型，并在初始化中等待植被资产；但玩家为 T-pose，固定水体仍呈占位几何，API 中的 renderer 统计与画面矛盾。
 - **DeepSeek** 的源码包含第三人称类、玩家 FBX 和冻结机位，但 live `spawn` 没有可见角色，实际体验是第一人称。因此第三人称 `/4` 记 0，而不是因源码命名给部分通过。
-- **Sol-2** 引用了必需草模型，但 `RibbonGrassWindMaterial` 最终 shader 缺少 `uWindTime`、`uPlayer` 声明，必需草层没有正确交付。
 - **GLM** 的树/草路径和冻结布局存在；水体 attribute 缺失、ready 初始化 TDZ 及大片地形孔洞使运行契约失效。
 
 ## 5. 固定远景截图对比
 
-下图均来自列出的精确实现，使用 `vista / Balanced / seed=12345 / capture=0`、1280×720。7 个实现都在本轮重新启动 production preview 并核验；截图 HUD 是截图时刻的瞬时值，性能均值见第 8 节。
+下图均来自列出的精确实现，使用 `vista / Balanced / seed=12345 / capture=0`、1280×720。替换项中 4174 是 production preview，5173 是用户指定的 Vite dev 服务；其余截图沿用本轮全量复核的精确实现。截图 HUD 是截图时刻的瞬时值，性能均值见第 8 节。
 
 ![七实现 vista 对比](comparison-vista.png)
 
@@ -100,13 +100,13 @@
 
 - **main**：山体、湖泊、岩石、草地、树群、湿岸和远景层次最完整；仍是实际画面的明确标杆。
 - **Luna Max**：宏观山谷、树群和湖泊可读；湖岸呈折线/矩形，河流像亮青色带，水体与地形融合不足。
-- **GPT 5.5**：雪山与地表纹理存在，但谷底大面积为空，树木稀疏并夹杂直立矩形块，湖河主体没有进入冻结构图。
+- **GPT 5.5**：湖泊已进入远景构图，不再是“水系缺失”；但水面过亮且环状边界明显，谷底大面积为空，树木稀疏并夹杂直立矩形块，右侧河道像笔直发光带。
 - **DeepSeek**：湖泊与地形存在，但大量树木横倒、悬浮并遮挡相机；世界轴归一化失败非常明显。
-- **Sol-2**：湖面有同心环和岸边三角缺口；草 shader 失败使生态层不完整。
+- **GPT 5.6 Sol xhigh**：山谷、湖泊、瀑布、河网与树群均可读，宏观完整性明显强于先前误映射样本；湖岸仍偏多边形，河道过直、过亮，山坡水源像白线，程序化锥体草非常醒目。
 - **GLM**：大面积黑色地形孔洞，水体缺失，只剩零散植被与岩石。
 - **Luna Medium**：地面极暗，河湖和道路近似平面色带，植被很少，整体是最小原型级画面。
 
-原始截图：[`main`](screenshots/main-vista.png) · [`Luna Max`](screenshots/gpt-5-6-luna-max-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-vista.png) · [`Sol-2`](screenshots/gpt-5-6-sol-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-vista.png)
+原始截图：[`main`](screenshots/main-vista.png) · [`Luna Max`](screenshots/gpt-5-6-luna-max-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-vista.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-vista.png)
 
 ## 6. 第三人称核验
 
@@ -114,70 +114,71 @@
 
 ![六个纯模型 spawn 对比](comparison-third-person.png)
 
-- **Luna Max、GPT 5.5、GLM**：角色可见、相机属于第三人称，但角色停在 T-pose，动画交付失败。
-- **Sol-2、Luna Medium**：角色可见且不是 T-pose，第三人称基本成立。
+- **Luna Max、GLM**：角色可见、相机属于第三人称，但角色停在 T-pose，动画交付失败。
+- **GPT 5.5**：代码与相机属于第三人称，但固定 `spawn` 中过大的湖面关闭了深度测试，水面遮住角色主体，只剩 T-pose 腿部可见；按最终画面从严扣分。
+- **GPT 5.6 Sol xhigh、Luna Medium**：角色可见且不是 T-pose，第三人称基本成立。
 - **DeepSeek**：画面中没有角色，镜头是第一人称；该问题在指令遵循度和第三人称构图分别使用运行证据扣分。
 
-原始截图：[`Luna Max`](screenshots/gpt-5-6-luna-max-spawn.png) · [`GPT 5.5`](screenshots/gpt-5-5-spawn.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-spawn.png) · [`Sol-2`](screenshots/gpt-5-6-sol-spawn.png) · [`GLM`](screenshots/glm-5-2-spawn.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-spawn.png)
+原始截图：[`Luna Max`](screenshots/gpt-5-6-luna-max-spawn.png) · [`GPT 5.5`](screenshots/gpt-5-5-spawn.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-spawn.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-spawn.png) · [`GLM`](screenshots/glm-5-2-spawn.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-spawn.png)
 
 ## 7. 视觉效果
 
 ### 视觉评分明细
 
-| 来源 | 地形 /5 | 水系 /4.5 | 植被 /4.5 | 构图/完整性 /4.5 | 材质/光照 /3.75 | 稳定性 /2.75 | 视觉总分 /25 |
+| 对应模型 | 地形 /5 | 水系 /4.5 | 植被 /4.5 | 构图/完整性 /4.5 | 材质/光照 /3.75 | 稳定性 /2.75 | 视觉总分 /25 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `luna-max` | 3.5 | 2.25 | 1.75 | 2.25 | 2.0 | 1.25 | **13.0** |
-| `test/sol-2` | 3.75 | 2.5 | 1.5 | 1.25 | 2.5 | 1.25 | **12.75** |
-| `codex-ds-flash` | 3.75 | 2.75 | 1.5 | 0.0 | 2.5 | 0.75 | **11.25** |
-| `~/Desktop/5.5` | 2.5 | 0.5 | 1.25 | 1.25 | 2.25 | 1.25 | **9.0** |
-| `gpt-luna` | 1.75 | 1.25 | 1.0 | 0.75 | 1.0 | 0.75 | **6.5** |
-| `feat/GLM-5-2` | 1.75 | 0.75 | 0.25 | 1.0 | 1.0 | 0.5 | **5.25** |
+| GPT 5.6 Sol xhigh | 4.0 | 2.5 | 1.75 | 3.0 | 2.25 | 2.0 | **15.5** |
+| GPT 5.6 Luna Max | 3.5 | 2.25 | 1.75 | 2.25 | 2.0 | 1.25 | **13.0** |
+| DeepSeek V4 Flash max | 3.75 | 2.75 | 1.5 | 0.0 | 2.5 | 0.75 | **11.25** |
+| GPT 5.5 xhigh | 2.5 | 1.5 | 1.25 | 1.0 | 2.0 | 1.25 | **9.5** |
+| GPT 5.6 Luna Medium | 1.75 | 1.25 | 1.0 | 0.75 | 1.0 | 0.75 | **6.5** |
+| GLM 5.2 xhigh | 1.75 | 0.75 | 0.25 | 1.0 | 1.0 | 0.5 | **5.25** |
 
 ### 瀑布补充证据
 
 瀑布图用于观察落差、水幕、白水、落水潭与岩壁融合，不单独计算 FPS。
 
-![五实现瀑布对比](comparison-waterfall.png)
+![六实现瀑布对比](comparison-waterfall.png)
 
-- Luna Max 的瀑布近似白色竖直平面；GPT 5.5 的冻结机位只拍到草地；DeepSeek 能看到落水结构但横倒树木严重干扰；GLM 未形成有效水体主体；Luna Medium 是青色平面占位。
-- Sol-2 的当前主要水体问题已经由 vista 的同心环、岸线缺口和 grass shader 错误充分暴露，本组没有用另一张截图重复计分。
+- **GPT 5.6 Sol xhigh** 能形成瀑布、落水潭、出水河道与岩壁上下文，但瀑布仍像白色平面，水面与岸线融合生硬。
+- Luna Max 的瀑布近似白色竖直平面；GPT 5.5 已能拍到白色水幕、圆形落水潭和笔直出水道，但比例与材质仍像占位几何；DeepSeek 能看到落水结构但横倒树木严重干扰；GLM 未形成有效水体主体；Luna Medium 是青色平面占位。
 
 ## 8. 性能与帧率
 
 ### 统一实测结果
 
-每项均使用 production build、1280×720、Balanced、固定 `vista`。达到可采样状态后在同一连续浏览器会话内读取 15 次 HUD，间隔约 1 秒。启动等待完全不计分。
+每项均使用 1280×720、Balanced、固定 `vista`。达到可采样状态后在同一连续浏览器会话内读取 15 次 HUD，间隔约 1 秒。替换项严格测试用户指定服务：4174 为 production preview，5173 为 Vite dev；服务模式差异在指标可信度中披露并扣分。启动等待完全不计分。
 
-| 来源 | 15 次 FPS 均值（范围） | 近似帧时间 | 可见负载/统计 | 应用错误 | 性能判断 |
+| 对应模型 | 15 次 FPS 均值（范围） | 近似帧时间 | 可见负载/统计 | 应用错误 | 性能判断 |
 | --- | ---: | ---: | --- | --- | --- |
-| `feat/GLM-5-2` | **116.7**（111–125） | 8.6 ms | 水体缺失、大片地形孔洞；p95/1% low 硬编码为 0 | 水 shader + ready ReferenceError | 表面最快，但负载和指标均不完整 |
-| `gpt-luna` | **97.8**（92–102） | 10.2 ms | 约 215 calls；场景强简化 | 0 | 原始帧率可信，等价负载低 |
-| `luna-max` | **85.7**（78–87） | 11.7 ms | 画面有山/水/树；HUD 报 1 call / 1 triangle | 0 | FPS 窗口可读，renderer 统计不可信 |
-| `~/Desktop/5.5` | **65.7**（65.0–66.2） | 15.2 ms | 119 calls / 1.07M tris；画面主体仍不完整 | 0 | 当前纯模型中最可信的性能组合 |
-| `test/sol-2` | **47.9**（47–49） | 20.9 ms | 1 call / 0k tris；草 shader 未编译 | grass shader error | 高于 45 FPS 但不是完整渲染负载 |
-| `codex-ds-flash` | **27.9**（27–28） | 35.9 ms | 精确提交验收约 470 calls / 21.54M tris | 0 | 当前最慢，且历史尾延迟较差 |
+| GPT 5.5 xhigh | **141.4**（140.0–142.7） | 7.1 ms | 119 calls / 1.125M tris；场景较稀疏；`:5173` dev | 0 | 裸 FPS 最高，但不是 production preview，且可见负载较轻 |
+| GLM 5.2 xhigh | **116.7**（111–125） | 8.6 ms | 水体缺失、大片地形孔洞；p95/1% low 硬编码为 0 | 水 shader + ready ReferenceError | 表面很快，但负载和指标均不完整 |
+| GPT 5.6 Luna Medium | **97.8**（92–102） | 10.2 ms | 约 215 calls；场景强简化 | 0 | 原始帧率可信，等价负载低 |
+| GPT 5.6 Luna Max | **85.7**（78–87） | 11.7 ms | 画面有山/水/树；HUD 报 1 call / 1 triangle | 0 | FPS 窗口可读，renderer 统计不可信 |
+| GPT 5.6 Sol xhigh | **66.8**（66.4–67.2） | 15.0 ms | 479 calls / 3.079M tris；16,037 草实例、671 树实例；`:4174` preview | 0 | 在显著更重且较完整的可见负载下稳定运行 |
+| DeepSeek V4 Flash max | **27.9**（27–28） | 35.9 ms | 精确提交验收约 470 calls / 21.54M tris | 0 | 当前最慢，且历史尾延迟较差 |
 
 ### 性能评分明细
 
-| 来源 | 稳态 FPS /10 | 等价可见负载 /8 | 帧稳定性 /4 | 指标可信度 /3 | 性能总分 /25 |
+| 对应模型 | 稳态 FPS /10 | 等价可见负载 /8 | 帧稳定性 /4 | 指标可信度 /3 | 性能总分 /25 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `~/Desktop/5.5` | 8.0 | 5.0 | 4.0 | 3.0 | **20.0** |
-| `gpt-luna` | 10.0 | 2.5 | 3.5 | 2.0 | **18.0** |
-| `luna-max` | 9.0 | 4.0 | 3.0 | 1.0 | **17.0** |
-| `codex-ds-flash` | 4.0 | 6.5 | 2.0 | 2.0 | **14.5** |
-| `feat/GLM-5-2` | 10.0 | 0.5 | 3.0 | 0.5 | **14.0** |
-| `test/sol-2` | 7.0 | 1.5 | 3.5 | 0.5 | **12.5** |
+| GPT 5.6 Sol xhigh | 8.0 | 7.0 | 4.0 | 3.0 | **22.0** |
+| GPT 5.5 xhigh | 10.0 | 5.0 | 4.0 | 2.0 | **21.0** |
+| GPT 5.6 Luna Medium | 10.0 | 2.5 | 3.5 | 2.0 | **18.0** |
+| GPT 5.6 Luna Max | 9.0 | 4.0 | 3.0 | 1.0 | **17.0** |
+| DeepSeek V4 Flash max | 4.0 | 6.5 | 2.0 | 2.0 | **14.5** |
+| GLM 5.2 xhigh | 10.0 | 0.5 | 3.0 | 0.5 | **14.0** |
 
-### 为什么 GPT 5.5 的性能分高于 Sol-2
+### 为什么 GPT 5.5 裸 FPS 更高，但性能分低于 GPT 5.6 Sol
 
-该结果不是由旧数据推导，而是本轮同条件复测：
+该结果来自本轮对用户指定的两个真实服务复测：
 
-1. GPT 5.5 的均值为 **65.7 FPS**，Sol-2 为 **47.9 FPS**。
-2. GPT 5.5 的 `119 calls / 1.07M tris` 与可见场景规模基本相容；Sol-2 报 `1 call / 0k tris`，明显不可信。
-3. GPT 5.5 没有应用控制台 error；Sol-2 的必需草材质顶点 shader 编译失败，当前帧率少算了生态层负载。
-4. 两者都因画面不完整被“等价可见负载”扣分，但 Sol-2 缺失的是已确认编译失败的必需草层，扣分更重。
+1. GPT 5.5 的均值为 **141.4 FPS**，GPT 5.6 Sol 为 **66.8 FPS**，所以稳态 FPS 子项确实是 5.5 更高（10 对 8）。
+2. GPT 5.6 Sol 同时绘制约 **3.079M triangles / 479 calls**，GPT 5.5 是 **1.125M / 119 calls**；前者三角形约 2.74 倍、calls 约 4.03 倍，而且湖、瀑布、河网、密集植被主体更完整。因此等价可见负载是 7 对 5。
+3. 4174 是 production preview；5173 是 Vite dev。虽然 dev 不必然自动更快，但这意味着两项不是完全相同的服务模式，5.5 的指标可信度从 3 扣到 2，不能把 141.4 当成严格生产对照结论。
+4. 两者连续 15 次读数都很稳定且无应用 error；GPT 5.6 Sol 还给出 p95 17.1 ms、1% low 45.16 FPS 和 0/50 个超过 33 ms 的帧，尾部证据更完整。
 
-所以 GPT 5.5 为 20.0/25、Sol-2 为 12.5/25。若 Sol-2 修复草 shader、renderer.info 和湖面几何后，应重新测量，不能沿用当前 47.9 FPS。
+所以本报告不把“裸 FPS”与“性能实现质量”混为一谈：GPT 5.5 为 **21.0/25**，GPT 5.6 Sol 为 **22.0/25**。若要做完全同模式的绝对帧率对照，应另起 GPT 5.5 production preview 后再测；本次按用户指定的 5173 服务保留实测事实并明确边界。
 
 ## 9. 代码逻辑与工程质量
 
@@ -185,50 +186,49 @@
 
 六个计分候选都重新确认生产构建通过；分支测试均通过。`main` 的生产预览只用于标杆截图，不纳入本表。
 
-| 来源 | src 文件 / LOC | test 文件 / LOC | 测试 | 生产 JS | 备注 |
+| 对应模型 | src 文件 / LOC | test 文件 / LOC | 测试 | 生产 JS | 备注 |
 | --- | ---: | ---: | ---: | ---: | --- |
-| `~/Desktop/5.5` | 28 / 4,353 | 6 / 264 | 22/22 | 913.75 kB | 构建通过，存在大 chunk 警告 |
-| `luna-max` | 28 / 3,108 | 4 / 150 | 15/15 | 901.16 kB | 构建通过；`npm ci` 报 1 个 high severity 漏洞 |
-| `gpt-luna` | 11 / 566 | 3 / 68 | 8/8 | 770.73 kB | 轻量原型 |
-| `codex-ds-flash` | 36 / 6,529 | 7 / 564 | 41/41 | 976.88 kB | 模块边界清楚，运行结果存在 P0 偏差 |
-| `test/sol-2` | 22 / 2,085 | 4 / 233 | 28/28 | 909.97 kB | 构建/单测未覆盖实际 shader 编译 |
-| `feat/GLM-5-2` | 17 / 4,193 | 8 / 917 | 74/74 | 250.62 kB | 测试最多，但遗漏浏览器 shader/TDZ 错误 |
+| GPT 5.6 Sol xhigh | 25 / 1,222 | 5 / 58 | 32/32 | 910.69 kB | 构建通过；源码高度压缩，测试偏数据/纯逻辑 |
+| GPT 5.5 xhigh | 28 / 4,413 | 6 / 279 | 23/23 | 914.82 kB | 构建通过，存在大 chunk 警告 |
+| GPT 5.6 Luna Max | 28 / 3,108 | 4 / 150 | 15/15 | 901.16 kB | 构建通过；`npm ci` 报 1 个 high severity 漏洞 |
+| GPT 5.6 Luna Medium | 11 / 566 | 3 / 68 | 8/8 | 770.73 kB | 轻量原型 |
+| DeepSeek V4 Flash max | 36 / 6,529 | 7 / 564 | 41/41 | 976.88 kB | 模块边界清楚，运行结果存在 P0 偏差 |
+| GLM 5.2 xhigh | 17 / 4,193 | 8 / 917 | 74/74 | 250.62 kB | 测试最多，但遗漏浏览器 shader/TDZ 错误 |
 
 ### 代码评分明细
 
-| 来源 | 架构职责 /7 | 数据/算法 /7 | 运行正确性 /6 | 测试/可观测性 /5 | 代码总分 /25 |
+| 对应模型 | 架构职责 /7 | 数据/算法 /7 | 运行正确性 /6 | 测试/可观测性 /5 | 代码总分 /25 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `~/Desktop/5.5` | 6.5 | 5.5 | 4.0 | 4.0 | **20.0** |
-| `luna-max` | 6.5 | 5.5 | 4.0 | 3.5 | **19.5** |
-| `codex-ds-flash` | 6.5 | 6.0 | 2.5 | 4.0 | **19.0** |
-| `test/sol-2` | 5.5 | 4.5 | 3.0 | 3.5 | **16.5** |
-| `feat/GLM-5-2` | 5.5 | 4.5 | 1.0 | 3.5 | **14.5** |
-| `gpt-luna` | 3.0 | 2.5 | 3.0 | 2.5 | **11.0** |
+| GPT 5.6 Sol xhigh | 5.5 | 5.5 | 4.5 | 4.5 | **20.0** |
+| GPT 5.5 xhigh | 6.5 | 6.0 | 3.5 | 4.0 | **20.0** |
+| GPT 5.6 Luna Max | 6.5 | 5.5 | 4.0 | 3.5 | **19.5** |
+| DeepSeek V4 Flash max | 6.5 | 6.0 | 2.5 | 4.0 | **19.0** |
+| GLM 5.2 xhigh | 5.5 | 4.5 | 1.0 | 3.5 | **14.5** |
+| GPT 5.6 Luna Medium | 3.0 | 2.5 | 3.0 | 2.5 | **11.0** |
 
 ### 主要代码判断
 
-- **GPT 5.5**：`SCENE_LAYOUT`、双高度图采样、terrain/hydrology/water/vegetation/third-person/quality/metrics 分层清楚，KTX2Loader 也调用了 `detectSupport(renderer)`；主要错误是 ready 没有等待真实植被、固定机位与水体坐标没有交付到最终帧、动画有效性无浏览器 smoke test。
+- **GPT 5.6 Sol xhigh**：`SCENE_LAYOUT`、双高度图、中心与外圈水文、第三人称、固定机位和 v2 API 覆盖完整，32/32 测试及实时 metrics 较强；但 1,222 行源码大量压成单行，降低可维护性，且 grass GLB“加载后不用”的语义错误没有被测试发现。
+- **GPT 5.5**：`SCENE_LAYOUT`、双高度图采样、terrain/hydrology/water/vegetation/third-person/quality/metrics 分层清楚，KTX2Loader 也调用了 `detectSupport(renderer)`；主要错误是 ready 没有等待真实植被，`depthTest: false` 的英雄湖面/瀑布水材质破坏遮挡关系，动画有效性也无浏览器 smoke test。
 - **Luna Max**：模块规模适中，水文、水体、瀑布、后处理和 v2 API 覆盖较全；湖岸几何、T-pose 与 `renderer.info` 采样边界说明复杂度没有完全转成运行正确性。
 - **DeepSeek**：terrain/water/vegetation/debug/metrics 的职责拆分强；第三人称运行行为和树资产主轴归一化是 P0 失败。
-- **Sol-2**：高度、水文和 API 路径齐全；`onBeforeCompile` 注入缺少 uniform 声明，说明单测只验证了字符串或纯逻辑，没有验证最终 WebGL program。
 - **GLM**：74 个测试不能抵消 water attribute 缺失、ready Promise TDZ 和硬编码 p95/1% low；浏览器验收覆盖不足。
 - **Luna Medium**：体量小、可运行，但冻结世界、水系、材质和可观测性实现均明显简化。
 
 ## 10. 分支级建议
 
-| 目标 | 推荐起点 | 原因 | 首要修复 |
+| 目标 | 对应模型 | 原因 | 首要修复 |
 | --- | --- | --- | --- |
-| 纯模型结果继续迭代 | `luna-max` | 指令、代码、宏观画面和性能最均衡 | 湖岸/河道贴合、瀑布材质、玩家动画、renderer 指标 |
-| 复用材质与水文代码 | `~/Desktop/5.5` | 双高度图、KTX2、布局与模块化较完整 | 等待真实植被 ready、固定机位水体、动画 smoke test |
-| 复用系统架构 | `codex-ds-flash` | 模块边界与水文覆盖较强 | 第三人称运行行为、树/草离线主轴归一化、尾延迟 |
-| 小规模代码继续修 | `test/sol-2` | 代码规模适中、主要数据路径存在 | grass shader、renderer.info、湖面几何 |
-| 视觉效果标杆 | `main` | 当前实际画面显著领先 | 不参与计分，仅供画面对照 |
+| 纯模型结果继续迭代 | GPT 5.6 Sol xhigh | 当前指令、代码、宏观画面和重负载性能最均衡 | 真正绘制指定 grass GLB、自然化河道/湖岸、改善瀑布与水源材质 |
+| 复用材质与水文代码 | GPT 5.5 xhigh | 双高度图、KTX2、布局与模块化较完整 | 等待真实植被 ready、恢复正确深度遮挡、调整水体比例、动画 smoke test |
+| 复用系统架构 | DeepSeek V4 Flash max | 模块边界与水文覆盖较强 | 第三人称运行行为、树/草离线主轴归一化、尾延迟 |
+| 视觉效果标杆 | GPT 5.6 Sol ultra + 手动调试 | 当前实际画面显著领先 | 不参与计分，仅供画面对照 |
 
 ## 11. 复现过程与限制
 
-1. 对 7 个精确来源分别确认隔离目录、依赖、测试和 production build。
-2. 启动 7 个 production preview，统一打开 `vista / balanced / seed=12345 / capture=0`。
-3. 统一 1280×720；达到可采样状态后，在同一浏览器会话中为每项连续读取 15 次 HUD。
+1. 对 7 个精确来源分别确认隔离目录、依赖、测试和 production build；替换项再次执行测试与生产构建。
+2. 对替换项使用用户指定的运行服务：`http://127.0.0.1:4174` 对应 `/Users/likai.lear/Desktop/5.6` 的 production preview；`http://127.0.0.1:5173` 对应 `/Users/likai.lear/Desktop/5.5` 的 Vite dev。
+3. 统一打开 `vista / balanced / seed=12345 / capture=0`，视口 1280×720；达到可采样状态后，在同一浏览器会话中为每项连续读取 15 次 HUD。
 4. 记录浏览器 error，并用实际画面核对 shader、draw calls、triangles 与 FPS 是否自洽。
 5. 重新打开 6 个纯模型的 `spawn` 机位，保存角色/第三人称截图。
 6. 对照 `project-prompt.md` 与源码核查指定资产、`SCENE_LAYOUT`、双高度图、水文、固定机位、v2 API、metrics 和禁止项。
@@ -240,14 +240,17 @@
 - DeepSeek 当前 HUD 不暴露 draw/triangle，本报告引用其同一精确提交的 acceptance 负载作为补充，并明确与本轮 FPS 分开。
 - 瀑布补图用于视觉定位；本轮全量性能重测统一使用 `vista`，没有混用瀑布机位 FPS。
 - 启动/稳定等待时间不评分；只有稳定后仍缺有效负载或 metrics 失真才会扣性能分。
+- 5173 是 dev 而 4174 是 production preview，因此二者裸 FPS 不是严格的同服务模式 benchmark；本报告没有掩盖这一差异，而是在性能“指标可信度”中扣分，并同时比较可见负载。
 
 ## 12. 最终结论
 
-等权评分后，**Luna Max 以 69.0 分成为纯模型中最均衡的实现**，但与产品完成仍有明显距离。**GPT 5.5 以 67.5 分紧随其后**：它确实使用了指定草/树资产，只是没有把真实资产 ready 和固定机位主体可靠交付出来；其性能高于 Sol-2 有本轮 FPS、draw/triangle 和 shader 状态三方面证据。
+替换错误映射后，**真正的 GPT 5.6 Sol xhigh 以 78.0 分成为纯模型中最均衡的实现**：它在约 307.9 万三角形、479 calls 的较完整画面下稳定达到 66.8 FPS，第三人称与水文主体也成立；但 grass GLB 只加载不绘制、改用锥体草是明确的指令违背，不能因总分第一而忽略。
 
-**DeepSeek 因第一人称替代第三人称被明确扣分**，第三人称子项为 0；**Sol-2 与 GLM 的高 FPS 均因 shader 或地形负载缺失而折价**。Luna Medium 保留为独立候选，但其高 FPS 主要来自简化场景。
+**GPT 5.5 xhigh 为 68.5 分**：它确实使用指定草/树资产，5173 裸 FPS 达 141.4，但场景负载明显更轻、服务还是 Vite dev，最终湖面又严重遮挡玩家，因此性能只比 5.6 Sol 少 1 分，视觉与第三人称交付则明显落后。Luna Max 以 69.0 分居第二。
 
-`main` 继续只作为最佳视觉效果标杆，不与六个纯模型计算分数。若后续希望形成真正公平的性能第二轮，优先修复 Sol-2/GLM shader、Luna Max renderer.info、GPT 5.5 ready 语义，再由统一外部 RAF evaluator 在等价画面下复测。
+**DeepSeek 因第一人称替代第三人称被明确扣分**，第三人称子项为 0；GLM 的高 FPS 仍因 shader 与地形负载缺失而折价。Luna Medium 保留为独立候选，但其高 FPS 主要来自简化场景。
+
+`main` 继续只作为最佳视觉效果标杆，不与六个纯模型计算分数。若后续希望形成严格的性能第二轮，应把 GPT 5.5 也启动为 production preview，再由统一外部 RAF evaluator 在等价画面下复测；代码修复优先级则是 GPT 5.6 的真实 grass GLB 绘制、GPT 5.5 的 ready/水面深度关系、GLM shader 与 Luna Max renderer.info。
 
 ---
 
