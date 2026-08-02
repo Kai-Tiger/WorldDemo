@@ -10,10 +10,10 @@
 
 `main` 仍是视觉标杆，总分 **84.5/100**。它包含 GPT 5.6 Sol ultra 的生成结果和后续手动调试，因此不参与纯模型第一名的归属。
 
-本次按用户指定的新来源替换了两项证据：
+本次按用户指定更新了两项证据关系：
 
 - **GPT 5.5 xhigh**：以 `~/Desktop/5.5` 的当前目录快照为准，不再使用旧的 `feat/gpt-5.5-test`。
-- **GPT 5.6 Luna max**：以仓库 `luna-max` 分支、提交 `ced157a` 为准，不再使用旧的 `gpt-luna` / Luna medium。
+- **GPT 5.6 Luna max**：以仓库 `luna-max` 分支、提交 `ced157a` 为新增依据；原 `gpt-luna` / Luna medium **继续作为独立实现保留**。
 
 更新后的纯模型排名为：
 
@@ -22,8 +22,9 @@
 3. **DeepSeek V4 Flash max（57.5）**：系统架构较强，但实际运行结果把强制要求的第三人称做成第一人称，同时树木横倒/悬浮，因此对规范正确性和视觉构图明确扣分。
 4. **GPT 5.6 Sol xhigh（56.0）**：代码规模适中、表面 FPS 高，但草 shader 编译失败、湖面存在同心环和三角缺口，当前负载不完整。
 5. **GLM 5.2 xhigh（39.5）**：测试最多，但 ready 初始化 TDZ 与水体 shader attribute 缺失导致大片黑洞和水体缺失。
+6. **GPT 5.6 Luna medium（37.5）**：运行稳定、帧率高，但仍是强简化的低多边形原型；保留它可以直接观察 Luna medium 到 Luna max 的提升幅度。
 
-五个纯模型结果仍全部未通过题面规定的产品等价门槛。排名表示这些具体快照之间的相对完成度，不是对应模型的一般能力排名。
+六个纯模型结果仍全部未通过题面规定的产品等价门槛。排名表示这些具体快照之间的相对完成度，不是对应模型的一般能力排名。
 
 ## 1. 模型与证据来源
 
@@ -31,7 +32,8 @@
 |---|---|---|---|
 | 视觉标杆 | `main`（实现基线 `3c5b2ba`） | GPT 5.6 Sol ultra + 手动调试 | 保留 |
 | 新 GPT 5.5 | `~/Desktop/5.5` 当前目录快照 | GPT 5.5 xhigh | **替换旧分支证据** |
-| 新 Luna | `luna-max`（`ced157a`） | GPT 5.6 Luna max | **替换 Luna medium** |
+| 新 Luna | `luna-max`（`ced157a`） | GPT 5.6 Luna max | **新增** |
+| 原 Luna | `gpt-luna`（`632e8da`） | GPT 5.6 Luna medium | **保留** |
 | DeepSeek | `codex-ds-flash`（`cc12c0a`） | DeepSeek V4 Flash max | 保留 |
 | Sol | `test/sol-2`（`8bc682b`） | GPT 5.6 Sol xhigh | 保留 |
 | GLM | `feat/GLM-5-2`（`51c3480`） | GLM 5.2 xhigh | 保留 |
@@ -66,6 +68,7 @@
 | 3 | `codex-ds-flash` | DeepSeek V4 Flash max | 28.5 | 18.0 | 11.0 | **57.5** | 未通过：第一人称替代第三人称、树木方向错误 |
 | 4 | `test/sol-2` | GPT 5.6 Sol xhigh | 26.5 | 20.5 | 9.0 | **56.0** | 未通过：草 shader 失败、湖面几何错误 |
 | 5 | `feat/GLM-5-2` | GLM 5.2 xhigh | 24.5 | 8.5 | 6.5 | **39.5** | 未通过：地形黑洞、水体 shader 失败 |
+| 6 | `gpt-luna` | GPT 5.6 Luna medium | 15.0 | 10.5 | 12.0 | **37.5** | 未通过：强简化低多边形原型 |
 
 第二至第四名只相差 2 分：GPT 5.5 的代码和性能优于当前可见效果；DeepSeek 的世界系统更完整，但视角与树资产错误是 P0 交付问题；Sol 的水体构图相对可见，但 shader 缺失污染了性能结果。
 
@@ -73,7 +76,7 @@
 
 下图统一使用 `vista / Balanced / seed=12345 / capture=0`。GPT 5.5 与 Luna max 是本轮重新运行 production preview 后取得的当前帧；其余项目沿用同一轮次已核验的固定机位证据。
 
-![六实现 vista 对比](comparison-vista.png)
+![七实现 vista 对比](comparison-vista.png)
 
 ### 直接观察
 
@@ -83,8 +86,9 @@
 - **DeepSeek V4 Flash**：湖泊和大地形存在，但运行体验是第一人称；大量树木横倒或悬浮，遮挡镜头。
 - **GPT 5.6 Sol**：湖面有明显同心环，岸边有三角楔形缺口；草 shader 失败使生态层不完整。
 - **GLM 5.2**：大面积黑色地形孔洞，水体缺失，只剩零散植被和调试 HUD。
+- **Luna medium**：地表过暗，河湖/道路近似平面色带，植被极少；代码与画面均属于快速概念验证，但作为 Luna Max 的历史基线仍有对照价值。
 
-原始截图：[`main`](screenshots/main-vista.png) · [`Luna max`](screenshots/gpt-5-6-luna-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-vista.png) · [`Sol`](screenshots/gpt-5-6-sol-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png)
+原始截图：[`main`](screenshots/main-vista.png) · [`Luna max`](screenshots/gpt-5-6-luna-max-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-vista.png) · [`Sol`](screenshots/gpt-5-6-sol-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png) · [`Luna medium`](screenshots/gpt-5-6-luna-medium-vista.png)
 
 ## 5. 第三人称专项
 
@@ -94,20 +98,21 @@
 
 DeepSeek 的扣分保持不变：源码中虽然有 `ThirdPersonCamera` 和玩家模型加载路径，但实际运行结果是第一人称。题面要求的是最终体验，不能用类名或配置抵消运行行为错误。该问题计入规范正确性和视觉构图，不因镜头变化机械调整性能分。
 
-原始截图：[`Luna max spawn`](screenshots/gpt-5-6-luna-spawn.png) · [`GPT 5.5 spawn`](screenshots/gpt-5-5-spawn.png)
+原始截图：[`Luna max spawn`](screenshots/gpt-5-6-luna-max-spawn.png) · [`GPT 5.5 spawn`](screenshots/gpt-5-5-spawn.png)
 
 ## 6. 瀑布专项截图
 
 瀑布图用于观察落差、水幕、白水、落水潭与岩壁融合。该组不单独计算统一 FPS。
 
-![四实现瀑布对比](comparison-waterfall.png)
+![五实现瀑布对比](comparison-waterfall.png)
 
 - **Luna max**：机位能看到瀑布，但主体近似白色竖直平面，缺少可信透明度、厚度、飞沫和落水潭连续性。
 - **GPT 5.5**：当前固定机位只显示近距离草地，瀑布主体完全缺失，属于固定机位/布局契约失败。
 - **DeepSeek V4 Flash**：落水、河槽和白水结构可见，但白色条块过硬，周围横倒树木继续破坏可信度。
 - **GLM 5.2**：岩壁细节尚可，但水体/白水没有形成有效瀑布主体。
+- **Luna medium**：瀑布是青色竖直平面与简单水带，几何和光学均为占位级。
 
-原始截图：[`Luna max`](screenshots/gpt-5-6-luna-waterfall.png) · [`GPT 5.5`](screenshots/gpt-5-5-waterfall.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-waterfall.png) · [`GLM`](screenshots/glm-5-2-waterfall.png)
+原始截图：[`Luna max`](screenshots/gpt-5-6-luna-max-waterfall.png) · [`Luna medium`](screenshots/gpt-5-6-luna-medium-waterfall.png) · [`GPT 5.5`](screenshots/gpt-5-5-waterfall.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-waterfall.png) · [`GLM`](screenshots/glm-5-2-waterfall.png)
 
 ## 7. 视觉评分明细
 
@@ -118,6 +123,7 @@ DeepSeek 的扣分保持不变：源码中虽然有 `ThirdPersonCamera` 和玩�
 | `test/sol-2` | 6.0 | 4.0 | 2.5 | 2.0 | 4.0 | 2.0 | **20.5** |
 | `codex-ds-flash` | 6.0 | 4.5 | 2.5 | 0.0 | 4.0 | 1.0 | **18.0** |
 | `~/Desktop/5.5` | 4.0 | 1.0 | 2.0 | 2.0 | 3.5 | 2.0 | **14.5** |
+| `gpt-luna` | 3.0 | 2.0 | 1.5 | 1.0 | 1.5 | 1.5 | **10.5** |
 | `feat/GLM-5-2` | 3.0 | 1.5 | 0.5 | 1.5 | 1.5 | 0.5 | **8.5** |
 
 GPT 5.5 的视觉分低并非否定其材质与水文代码，而是因为多个固定机位没有交付代码所声明的主体。Luna max 的宏观可读性明显提高，但其 21 分仍只是“系统可见”，不代表水体、瀑布和角色已达到成片质量。
@@ -137,6 +143,8 @@ Luna 的 `MetricsTracker` 使用真实 RAF 时间戳维护 10 秒滑动窗口，
 
 GPT 5.5 将 `renderer.info.autoReset` 关闭，并在每帧前手动 `reset()`，当前 119 calls / 1.07M triangles 与画面规模基本相容；不过报告没有把其旧的截图模式 acceptance 极低 FPS 纳入稳态评分，因为截图读回阻塞和极小样本会污染结果。
 
+原 Luna medium 保留上一轮已核验的 10 次 HUD 证据：118–122 FPS、均值约 120 FPS、约 215 calls。它的 12 分性能结果同样受到“可见内容强简化”的等价负载折价，本次没有把它误写成 Luna max 的新实测数据。
+
 ### 性能评分明细
 
 | 来源 | 稳态 FPS /8 | 等价可见负载 /6 | p95/1% low 稳定性 /3 | 指标可信度 /3 | 性能总分 /20 |
@@ -144,6 +152,7 @@ GPT 5.5 将 `renderer.info.autoReset` 关闭，并在每帧前手动 `reset()`�
 | `main` | 5.0 | 6.0 | 2.0 | 2.0 | **15.0** |
 | `luna-max` | 8.0 | 3.0 | 3.0 | 1.0 | **15.0** |
 | `~/Desktop/5.5` | 6.5 | 2.5 | 2.5 | 2.0 | **13.5** |
+| `gpt-luna` | 8.0 | 1.5 | 1.5 | 1.0 | **12.0** |
 | `codex-ds-flash` | 5.5 | 3.0 | 1.0 | 1.5 | **11.0** |
 | `test/sol-2` | 8.0 | 0.5 | 0.0 | 0.5 | **9.0** |
 | `feat/GLM-5-2` | 6.5 | 0.0 | 0.0 | 0.0 | **6.5** |
@@ -163,6 +172,7 @@ GLM 的 `getMetrics()` 把 p95 和 1% low 固定为 0，且水体/地形负载�
 | `main` | 50 / 23,827 | 39 / 11,330 | 276/276 | 1,220.58 kB | 既有基线通过 |
 | `~/Desktop/5.5` | 28 / 4,353 | 6 / 264 | 22/22 | 913.75 kB | `npm ci` 0 漏洞；构建通过，存在大 chunk 警告 |
 | `luna-max` | 28 / 3,108 | 4 / 150 | 15/15 | 901.16 kB | `npm ci` 报 1 个 high severity 漏洞；构建通过，存在大 chunk 警告 |
+| `gpt-luna` | 11 / 566 | 3 / 68 | 8/8 | 770.73 kB | 原 Luna medium 证据保留；轻量原型构建通过 |
 | `codex-ds-flash` | 36 / 6,529 | 7 / 564 | 41/41 | 976.88 kB | 既有基线通过 |
 | `test/sol-2` | 22 / 2,085 | 4 / 233 | 28/28 | 909.97 kB | 既有基线通过 |
 | `feat/GLM-5-2` | 17 / 4,193 | 8 / 917 | 74/74 | 250.62 kB | 既有基线通过 |
@@ -177,6 +187,7 @@ GLM 的 `getMetrics()` 把 p95 和 1% low 固定为 0，且水体/地形负载�
 | `codex-ds-flash` | 6.5 | 9.0 | 7.5 | 5.5 | **28.5** |
 | `test/sol-2` | 8.5 | 7.5 | 6.0 | 4.5 | **26.5** |
 | `feat/GLM-5-2` | 6.0 | 7.5 | 5.5 | 5.5 | **24.5** |
+| `gpt-luna` | 6.5 | 4.5 | 2.5 | 1.5 | **15.0** |
 
 ### 新 GPT 5.5：`~/Desktop/5.5`
 

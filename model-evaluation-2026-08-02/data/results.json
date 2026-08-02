@@ -16,8 +16,10 @@
     "startupWaitScored": false
   },
   "sourceReplacements": {
-    "gpt55": "~/Desktop/5.5 current directory snapshot; replaces feat/gpt-5.5-test",
-    "luna": "luna-max@ced157a; replaces gpt-luna / Luna medium"
+    "gpt55": "~/Desktop/5.5 current directory snapshot; replaces feat/gpt-5.5-test"
+  },
+  "sourceAdditions": {
+    "lunaMax": "luna-max@ced157a; added alongside retained gpt-luna / Luna medium"
   },
   "results": [
     {
@@ -159,6 +161,31 @@
       "tests": "74/74",
       "build": "pass",
       "bundleKb": 250.62
+    },
+    {
+      "rank": 6,
+      "source": "gpt-luna",
+      "model": "GPT 5.6 Luna medium",
+      "commit": "632e8da",
+      "code": 15.0,
+      "visual": 10.5,
+      "performance": 12.0,
+      "total": 37.5,
+      "subscores": {
+        "code": { "spec": 6.5, "architecture": 4.5, "graphicsAlgorithms": 2.5, "testsCredibility": 1.5 },
+        "visual": { "terrain": 3.0, "water": 2.0, "vegetation": 1.5, "composition": 1.0, "materialsLighting": 1.5, "stability": 1.5 },
+        "performance": { "steadyFps": 8.0, "equivalentVisibleLoad": 1.5, "tailStability": 1.5, "metricsCredibility": 1.0 }
+      },
+      "productGate": "fail: strongly simplified low-poly prototype",
+      "fps": 120.0,
+      "fpsEvidence": "retained prior verified evidence: 10 HUD samples over 10 seconds, 118-122 FPS",
+      "frameMs": 8.3,
+      "drawCalls": 215,
+      "triangles": null,
+      "startup": "about 12 seconds in prior verified run; diagnostic only",
+      "tests": "8/8",
+      "build": "pass",
+      "bundleKb": 770.73
     }
   ]
 }
