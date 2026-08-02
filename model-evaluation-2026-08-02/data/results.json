@@ -29,37 +29,14 @@
   "sourceAdditions": {
     "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium"
   },
+  "benchmark": {
+    "source": "main",
+    "model": "GPT 5.6 Sol ultra + manual tuning",
+    "commit": "3c5b2ba",
+    "role": "visual reference only; excluded from all scores and ranking",
+    "scored": false
+  },
   "results": [
-    {
-      "rank": "benchmark",
-      "source": "main",
-      "model": "GPT 5.6 Sol ultra + manual tuning",
-      "commit": "3c5b2ba",
-      "instructionAdherence": 13.0,
-      "code": 22.0,
-      "visual": 22.0,
-      "performance": 18.0,
-      "total": 75.0,
-      "subscores": {
-        "instructionAdherence": { "requiredAssets": 5.5, "frozenLayoutHydrology": 2.0, "thirdPerson": 4.0, "fixedShotsApiMetrics": 1.5, "prohibitions": 0.0 },
-        "code": { "architecture": 6.0, "dataAlgorithms": 6.5, "runtimeCorrectness": 5.0, "testsObservability": 4.5 },
-        "visual": { "terrain": 4.75, "water": 4.0, "vegetation": 3.75, "composition": 3.75, "materialsLighting": 3.5, "stability": 2.25 },
-        "performance": { "steadyFps": 4.0, "equivalentVisibleLoad": 8.0, "tailStability": 3.0, "metricsCredibility": 3.0 }
-      },
-      "productGate": "visual benchmark; strict frozen v2 contract incomplete and prohibited enemy/combat content present",
-      "instructionFindings": "uses player, tree and grass assets, but lacks the strict nine-grid/v2 contract and actively loads public/assets/enemy with enemy/combat gameplay",
-      "fps": 28.8,
-      "fpsRange": "27-30",
-      "fpsSamples": 15,
-      "frameMs": 34.7,
-      "drawCalls": 1388,
-      "triangles": 12144286,
-      "startup": "about 60 seconds to stable fully populated frame; diagnostic only",
-      "console": "0 application errors",
-      "tests": "276/276",
-      "build": "pass",
-      "bundleKb": 1220.58
-    },
     {
       "rank": 1,
       "source": "luna-max",
