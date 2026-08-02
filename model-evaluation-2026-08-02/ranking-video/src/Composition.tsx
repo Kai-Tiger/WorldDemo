@@ -173,7 +173,7 @@ const RankingRow: React.FC<{
 export const ModelRanking: React.FC = () => {
   const frame = useCurrentFrame();
   const eyebrowProgress = enter(frame, 4, 18);
-  const titleProgress = enter(frame, 10, 28);
+  const titleProgress = interpolate(frame, [10, 38], [0, 1], clamp);
   const title = "六模型综合排名";
   const titleCharacters = Math.floor(titleProgress * title.length);
   const subtitleProgress = enter(frame, 22, 22);
