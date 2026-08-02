@@ -80,9 +80,14 @@ build(
 
 build(
     "comparison-third-person.png",
-    2,
+    3,
     [
         ("gpt-5-6-luna-max-spawn.png", "GPT 5.6 Luna Max", "third-person, T-pose"),
         ("gpt-5-5-spawn.png", "GPT 5.5 xhigh", "third-person, T-pose"),
+        ("deepseek-v4-flash-spawn.png", "DeepSeek V4", "first-person; player absent"),
+        ("gpt-5-6-sol-spawn.png", "GPT 5.6 Sol", "third-person, visible player"),
+        ("glm-5-2-spawn.png", "GLM 5.2", "third-person, T-pose"),
+        ("gpt-5-6-luna-medium-spawn.png", "GPT 5.6 Luna Medium", "third-person, visible player"),
     ],
+    panel=(480, 270),
 )
