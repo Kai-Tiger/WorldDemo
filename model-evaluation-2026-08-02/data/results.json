@@ -163,74 +163,14 @@
     },
     {
       "rank": 3,
-      "source": "/Users/likai.lear/Desktop/5.5",
-      "model": "GPT 5.5 xhigh",
-      "commit": null,
-      "snapshot": "2026-08-02 current directory and live service",
-      "instructionAdherence": 18.0,
-      "code": 20.0,
-      "visual": 9.5,
-      "performance": 21.0,
-      "total": 68.5,
-      "subscores": {
-        "instructionAdherence": {
-          "requiredAssets": 5.5,
-          "frozenLayoutHydrology": 4.5,
-          "thirdPerson": 1.5,
-          "fixedShotsApiMetrics": 3.5,
-          "prohibitions": 3.0
-        },
-        "code": {
-          "architecture": 6.5,
-          "dataAlgorithms": 6.0,
-          "runtimeCorrectness": 3.5,
-          "testsObservability": 4.0
-        },
-        "visual": {
-          "terrain": 2.5,
-          "water": 1.5,
-          "vegetation": 1.25,
-          "composition": 1.0,
-          "materialsLighting": 2.0,
-          "stability": 1.25
-        },
-        "performance": {
-          "steadyFps": 10.0,
-          "equivalentVisibleLoad": 5.0,
-          "tailStability": 4.0,
-          "metricsCredibility": 2.0
-        }
-      },
-      "productGate": "fail: fallback can be declared ready; oversized depth-test-disabled water occludes the player; T-pose remains",
-      "instructionFindings": "renders the required tree GLBs, VarA-VarF LOD0-2 grass GLBs and project KTX2 textures after asynchronous loading, but app ready does not await vegetation.ready",
-      "thirdPerson": "camera is third-person, but the fixed spawn shot is mostly occluded by the lake and only T-pose legs remain visible",
-      "fps": 141.4,
-      "fpsRange": "140.0-142.7",
-      "fpsSamples": 15,
-      "frameMs": 7.1,
-      "drawCalls": 119,
-      "triangles": 1125000,
-      "metricsCaveat": "exact requested service is Vite dev rather than production preview; live HUD used and capture-mode samples excluded",
-      "startup": "diagnostic only",
-      "console": "0 application errors",
-      "tests": "23/23",
-      "build": "pass",
-      "bundleKb": 914.82,
-      "npmAudit": "0 vulnerabilities",
-      "service": "http://127.0.0.1:5173",
-      "serverMode": "Vite development service",
-      "fpsMeanExact": 141.3667
-    },
-    {
-      "rank": 4,
       "source": "codex-ds-flash",
       "model": "DeepSeek V4 Flash max",
       "commit": "cc12c0a",
       "instructionAdherence": 15.5,
       "code": 19.0,
       "visual": 11.25,
-      "performance": 14.5,
-      "total": 60.25,
+      "performance": 16.5,
+      "total": 62.25,
       "subscores": {
         "instructionAdherence": {
           "requiredAssets": 5.0,
@@ -255,9 +195,9 @@
         },
         "performance": {
           "steadyFps": 4.0,
-          "equivalentVisibleLoad": 6.5,
+          "equivalentVisibleLoad": 8.0,
           "tailStability": 2.0,
-          "metricsCredibility": 2.0
+          "metricsCredibility": 2.5
         }
       },
       "productGate": "fail: runtime result is first-person instead of required third-person; tree orientation is wrong",
@@ -274,6 +214,67 @@
       "tests": "41/41",
       "build": "pass",
       "bundleKb": 976.88
+    },
+    {
+      "rank": 4,
+      "source": "/Users/likai.lear/Desktop/5.5",
+      "model": "GPT 5.5 xhigh",
+      "commit": null,
+      "snapshot": "2026-08-02 current directory and live service",
+      "instructionAdherence": 18.0,
+      "code": 14.5,
+      "visual": 5.5,
+      "performance": 21.0,
+      "total": 59.0,
+      "subscores": {
+        "instructionAdherence": {
+          "requiredAssets": 5.5,
+          "frozenLayoutHydrology": 4.5,
+          "thirdPerson": 1.5,
+          "fixedShotsApiMetrics": 3.5,
+          "prohibitions": 3.0
+        },
+        "code": {
+          "architecture": 6.5,
+          "dataAlgorithms": 4.0,
+          "runtimeCorrectness": 1.5,
+          "testsObservability": 2.5
+        },
+        "visual": {
+          "terrain": 0.0,
+          "water": 0.0,
+          "vegetation": 1.25,
+          "composition": 1.0,
+          "materialsLighting": 2.0,
+          "stability": 1.25
+        },
+        "performance": {
+          "steadyFps": 10.0,
+          "equivalentVisibleLoad": 5.0,
+          "tailStability": 4.0,
+          "metricsCredibility": 2.0
+        }
+      },
+      "productGate": "fail: no readable terrain hierarchy; severely overexposed layered water breaks depth occlusion; fallback can be declared ready; T-pose remains",
+      "instructionFindings": "renders the required tree GLBs, VarA-VarF LOD0-2 grass GLBs and project KTX2 textures after asynchronous loading, but app ready does not await vegetation.ready",
+      "thirdPerson": "camera is third-person, but the fixed spawn shot is mostly occluded by the lake and only T-pose legs remain visible",
+      "fps": 141.4,
+      "fpsRange": "140.0-142.7",
+      "fpsSamples": 15,
+      "frameMs": 7.1,
+      "drawCalls": 119,
+      "triangles": 1125000,
+      "metricsCaveat": "exact requested service is Vite dev rather than production preview; live HUD used and capture-mode samples excluded",
+      "startup": "diagnostic only",
+      "console": "0 application errors",
+      "tests": "23/23",
+      "build": "pass",
+      "bundleKb": 914.82,
+      "npmAudit": "0 vulnerabilities",
+      "service": "http://127.0.0.1:5173",
+      "serverMode": "Vite development service",
+      "fpsMeanExact": 141.3667,
+      "codeCaveat": "module separation exists, but core terrain hierarchy, water rendering/depth semantics, ready behavior and browser-level test coverage fail in the delivered result"
     },
     {
       "rank": 5,
