@@ -24,7 +24,8 @@
     "build": "remotion bundle",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc",
-    "render": "remotion render ModelRanking out/cold-mountain-model-ranking.mp4"
+    "render": "remotion render ModelRanking out/cold-mountain-model-ranking.mp4",
+    "render:method": "remotion render ScoringMethod out/cold-mountain-scoring-method.mp4"
   },
   "sideEffects": [
     "*.css"
