@@ -66,7 +66,12 @@ const RankingRow: React.FC<{
   const start = 42 + index * 25;
   const rowProgress = enter(frame, start, 22);
   const badgeProgress = enter(frame, start + 3, 18);
-  const nameProgress = enter(frame, start + 8, 24);
+  const nameProgress = interpolate(
+    frame,
+    [start + 8, start + 32],
+    [0, 1],
+    clamp,
+  );
   const visibleCharacters = Math.floor(nameProgress * item.model.length);
   const barProgress = enter(frame, start + 18, 36);
   const totalProgress = enter(frame, start + 24, 28);
