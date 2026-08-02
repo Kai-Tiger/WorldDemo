@@ -11,7 +11,8 @@
   "weights": {
     "code": 40,
     "visual": 40,
-    "performance": 20
+    "performance": 20,
+    "startupWaitScored": false
   },
   "results": [
     {
@@ -21,8 +22,8 @@
       "commit": "3c5b2ba",
       "code": 34.0,
       "visual": 35.5,
-      "performance": 13.0,
-      "total": 82.5,
+      "performance": 15.0,
+      "total": 84.5,
       "productGate": "visual benchmark; strict v2 contract incomplete",
       "fps": 42.1,
       "fpsEvidence": "10 HUD samples over 10 seconds: 41-43 FPS",
@@ -41,8 +42,8 @@
       "commit": "89f4ca9",
       "code": 30.5,
       "visual": 25.0,
-      "performance": 5.5,
-      "total": 61.0,
+      "performance": 8.0,
+      "total": 63.5,
       "productGate": "fail",
       "fps": null,
       "fpsEvidence": "no valid current 10-second sample; committed acceptance reports 71.6 FPS from only 3 frames / 41.9 ms",
@@ -59,11 +60,11 @@
       "branch": "codex-ds-flash",
       "model": "DeepSeek V4 Flash max",
       "commit": "cc12c0a",
-      "code": 31.5,
-      "visual": 19.0,
-      "performance": 10.0,
-      "total": 60.5,
-      "productGate": "fail",
+      "code": 28.5,
+      "visual": 18.0,
+      "performance": 11.0,
+      "total": 57.5,
+      "productGate": "fail: runtime result is first-person instead of required third-person",
       "fps": 53.0,
       "fpsEvidence": "10 HUD samples over 10 seconds: 53 FPS; committed vista snapshot 35.48 FPS, p95 91.8 ms, 1% low 4 FPS",
       "frameMs": 18.9,
