@@ -25,7 +25,8 @@
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc",
     "render": "remotion render ModelRanking out/cold-mountain-model-ranking.mp4",
-    "render:method": "remotion render ScoringMethod out/cold-mountain-scoring-method.mp4"
+    "render:method": "remotion render ScoringMethod out/cold-mountain-scoring-method.mp4",
+    "render:prompt": "remotion render ProjectPromptFlow out/cold-mountain-project-prompt-flow.mp4 --concurrency=1"
   },
   "sideEffects": [
     "*.css"

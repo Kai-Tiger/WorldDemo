@@ -1,0 +1,108 @@
+.prompt-flow {
+  overflow: hidden;
+  color: #d4dfdb;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(52, 100, 103, 0.28), transparent 32%),
+    radial-gradient(circle at 94% 90%, rgba(77, 96, 70, 0.24), transparent 36%),
+    linear-gradient(145deg, #08100f 0%, #0b1717 48%, #080d0d 100%);
+  font-family: "SFMono-Regular", Menlo, Monaco, "PingFang SC", monospace;
+}
+
+.prompt-flow__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(rgba(171, 212, 202, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(171, 212, 202, 0.16) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 92%);
+}
+
+.prompt-flow__aura {
+  position: absolute;
+  width: 760px;
+  height: 760px;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.16;
+}
+
+.prompt-flow__aura--top {
+  top: -510px;
+  right: 230px;
+  background: #58a39b;
+}
+
+.prompt-flow__aura--bottom {
+  bottom: -570px;
+  left: 180px;
+  background: #9a8048;
+}
+
+.prompt-flow__viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.prompt-flow__lines {
+  position: absolute;
+  top: 0;
+  left: 92px;
+  right: 92px;
+  will-change: transform;
+}
+
+.prompt-flow__line {
+  height: 40px;
+  overflow: hidden;
+  color: #bdcac6;
+  font-size: 22px;
+  line-height: 40px;
+  white-space: pre;
+}
+
+.prompt-flow__line--heading-1,
+.prompt-flow__line--heading-2 {
+  color: #ecd58d;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.prompt-flow__line--heading-3 {
+  color: #8dd0c5;
+  font-size: 24px;
+  font-weight: 760;
+}
+
+.prompt-flow__line--bullet {
+  color: #d3ddda;
+}
+
+.prompt-flow__line--code {
+  color: #d5c17c;
+}
+
+.prompt-flow__line--blank {
+  opacity: 0;
+}
+
+.prompt-flow__shade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  height: 104px;
+  pointer-events: none;
+}
+
+.prompt-flow__shade--top {
+  top: 0;
+  background: linear-gradient(to bottom, #081210, transparent);
+}
+
+.prompt-flow__shade--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, #08100f, transparent);
+}
