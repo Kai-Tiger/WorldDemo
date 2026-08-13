@@ -174,10 +174,10 @@ export const ModelRanking: React.FC = () => {
   const frame = useCurrentFrame();
   const eyebrowProgress = enter(frame, 4, 18);
   const titleProgress = interpolate(frame, [10, 38], [0, 1], clamp);
-  const title = "六模型综合排名";
+  const title = "七模型综合排名";
   const titleCharacters = Math.floor(titleProgress * title.length);
   const subtitleProgress = enter(frame, 22, 22);
-  const footerProgress = enter(frame, 240, 28);
+  const footerProgress = enter(frame, 270, 28);
   const lineProgress = enter(frame, 16, 34);
   const orbShift = Math.sin(frame / 70) * 40;
 

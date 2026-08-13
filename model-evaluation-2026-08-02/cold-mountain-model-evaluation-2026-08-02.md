@@ -1,7 +1,7 @@
-# Cold Mountain 多模型实现评测报告（全量复核 + pro-0813 增补版）
+# Cold Mountain 多模型实现评测报告（全量复核 + DeepSeek V4 Pro 增补版）
 
 > 评测日期：2026-08-02
-> 增补复测：2026-08-13（`pro-0813@b920c68`）
+> 增补复测：2026-08-13（DeepSeek V4 Pro 正式版，`pro-0813@b920c68`）
 > 目标规范：`project-prompt.md`
 > 统一运行参数：`?shot=vista&quality=balanced&seed=12345&capture=0&debug=1`
 > 统一视口：1280 × 720 CSS
@@ -9,7 +9,7 @@
 
 ## 结论摘要
 
-本报告在既有全量复核基础上增补 `pro-0813@b920c68`。该分支已在隔离工作树重新执行依赖安装、59 项测试、生产构建，并以 1280×720、Balanced、固定 `vista`、`spawn`、`waterfall` 机位核对浏览器错误和 15 次连续 HUD 性能窗口。评分仍为四个一级维度完全等权：**指令遵循度 25、代码逻辑 25、视觉效果 25、性能帧率 25**。用户尚未提供 `pro-0813` 对应的模型名称，因此报告只使用分支名，不擅自归因给某个模型。
+本报告在既有全量复核基础上增补 **DeepSeek V4 Pro 正式版**（`pro-0813@b920c68`）。该分支已在隔离工作树重新执行依赖安装、59 项测试、生产构建，并以 1280×720、Balanced、固定 `vista`、`spawn`、`waterfall` 机位核对浏览器错误和 15 次连续 HUD 性能窗口。评分仍为四个一级维度完全等权：**指令遵循度 25、代码逻辑 25、视觉效果 25、性能帧率 25**。
 
 `main` 只作为最佳视觉效果标杆，用于帮助判断其他实现与目标成片效果的距离；它不参与排名，不计算总分，也不进入任何评分明细。
 
@@ -21,9 +21,9 @@
 4. **GPT 5.5 xhigh（59.0）**：实际绘制了项目树木、全部草模型与草贴图，5173 实测裸 FPS 最高；但最终画面没有形成地形层级，水体又出现过曝、同心层叠、深度遮挡错误。核心场景交付与测试防线同时失败，地形和水系均记 0 分，代码从严扣分。
 5. **GPT 5.6 Luna Medium（52.0）**：第三人称与基本固定机位可运行，帧率高；代码和画面仍是强简化原型，等价可见负载很低。
 6. **GLM 5.2 xhigh（48.75）**：表面 FPS 很高，但水体 shader、ready 初始化和地形孔洞均有运行时错误，角色也是 T-pose；高帧率主要建立在缺失负载上。
-7. **pro-0813（47.0，模型未注明）**：冻结布局和固定镜头覆盖较全，静态 `vista` 窗口为 98.9 FPS；但 WASD 无法移动角色，画质明显模糊，转动视角后才逐块补渲染，水体几何持续 `NaN`，植被最终帧完全缺失。静态高 FPS 不能代表探索态性能，指令、代码、视觉和性能均进一步扣分。
+7. **DeepSeek V4 Pro 正式版（47.0）**：冻结布局和固定镜头覆盖较全，静态 `vista` 窗口为 98.9 FPS；但 WASD 无法移动角色，画质明显模糊，转动视角后才逐块补渲染，水体几何持续 `NaN`，植被最终帧完全缺失。静态高 FPS 不能代表探索态性能，指令、代码、视觉和性能均进一步扣分。
 
-7 个计分候选均未通过题面规定的产品等价门槛。该排名只评价列出的具体快照，不代表模型品牌的一般能力；`pro-0813` 在模型身份补充前仅代表该分支实现。
+7 个计分候选均未通过题面规定的产品等价门槛。该排名只评价列出的具体快照，不代表模型品牌的一般能力。
 
 ## 1. 模型与证据来源
 
@@ -35,7 +35,7 @@
 | Luna Medium | GPT 5.6 Luna Medium | `gpt-luna@632e8da` |
 | DeepSeek | DeepSeek V4 Flash max | `codex-ds-flash@cc12c0a` |
 | Sol | GPT 5.6 Sol xhigh | `/Users/likai.lear/Desktop/5.6` 当前目录；`:4174` production preview |
-| pro-0813 | 模型未注明 | `pro-0813@b920c68`；隔离 production preview `:4191` |
+| DeepSeek Pro | DeepSeek V4 Pro 正式版 | `pro-0813@b920c68`；隔离 production preview `:4191` |
 | GLM | GLM 5.2 xhigh | `feat/GLM-5-2@51c3480` |
 
 `~/Desktop/5.5` 与 `~/Desktop/5.6` 都不是 Git 仓库，因此报告记录当前目录、运行进程与复测时间，不虚构提交号。Luna Medium 与 Luna Max 均作为独立候选保留；本报告不设置两者之间的专项演进评分。
@@ -71,7 +71,7 @@
 | 4 | GPT 5.5 xhigh | 18.0 | 14.5 | 5.5 | 21.0 | **59.0** | 未通过：无有效地形层级，水面严重渲染/遮挡错误，fallback ready、T-pose |
 | 5 | GPT 5.6 Luna Medium | 16.5 | 11.0 | 6.5 | 18.0 | **52.0** | 未通过：强简化原型、等价负载低 |
 | 6 | GLM 5.2 xhigh | 15.0 | 14.5 | 5.25 | 14.0 | **48.75** | 未通过：地形黑洞、水体 shader/ready 错误、玩家 T-pose |
-| 7 | pro-0813（模型未注明） | 17.5 | 14.0 | 4.0 | 11.5 | **47.0** | 未通过：WASD 不移动、转向后补渲染、画面模糊、水体 NaN、植被缺失 |
+| 7 | DeepSeek V4 Pro 正式版 | 17.5 | 14.0 | 4.0 | 11.5 | **47.0** | 未通过：WASD 不移动、转向后补渲染、画面模糊、水体 NaN、植被缺失 |
 
 ## 4. 指令遵循度
 
@@ -82,7 +82,7 @@
 | GPT 5.6 Sol xhigh | 4.5 | 5.0 | 3.5 | 4.5 | 3.0 | **20.5** |
 | GPT 5.6 Luna Max | 6.0 | 4.5 | 2.5 | 3.5 | 3.0 | **19.5** |
 | GPT 5.5 xhigh | 5.5 | 4.5 | 1.5 | 3.5 | 3.0 | **18.0** |
-| pro-0813（模型未注明） | 4.0 | 5.5 | 1.5 | 3.5 | 3.0 | **17.5** |
+| DeepSeek V4 Pro 正式版 | 4.0 | 5.5 | 1.5 | 3.5 | 3.0 | **17.5** |
 | GPT 5.6 Luna Medium | 4.0 | 3.5 | 3.5 | 2.5 | 3.0 | **16.5** |
 | DeepSeek V4 Flash max | 5.0 | 4.5 | 0.0 | 3.0 | 3.0 | **15.5** |
 | GLM 5.2 xhigh | 4.0 | 3.5 | 2.5 | 2.0 | 3.0 | **15.0** |
@@ -90,7 +90,7 @@
 ### 关键核实
 
 - **GPT 5.6 Sol xhigh 的指定草资产只做到“加载”，没有做到“用于最终渲染”。** `/Users/likai.lear/Desktop/5.6/src/scene/ColdMountainApp.js` 生成 VarA–VarF × LOD0–2 的 18 个 grass GLB URL，也加载项目 KTX2 草贴图；但 `grassRenderAssets` 随后统一改用 `THREE.ConeGeometry`，运行摘要更明确报告 `grassGeometryMode: "procedural-fallback"`。因此指定资产不能给满分，画面中密集亮绿色锥体草也与源码相互印证。
-- **pro-0813 的冻结真源覆盖较强，但交互和指定资产没有完成交付。** `SCENE_LAYOUT`、双高度图、中心/外围水文、六个固定机位、玩家 FBX、tree_01–04 以及 VarA–F × LOD0–2 grass 路径均存在；不过没有引用 `tree_spawn.glb`，植被加载又被 15 秒 `Promise.race` 提前放行，后台完成后没有触发 `rebuild()`，所以三张稳定截图都没有草和树。角色虽然可见，但用户手动操作与无固定镜头的浏览器复测均未产生 WASD 位移，HUD 在按 `W` 前后保持 `x 335.0 / z -358.0`，第三人称子项从 4.0 降至 1.5。v2 metrics 还报告 `1 call / 1 triangle`，与画面矛盾，固定机位/API/metrics 不能给满分。
+- **DeepSeek V4 Pro 正式版（`pro-0813`）的冻结真源覆盖较强，但交互和指定资产没有完成交付。** `SCENE_LAYOUT`、双高度图、中心/外围水文、六个固定机位、玩家 FBX、tree_01–04 以及 VarA–F × LOD0–2 grass 路径均存在；不过没有引用 `tree_spawn.glb`，植被加载又被 15 秒 `Promise.race` 提前放行，后台完成后没有触发 `rebuild()`，所以三张稳定截图都没有草和树。角色虽然可见，但用户手动操作与无固定镜头的浏览器复测均未产生 WASD 位移，HUD 在按 `W` 前后保持 `x 335.0 / z -358.0`，第三人称子项从 4.0 降至 1.5。v2 metrics 还报告 `1 call / 1 triangle`，与画面矛盾，固定机位/API/metrics 不能给满分。
 - **GPT 5.5 并非完全没有使用项目草/树模型。** `src/vegetation/vegetationSystem.js` 明确列出 `tree_01.glb`–`tree_04.glb`、`tree_spawn.glb`，生成 VarA–VarF × LOD0–2 的 18 个 grass GLB URL，并使用项目 KTX2 草贴图、`GLTFLoader` 与 `MeshoptDecoder`，最终实例化几何确实来自这些资产。扣分点是交付语义：构造时先创建 fallback，延迟后才加载真实资产；应用没有等待 `vegetation.ready` 就把 grass/trees 标为 loaded，`ready` 因而不能保证最终植被已 settled。`spawn` 固定机位又被关闭深度测试的湖面严重遮挡，第三人称最终画面不完整。
 - **Luna Max** 同样引用全部树和草模型，并在初始化中等待植被资产；但玩家为 T-pose，固定水体仍呈占位几何，API 中的 renderer 统计与画面矛盾。
 - **DeepSeek** 的源码包含第三人称类、玩家 FBX 和冻结机位，但 live `spawn` 没有可见角色，实际体验是第一人称。因此第三人称 `/4` 记 0，而不是因源码命名给部分通过。
@@ -109,11 +109,11 @@
 - **GPT 5.5**：湖泊已进入远景构图，不再是“水系缺失”；但水面过亮且环状边界明显，谷底大面积为空，树木稀疏并夹杂直立矩形块，右侧河道像笔直发光带。
 - **DeepSeek**：湖泊与地形存在，但大量树木横倒、悬浮并遮挡相机；世界轴归一化失败非常明显。
 - **GPT 5.6 Sol xhigh**：山谷、湖泊、瀑布、河网与树群均可读，宏观完整性明显强于先前误映射样本；湖岸仍偏多边形，河道过直、过亮，山坡水源像白线，程序化锥体草非常醒目。
-- **pro-0813**：宏观山盆、湖泊和第三人称角色可辨识，但整体画质明显模糊，地表出现大片不连续黑斑，所有树和草都没有进入最终帧；高山支流像悬空发光细管，湖面过曝。交互转动视角时，新方向的地形还会逐块补渲染，没有达到题面的成片稳定性。
+- **DeepSeek V4 Pro 正式版**：宏观山盆、湖泊和第三人称角色可辨识，但整体画质明显模糊，地表出现大片不连续黑斑，所有树和草都没有进入最终帧；高山支流像悬空发光细管，湖面过曝。交互转动视角时，新方向的地形还会逐块补渲染，没有达到题面的成片稳定性。
 - **GLM**：大面积黑色地形孔洞，水体缺失，只剩零散植被与岩石。
 - **Luna Medium**：地面极暗，河湖和道路近似平面色带，植被很少，整体是最小原型级画面。
 
-原始截图：[`main`](screenshots/main-vista.png) · [`Luna Max`](screenshots/gpt-5-6-luna-max-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-vista.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-vista.png) · [`pro-0813`](screenshots/pro-0813-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-vista.png)
+原始截图：[`main`](screenshots/main-vista.png) · [`Luna Max`](screenshots/gpt-5-6-luna-max-vista.png) · [`GPT 5.5`](screenshots/gpt-5-5-vista.png) · [`DeepSeek Flash`](screenshots/deepseek-v4-flash-vista.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-vista.png) · [`DeepSeek Pro`](screenshots/pro-0813-vista.png) · [`GLM`](screenshots/glm-5-2-vista.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-vista.png)
 
 ## 6. 第三人称核验
 
@@ -124,10 +124,10 @@
 - **Luna Max、GLM**：角色可见、相机属于第三人称，但角色停在 T-pose，动画交付失败。
 - **GPT 5.5**：代码与相机属于第三人称，但固定 `spawn` 中过大的湖面关闭了深度测试，水面遮住角色主体，只剩 T-pose 腿部可见；按最终画面从严扣分。
 - **GPT 5.6 Sol xhigh、Luna Medium**：角色可见且不是 T-pose，第三人称基本成立。
-- **pro-0813**：角色清晰可见且为正常站姿，固定 `spawn` 画面属于第三人称；但正常探索模式下 WASD 无法推动角色，不能判定第三人称交互通过。周围植被缺失和地表黑斑另在视觉完整性中扣分。
+- **DeepSeek V4 Pro 正式版**：角色清晰可见且为正常站姿，固定 `spawn` 画面属于第三人称；但正常探索模式下 WASD 无法推动角色，不能判定第三人称交互通过。周围植被缺失和地表黑斑另在视觉完整性中扣分。
 - **DeepSeek**：画面中没有角色，镜头是第一人称；该问题在指令遵循度和第三人称构图分别使用运行证据扣分。
 
-原始截图：[`Luna Max`](screenshots/gpt-5-6-luna-max-spawn.png) · [`GPT 5.5`](screenshots/gpt-5-5-spawn.png) · [`DeepSeek`](screenshots/deepseek-v4-flash-spawn.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-spawn.png) · [`pro-0813`](screenshots/pro-0813-spawn.png) · [`GLM`](screenshots/glm-5-2-spawn.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-spawn.png)
+原始截图：[`Luna Max`](screenshots/gpt-5-6-luna-max-spawn.png) · [`GPT 5.5`](screenshots/gpt-5-5-spawn.png) · [`DeepSeek Flash`](screenshots/deepseek-v4-flash-spawn.png) · [`GPT 5.6 Sol`](screenshots/gpt-5-6-sol-spawn.png) · [`DeepSeek Pro`](screenshots/pro-0813-spawn.png) · [`GLM`](screenshots/glm-5-2-spawn.png) · [`Luna Medium`](screenshots/gpt-5-6-luna-medium-spawn.png)
 
 ## 7. 视觉效果
 
@@ -141,7 +141,7 @@
 | GPT 5.6 Luna Medium | 1.75 | 1.25 | 1.0 | 0.75 | 1.0 | 0.75 | **6.5** |
 | GPT 5.5 xhigh | 0.0 | 0.0 | 1.25 | 1.0 | 2.0 | 1.25 | **5.5** |
 | GLM 5.2 xhigh | 1.75 | 0.75 | 0.25 | 1.0 | 1.0 | 0.5 | **5.25** |
-| pro-0813（模型未注明） | 1.5 | 0.75 | 0.0 | 1.25 | 0.5 | 0.0 | **4.0** |
+| DeepSeek V4 Pro 正式版 | 1.5 | 0.75 | 0.0 | 1.25 | 0.5 | 0.0 | **4.0** |
 
 ### 瀑布补充证据
 
@@ -150,7 +150,7 @@
 ![七个候选瀑布对比](comparison-waterfall.png)
 
 - **GPT 5.6 Sol xhigh** 能形成瀑布、落水潭、出水河道与岩壁上下文，但瀑布仍像白色平面，水面与岸线融合生硬。
-- Luna Max 的瀑布近似白色竖直平面；GPT 5.5 已能拍到白色水幕、圆形落水潭和笔直出水道，但比例与材质仍像占位几何；DeepSeek 能看到落水结构但横倒树木严重干扰；`pro-0813` 的瀑布是过曝白色粗管，落水潭出现硬圆盘边界，水体几何 `NaN` 与最终画面一致；GLM 未形成有效水体主体；Luna Medium 是青色平面占位。
+- Luna Max 的瀑布近似白色竖直平面；GPT 5.5 已能拍到白色水幕、圆形落水潭和笔直出水道，但比例与材质仍像占位几何；DeepSeek V4 Flash 能看到落水结构但横倒树木严重干扰；DeepSeek V4 Pro 的瀑布是过曝白色粗管，落水潭出现硬圆盘边界，水体几何 `NaN` 与最终画面一致；GLM 未形成有效水体主体；Luna Medium 是青色平面占位。
 
 ## 8. 性能与帧率
 
@@ -162,7 +162,7 @@
 | --- | ---: | ---: | --- | --- | --- |
 | GPT 5.5 xhigh | **141.4**（140.0–142.7） | 7.1 ms | 119 calls / 1.125M tris；场景较稀疏；`:5173` dev | 0 | 裸 FPS 最高，但不是 production preview，且可见负载较轻 |
 | GLM 5.2 xhigh | **116.7**（111–125） | 8.6 ms | 水体缺失、大片地形孔洞；p95/1% low 硬编码为 0 | 水 shader + ready ReferenceError | 表面很快，但负载和指标均不完整 |
-| pro-0813（模型未注明） | **98.9**（98–100，仅静态 vista） | 10.24 ms | HUD 报 1 call / 1 triangle；无可见植被；视角转动后才补建地形 chunk；`:4191` preview | 重复水体几何 NaN；交互 FPS 低 | 静态窗口不能代表探索态，负载、尾稳定与统计均不合格 |
+| DeepSeek V4 Pro 正式版 | **98.9**（98–100，仅静态 vista） | 10.24 ms | HUD 报 1 call / 1 triangle；无可见植被；视角转动后才补建地形 chunk；`:4191` preview | 重复水体几何 NaN；交互 FPS 低 | 静态窗口不能代表探索态，负载、尾稳定与统计均不合格 |
 | GPT 5.6 Luna Medium | **97.8**（92–102） | 10.2 ms | 约 215 calls；场景强简化 | 0 | 原始帧率可信，等价负载低 |
 | GPT 5.6 Luna Max | **85.7**（78–87） | 11.7 ms | 画面有山/水/树；HUD 报 1 call / 1 triangle | 0 | FPS 窗口可读，renderer 统计不可信 |
 | GPT 5.6 Sol xhigh | **66.8**（66.4–67.2） | 15.0 ms | 479 calls / 3.079M tris；16,037 草实例、671 树实例；`:4174` preview | 0 | 在显著更重且较完整的可见负载下稳定运行 |
@@ -178,9 +178,9 @@
 | GPT 5.6 Luna Max | 9.0 | 4.0 | 3.0 | 1.0 | **17.0** |
 | DeepSeek V4 Flash max | 4.0 | 8.0 | 2.0 | 2.5 | **16.5** |
 | GLM 5.2 xhigh | 10.0 | 0.5 | 3.0 | 0.5 | **14.0** |
-| pro-0813（模型未注明） | 10.0 | 0.5 | 0.5 | 0.5 | **11.5** |
+| DeepSeek V4 Pro 正式版 | 10.0 | 0.5 | 0.5 | 0.5 | **11.5** |
 
-`pro-0813` 的 15 次统一静态 `vista` 读数均值为 98.9 FPS，范围为 98–100，因此只在“静态稳态 FPS”保留 10 分；这不是完整探索态结论。用户实际转动视角时观察到明显低 FPS 和“转过去才渲染”，源码也显示 `TerrainManager` 只把当前 frustum 中的 chunk 放入 `needed`，把视野外 chunk 卸载；焦点不动时每 45 帧才重新计算一次可见集合，且每帧只构建 1 个 chunk。新视角因此必然发生延迟补建和负载突发。结合无植被、水系错误与 `1 call / 1 triangle` 失真统计，等价可见负载降至 0.5，帧稳定性降至 0.5，指标可信度降至 0.5。该项总分为 11.5，而不是把静态 98.9 FPS 当成高性能交付。
+DeepSeek V4 Pro 正式版（`pro-0813`）的 15 次统一静态 `vista` 读数均值为 98.9 FPS，范围为 98–100，因此只在“静态稳态 FPS”保留 10 分；这不是完整探索态结论。用户实际转动视角时观察到明显低 FPS 和“转过去才渲染”，源码也显示 `TerrainManager` 只把当前 frustum 中的 chunk 放入 `needed`，把视野外 chunk 卸载；焦点不动时每 45 帧才重新计算一次可见集合，且每帧只构建 1 个 chunk。新视角因此必然发生延迟补建和负载突发。结合无植被、水系错误与 `1 call / 1 triangle` 失真统计，等价可见负载降至 0.5，帧稳定性降至 0.5，指标可信度降至 0.5。该项总分为 11.5，而不是把静态 98.9 FPS 当成高性能交付。
 
 DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `21.54M triangles / 470 calls`，明显高于其他候选，因此等价可见负载由 6.5 提至满分 8.0；同一提交的 acceptance 证据可与当前 HUD 互相补充，指标可信度由 2.0 提至 2.5。由于本轮均值仍只有 27.9 FPS，且历史尾延迟较差，稳态 FPS 与帧稳定性不加分。
 
@@ -208,7 +208,7 @@ DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `
 | GPT 5.6 Luna Max | 28 / 3,108 | 4 / 150 | 15/15 | 901.16 kB | 构建通过；`npm ci` 报 1 个 high severity 漏洞 |
 | GPT 5.6 Luna Medium | 11 / 566 | 3 / 68 | 8/8 | 770.73 kB | 轻量原型 |
 | DeepSeek V4 Flash max | 36 / 6,529 | 7 / 564 | 41/41 | 976.88 kB | 模块边界清楚，运行结果存在 P0 偏差 |
-| pro-0813（模型未注明） | 30 / 4,519 | 6 / 540 | 59/59 | 899.53 kB | 构建通过；测试过程直接输出 3 次水体几何 NaN；`npm ci` 报 1 个 high severity 漏洞 |
+| DeepSeek V4 Pro 正式版 | 30 / 4,519 | 6 / 540 | 59/59 | 899.53 kB | 构建通过；测试过程直接输出 3 次水体几何 NaN；`npm ci` 报 1 个 high severity 漏洞 |
 | GLM 5.2 xhigh | 17 / 4,193 | 8 / 917 | 74/74 | 250.62 kB | 测试最多，但遗漏浏览器 shader/TDZ 错误 |
 
 ### 代码评分明细
@@ -220,7 +220,7 @@ DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `
 | DeepSeek V4 Flash max | 6.5 | 6.0 | 2.5 | 4.0 | **19.0** |
 | GPT 5.5 xhigh | 6.5 | 4.0 | 1.5 | 2.5 | **14.5** |
 | GLM 5.2 xhigh | 5.5 | 4.5 | 1.0 | 3.5 | **14.5** |
-| pro-0813（模型未注明） | 6.5 | 4.5 | 0.5 | 2.5 | **14.0** |
+| DeepSeek V4 Pro 正式版 | 6.5 | 4.5 | 0.5 | 2.5 | **14.0** |
 | GPT 5.6 Luna Medium | 3.0 | 2.5 | 3.0 | 2.5 | **11.0** |
 
 ### 主要代码判断
@@ -229,7 +229,7 @@ DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `
 - **GPT 5.5**：模块命名和职责拆分表面完整，`SCENE_LAYOUT`、双高度图采样、terrain/hydrology/water/vegetation/third-person/quality/metrics 均有对应代码，KTX2Loader 也调用了 `detectSupport(renderer)`；但最终画面没有形成题面要求的地形层级，湖面出现严重过曝与同心层叠，`depthTest: false` 又破坏玩家和地形的遮挡关系，ready 还没有等待真实植被。23 个测试未拦住这些核心浏览器交付错误，因此数据/算法、运行正确性、测试/可观测性分别从严记 4.0、1.5、2.5。
 - **Luna Max**：模块规模适中，水文、水体、瀑布、后处理和 v2 API 覆盖较全；湖岸几何、T-pose 与 `renderer.info` 采样边界说明复杂度没有完全转成运行正确性。
 - **DeepSeek**：terrain/water/vegetation/debug/metrics 的职责拆分强；第三人称运行行为和树资产主轴归一化是 P0 失败。
-- **pro-0813**：30 个源码文件把高度场、地形 LOD、水文、材质、植被、玩家、质量档和 metrics 分开，`SCENE_LAYOUT` 也确实是唯一冻结真源；但低地 connector 把仅有两个端点水位传给多控制点重采样，后续控制点读到 `undefined`，直接生成 `NaN` 顶点。测试只断言 attribute 数量和 index 范围，没有检查 position 是否有限，因而在控制台已经报错时仍显示 59/59 通过。植被在 15 秒超时后不重建；TerrainManager 又把 frustum 直接当作常驻集合、每 45 帧更新一次且每帧只补 1 个 chunk，造成转向后补渲染。WASD 无位移也没有浏览器级输入测试。renderer 统计采样点最后只报 `1 call / 1 triangle`。这些都是核心算法、运行正确性和可观测性缺口，不能被模块数量抵消。
+- **DeepSeek V4 Pro 正式版**：30 个源码文件把高度场、地形 LOD、水文、材质、植被、玩家、质量档和 metrics 分开，`SCENE_LAYOUT` 也确实是唯一冻结真源；但低地 connector 把仅有两个端点水位传给多控制点重采样，后续控制点读到 `undefined`，直接生成 `NaN` 顶点。测试只断言 attribute 数量和 index 范围，没有检查 position 是否有限，因而在控制台已经报错时仍显示 59/59 通过。植被在 15 秒超时后不重建；TerrainManager 又把 frustum 直接当作常驻集合、每 45 帧更新一次且每帧只补 1 个 chunk，造成转向后补渲染。WASD 无位移也没有浏览器级输入测试。renderer 统计采样点最后只报 `1 call / 1 triangle`。这些都是核心算法、运行正确性和可观测性缺口，不能被模块数量抵消。
 - **GLM**：74 个测试不能抵消 water attribute 缺失、ready Promise TDZ 和硬编码 p95/1% low；浏览器验收覆盖不足。
 - **Luna Medium**：体量小、可运行，但冻结世界、水系、材质和可观测性实现均明显简化。
 
@@ -240,7 +240,7 @@ DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `
 | 纯模型结果继续迭代 | GPT 5.6 Sol xhigh | 当前指令、代码、宏观画面和重负载性能最均衡 | 真正绘制指定 grass GLB、自然化河道/湖岸、改善瀑布与水源材质 |
 | 复用工程拆分思路 | GPT 5.5 xhigh | 模块边界尚可参考，但地形与水系算法不能直接复用 | 重做地形层级、水体几何/材质/深度关系，等待真实植被 ready，增加浏览器视觉回归 |
 | 复用系统架构 | DeepSeek V4 Flash max | 模块边界与水文覆盖较强 | 第三人称运行行为、树/草离线主轴归一化、尾延迟 |
-| 修复后再评 | pro-0813（模型未注明） | 冻结数据和模块覆盖扎实，但交互与最终画面当前不可交付 | 先修 WASD；为 connector 逐控制点插值水位并增加 finite 顶点断言；保留视野外邻近 chunk 并消除转向补渲染；植被 load 完成后重建；修正 renderer 统计采样 |
+| 修复后再评 | DeepSeek V4 Pro 正式版 | 冻结数据和模块覆盖扎实，但交互与最终画面当前不可交付 | 先修 WASD；为 connector 逐控制点插值水位并增加 finite 顶点断言；保留视野外邻近 chunk 并消除转向补渲染；植被 load 完成后重建；修正 renderer 统计采样 |
 | 视觉效果标杆 | GPT 5.6 Sol ultra + 手动调试 | 当前实际画面显著领先 | 不参与计分，仅供画面对照 |
 
 ## 11. 复现过程与限制
@@ -269,11 +269,11 @@ DeepSeek 的性能分较上一版增加 2 分：其精确提交验收记录约 `
 
 **GPT 5.5 xhigh 为 59.0 分，列第四**：它确实使用指定草/树资产，5173 裸 FPS 达 141.4，但场景负载明显更轻、服务还是 Vite dev；更重要的是最终地形没有可辨识层级，水面过曝、同心层叠并遮挡玩家。地形 `0/5`、水系 `0/4.5`，代码因核心算法、运行结果和测试防线同时失效降至 `14.5/25`。Luna Max 以 69.0 分居第二；DeepSeek 因 2154 万三角形的重负载证据将性能上调至 `16.5/25`，总分 `62.25`，位居第三。
 
-**pro-0813 最终为 47.0 分，列第七**：角色能显示不等于第三人称交互通过，WASD 无法移动后，第三人称指令分从 4.0 降至 1.5；转动视角才补渲染、交互 FPS 低、整体模糊，使视觉降至 `4.0/25`，性能降至 `11.5/25`。静态 `vista` 的 98.9 FPS 仍作为原始事实保留，但它建立在植被缺失、错误水系和视角外 chunk 被卸载的非等价负载上，不能补偿探索体验失败。
+**DeepSeek V4 Pro 正式版最终为 47.0 分，列第七**：角色能显示不等于第三人称交互通过，WASD 无法移动后，第三人称指令分从 4.0 降至 1.5；转动视角才补渲染、交互 FPS 低、整体模糊，使视觉降至 `4.0/25`，性能降至 `11.5/25`。静态 `vista` 的 98.9 FPS 仍作为原始事实保留，但它建立在植被缺失、错误水系和视角外 chunk 被卸载的非等价负载上，不能补偿探索体验失败。
 
 **DeepSeek 因第一人称替代第三人称被明确扣分**，第三人称子项为 0；GLM 的高 FPS 仍因 shader 与地形负载缺失而折价。Luna Medium 保留为独立候选，但其高 FPS 主要来自简化场景。
 
-`main` 继续只作为最佳视觉效果标杆，不与七个候选计算分数。若后续希望形成严格的性能第二轮，应把 GPT 5.5 也启动为 production preview，再由统一外部 RAF evaluator 在等价画面下复测；`pro-0813` 则必须先修复 WASD、视角转向补渲染、connector 水位插值、植被 settled/rebuild 和 renderer 统计，完整可交互画面出现前不应把 98.9 FPS 与其他实现直接比较。
+`main` 继续只作为最佳视觉效果标杆，不与七个候选计算分数。若后续希望形成严格的性能第二轮，应把 GPT 5.5 也启动为 production preview，再由统一外部 RAF evaluator 在等价画面下复测；DeepSeek V4 Pro 正式版（`pro-0813`）则必须先修复 WASD、视角转向补渲染、connector 水位插值、植被 settled/rebuild 和 renderer 统计，完整可交互画面出现前不应把 98.9 FPS 与其他实现直接比较。
 
 ---
 

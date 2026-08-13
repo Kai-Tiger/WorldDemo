@@ -77,4 +77,15 @@ export const rankings: Ranking[] = [
     color: "#777f92",
     note: "运行时错误影响交付",
   },
+  {
+    rank: 7,
+    model: "DeepSeek V4 Pro 正式版",
+    instruction: 17.5,
+    code: 14,
+    visual: 4,
+    performance: 11.5,
+    total: 47,
+    color: "#8f75c9",
+    note: "WASD 失效 · 转向补渲染",
+  },
 ];

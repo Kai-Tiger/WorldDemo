@@ -35,7 +35,7 @@
   },
   "sourceAdditions": {
     "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium",
-    "pro0813": "pro-0813@b920c68; model identity was not supplied, so the report keeps the branch label"
+    "deepseekV4Pro": "DeepSeek V4 Pro formal release; pro-0813@b920c68"
   },
   "benchmark": {
     "source": "main",
@@ -391,7 +391,7 @@
       "source": "pro-0813",
       "service": "http://127.0.0.1:4191",
       "serverMode": "Vite production preview",
-      "model": "pro-0813 (model not specified)",
+      "model": "DeepSeek V4 Pro formal release",
       "commit": "b920c68",
       "snapshot": "2026-08-13 isolated production preview",
       "instructionAdherence": 17.5,

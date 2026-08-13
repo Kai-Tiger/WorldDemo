@@ -59,7 +59,7 @@ build(
         ("gpt-5-5-vista.png", "GPT 5.5 xhigh", "~/Desktop/5.5"),
         ("deepseek-v4-flash-vista.png", "DeepSeek V4", "codex-ds-flash"),
         ("gpt-5-6-sol-vista.png", "GPT 5.6 Sol xhigh", "~/Desktop/5.6 · :4174"),
-        ("pro-0813-vista.png", "pro-0813", "model not specified · b920c68"),
+        ("pro-0813-vista.png", "DeepSeek V4 Pro", "formal release · pro-0813"),
         ("glm-5-2-vista.png", "GLM 5.2", "feat/GLM-5-2"),
         ("gpt-5-6-luna-medium-vista.png", "GPT 5.6 Luna Medium", "gpt-luna"),
     ],
@@ -76,7 +76,7 @@ build(
         ("glm-5-2-waterfall.png", "GLM 5.2", "verified fixed shot"),
         ("gpt-5-6-luna-medium-waterfall.png", "GPT 5.6 Luna Medium", "committed fixed shot"),
         ("gpt-5-6-sol-waterfall.png", "GPT 5.6 Sol xhigh", "verified live fixed shot · :4174"),
-        ("pro-0813-waterfall.png", "pro-0813", "verified production fixed shot"),
+        ("pro-0813-waterfall.png", "DeepSeek V4 Pro", "formal release · fixed shot"),
     ],
     panel=(480, 270),
 )
@@ -91,7 +91,7 @@ build(
         ("gpt-5-6-sol-spawn.png", "GPT 5.6 Sol xhigh", "third-person, visible player"),
         ("glm-5-2-spawn.png", "GLM 5.2", "third-person, T-pose"),
         ("gpt-5-6-luna-medium-spawn.png", "GPT 5.6 Luna Medium", "third-person, visible player"),
-        ("pro-0813-spawn.png", "pro-0813", "third-person, visible player"),
+        ("pro-0813-spawn.png", "DeepSeek V4 Pro", "visible player; WASD failed"),
     ],
     panel=(480, 270),
 )

@@ -119,17 +119,17 @@ h1 {
 
 .ranking-list {
   position: absolute;
-  top: 270px;
+  top: 258px;
   left: 110px;
   right: 110px;
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 9px;
 }
 
 .ranking-row {
   position: relative;
-  height: 104px;
+  height: 92px;
   display: grid;
   grid-template-columns: 82px 535px 1fr 200px;
   align-items: center;
@@ -156,15 +156,15 @@ h1 {
 .rank-badge {
   position: relative;
   z-index: 1;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   margin-left: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 14px;
   color: #09101b;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 900;
   box-shadow: 0 7px 18px rgba(0, 0, 0, 0.26);
 }
@@ -175,9 +175,9 @@ h1 {
 }
 
 .model-name {
-  min-height: 39px;
+  min-height: 35px;
   color: #f5f7fb;
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 760;
   letter-spacing: -0.5px;
   white-space: nowrap;
@@ -187,7 +187,7 @@ h1 {
   display: inline-block;
   margin-top: 2px;
   color: #8496ae;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -204,7 +204,7 @@ h1 {
   align-items: center;
   justify-content: center;
   min-width: 86px;
-  height: 68px;
+  height: 62px;
   border-left: 1px solid rgba(150, 168, 194, 0.14);
 }
 
@@ -215,7 +215,7 @@ h1 {
 
 .score-value {
   color: #dfe7f2;
-  font-size: 27px;
+  font-size: 25px;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
 }
@@ -229,7 +229,7 @@ h1 {
 }
 
 .total-block {
-  height: 72px;
+  height: 66px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -239,7 +239,7 @@ h1 {
 }
 
 .total-number {
-  font-size: 42px;
+  font-size: 39px;
   font-weight: 900;
   line-height: 1;
   font-variant-numeric: tabular-nums;
