@@ -79,7 +79,7 @@ export const rankings: Ranking[] = [
   },
   {
     rank: 7,
-    model: "DeepSeek V4 Pro 正式版",
+    model: "DeepSeek V4 pro 0813",
     instruction: 17.5,
     code: 14,
     visual: 4,
