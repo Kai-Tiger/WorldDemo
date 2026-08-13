@@ -1,5 +1,6 @@
 {
   "evaluationDate": "2026-08-02",
+  "lastUpdated": "2026-08-13",
   "environment": {
     "viewport": "1280x720 CSS",
     "quality": "balanced",
@@ -10,7 +11,8 @@
     "npm": "11.8.0",
     "serviceModes": {
       "gpt55": "Vite development service on 5173",
-      "gpt56Sol": "Vite production preview on 4174"
+      "gpt56Sol": "Vite production preview on 4174",
+      "pro0813": "Vite production preview on 4191 during 2026-08-13 evaluation"
     }
   },
   "weights": {
@@ -32,7 +34,8 @@
     "gpt56Sol": "/Users/likai.lear/Desktop/5.6 current directory and live :4174 service; replaces the previous incorrectly mapped Sol evidence"
   },
   "sourceAdditions": {
-    "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium"
+    "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium",
+    "pro0813": "pro-0813@b920c68; model identity was not supplied, so the report keeps the branch label"
   },
   "benchmark": {
     "source": "main",
@@ -382,6 +385,66 @@
       "tests": "74/74",
       "build": "pass",
       "bundleKb": 250.62
+    },
+    {
+      "rank": 7,
+      "source": "pro-0813",
+      "service": "http://127.0.0.1:4191",
+      "serverMode": "Vite production preview",
+      "model": "pro-0813 (model not specified)",
+      "commit": "b920c68",
+      "snapshot": "2026-08-13 isolated production preview",
+      "instructionAdherence": 17.5,
+      "code": 14.0,
+      "visual": 4.0,
+      "performance": 11.5,
+      "total": 47.0,
+      "subscores": {
+        "instructionAdherence": {
+          "requiredAssets": 4.0,
+          "frozenLayoutHydrology": 5.5,
+          "thirdPerson": 1.5,
+          "fixedShotsApiMetrics": 3.5,
+          "prohibitions": 3.0
+        },
+        "code": {
+          "architecture": 6.5,
+          "dataAlgorithms": 4.5,
+          "runtimeCorrectness": 0.5,
+          "testsObservability": 2.5
+        },
+        "visual": {
+          "terrain": 1.5,
+          "water": 0.75,
+          "vegetation": 0.0,
+          "composition": 1.25,
+          "materialsLighting": 0.5,
+          "stability": 0.0
+        },
+        "performance": {
+          "steadyFps": 10.0,
+          "equivalentVisibleLoad": 0.5,
+          "tailStability": 0.5,
+          "metricsCredibility": 0.5
+        }
+      },
+      "productGate": "fail: WASD does not move the player; view rotation triggers delayed chunk rendering; repeated NaN water geometry, blurry/black terrain, white tube-like rivers and no visible vegetation",
+      "instructionFindings": "uses frozen SCENE_LAYOUT, both heightmaps, six fixed shots, the player FBX, tree_01-tree_04 and all VarA-VarF LOD0-2 grass paths; tree_spawn is omitted, vegetation misses the settled frame, and browser input did not move the player",
+      "thirdPerson": "fail: the player is visible in spawn, but user manual operation and browser W-key verification produced no movement",
+      "fps": 98.9,
+      "fpsMeanExact": 98.8667,
+      "fpsRange": "98-100",
+      "fpsSamples": 15,
+      "frameMs": 10.24,
+      "drawCalls": 1,
+      "triangles": 1,
+      "metricsCaveat": "98.9 FPS is the static vista window only; interactive rotation has low FPS and delayed chunk rendering, HUD renderer statistics are inconsistent with visible content, and vegetation is absent",
+      "startup": "diagnostic only",
+      "console": "repeated BufferGeometry NaN errors on every fixed-shot load",
+      "tests": "59/59, but the hydrology test itself emits three NaN geometry errors and does not assert finite positions",
+      "build": "pass",
+      "bundleKb": 899.53,
+      "npmAudit": "1 high severity vulnerability reported by npm ci"
     }
   ]
 }

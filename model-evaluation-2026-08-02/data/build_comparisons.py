@@ -20,8 +20,8 @@ def font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-TITLE = font(25, bold=True)
-SUBTITLE = font(18)
+TITLE = font(22, bold=True)
+SUBTITLE = font(15)
 
 
 def fit(source: Path, panel: tuple[int, int]) -> Image.Image:
@@ -45,7 +45,7 @@ def build(output: str, columns: int, items: list[tuple[str, str, str]], panel: t
         baseline = y + panel[1] + 10
         draw.text((x + 12, baseline), title, fill="#18324d", font=TITLE)
         title_width = draw.textlength(title, font=TITLE)
-        draw.text((x + 20 + title_width, baseline + 5), subtitle, fill="#637083", font=SUBTITLE)
+        draw.text((x + 16 + title_width, baseline + 5), subtitle, fill="#637083", font=SUBTITLE)
         draw.rectangle((x, y, x + panel[0] - 1, y + panel[1] + LABEL_HEIGHT - 1), outline="#d7dde5", width=2)
     sheet.save(ROOT / output, optimize=True)
 
@@ -59,6 +59,7 @@ build(
         ("gpt-5-5-vista.png", "GPT 5.5 xhigh", "~/Desktop/5.5"),
         ("deepseek-v4-flash-vista.png", "DeepSeek V4", "codex-ds-flash"),
         ("gpt-5-6-sol-vista.png", "GPT 5.6 Sol xhigh", "~/Desktop/5.6 · :4174"),
+        ("pro-0813-vista.png", "pro-0813", "model not specified · b920c68"),
         ("glm-5-2-vista.png", "GLM 5.2", "feat/GLM-5-2"),
         ("gpt-5-6-luna-medium-vista.png", "GPT 5.6 Luna Medium", "gpt-luna"),
     ],
@@ -67,7 +68,7 @@ build(
 
 build(
     "comparison-waterfall.png",
-    3,
+    4,
     [
         ("gpt-5-6-luna-max-waterfall.png", "GPT 5.6 Luna Max", "verified live fixed shot"),
         ("gpt-5-5-waterfall.png", "GPT 5.5 xhigh", "verified live fixed shot"),
@@ -75,13 +76,14 @@ build(
         ("glm-5-2-waterfall.png", "GLM 5.2", "verified fixed shot"),
         ("gpt-5-6-luna-medium-waterfall.png", "GPT 5.6 Luna Medium", "committed fixed shot"),
         ("gpt-5-6-sol-waterfall.png", "GPT 5.6 Sol xhigh", "verified live fixed shot · :4174"),
+        ("pro-0813-waterfall.png", "pro-0813", "verified production fixed shot"),
     ],
     panel=(480, 270),
 )
 
 build(
     "comparison-third-person.png",
-    3,
+    4,
     [
         ("gpt-5-6-luna-max-spawn.png", "GPT 5.6 Luna Max", "third-person, T-pose"),
         ("gpt-5-5-spawn.png", "GPT 5.5 xhigh", "third-person, water occludes player"),
@@ -89,6 +91,7 @@ build(
         ("gpt-5-6-sol-spawn.png", "GPT 5.6 Sol xhigh", "third-person, visible player"),
         ("glm-5-2-spawn.png", "GLM 5.2", "third-person, T-pose"),
         ("gpt-5-6-luna-medium-spawn.png", "GPT 5.6 Luna Medium", "third-person, visible player"),
+        ("pro-0813-spawn.png", "pro-0813", "third-person, visible player"),
     ],
     panel=(480, 270),
 )
