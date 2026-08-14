@@ -1,6 +1,6 @@
 {
   "evaluationDate": "2026-08-02",
-  "lastUpdated": "2026-08-13",
+  "lastUpdated": "2026-08-14",
   "environment": {
     "viewport": "1280x720 CSS",
     "quality": "balanced",
@@ -12,7 +12,8 @@
     "serviceModes": {
       "gpt55": "Vite development service on 5173",
       "gpt56Sol": "Vite production preview on 4174",
-      "pro0813": "Vite production preview on 4191 during 2026-08-13 evaluation"
+      "pro0813": "Vite production preview on 4191 during 2026-08-13 evaluation",
+      "dsHarness": "Vite production preview on 4192 during 2026-08-14 evaluation"
     }
   },
   "weights": {
@@ -35,7 +36,8 @@
   },
   "sourceAdditions": {
     "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium",
-    "deepseekV4Pro": "DeepSeek V4 pro 0813; pro-0813@b920c68"
+    "deepseekV4Pro": "DeepSeek V4 pro 0813; pro-0813@b920c68",
+    "dsHarness": "ds-harness@3763882; model identity not specified"
   },
   "benchmark": {
     "source": "main",
@@ -281,6 +283,65 @@
     },
     {
       "rank": 5,
+      "source": "ds-harness",
+      "service": "http://127.0.0.1:4192",
+      "serverMode": "Vite production preview",
+      "model": "ds-harness",
+      "commit": "3763882",
+      "snapshot": "2026-08-14 production preview",
+      "instructionAdherence": 15.5,
+      "code": 15.5,
+      "visual": 8.75,
+      "performance": 16.0,
+      "total": 55.75,
+      "subscores": {
+        "instructionAdherence": {
+          "requiredAssets": 4.0,
+          "frozenLayoutHydrology": 5.0,
+          "thirdPerson": 1.5,
+          "fixedShotsApiMetrics": 2.0,
+          "prohibitions": 3.0
+        },
+        "code": {
+          "architecture": 6.5,
+          "dataAlgorithms": 5.5,
+          "runtimeCorrectness": 0.5,
+          "testsObservability": 3.0
+        },
+        "visual": {
+          "terrain": 3.0,
+          "water": 1.0,
+          "vegetation": 0.0,
+          "composition": 2.25,
+          "materialsLighting": 1.75,
+          "stability": 0.75
+        },
+        "performance": {
+          "steadyFps": 10.0,
+          "equivalentVisibleLoad": 1.5,
+          "tailStability": 3.5,
+          "metricsCredibility": 1.0
+        }
+      },
+      "productGate": "fail: the canvas never receives keyboard focus, so WASD does not move the player; vegetation never reaches the delivered frame; the v2 runtime API remains absent; lake, river and waterfall geometry is visibly placeholder-like",
+      "instructionFindings": "uses a single frozen SCENE_LAYOUT, both heightmaps, all six shots, player FBX, tree_01-tree_04 plus tree_spawn, all VarA-VarF LOD0-2 grass GLBs and project KTX2 paths; however the final frame contains no vegetation, the canvas has no tabindex/focus path, and window.__COLD_MOUNTAIN__ is not installed because ready waits on vegetation without a timeout",
+      "thirdPerson": "fail: the normally posed player is visible in spawn, but twelve W key presses leave the HUD position at x 335.0 / z -358.0",
+      "fps": 180.0,
+      "fpsMeanExact": 180.0,
+      "fpsRange": "180-180",
+      "fpsSamples": 15,
+      "frameMs": 5.56,
+      "drawCalls": 11,
+      "triangles": 196454,
+      "metricsCaveat": "15 stable vista HUD samples all read 180 FPS, but the scene has no grass or trees and only 196k triangles; the v2 metrics API remained absent after more than 145 seconds, so p95 and 1% low could not be independently read",
+      "startup": "diagnostic only; waiting time is not scored",
+      "console": "0 browser errors or warnings; runtime API remained absent",
+      "tests": "40/40, but no browser test catches canvas focus, unresolved ready/API or missing settled vegetation",
+      "build": "pass",
+      "bundleKb": 792.47
+    },
+    {
+      "rank": 6,
       "source": "gpt-luna",
       "model": "GPT 5.6 Luna medium",
       "commit": "632e8da",
@@ -333,7 +394,7 @@
       "bundleKb": 770.73
     },
     {
-      "rank": 6,
+      "rank": 7,
       "source": "feat/GLM-5-2",
       "model": "GLM 5.2 xhigh",
       "commit": "51c3480",
@@ -387,7 +448,7 @@
       "bundleKb": 250.62
     },
     {
-      "rank": 7,
+      "rank": 8,
       "source": "pro-0813",
       "service": "http://127.0.0.1:4191",
       "serverMode": "Vite production preview",
