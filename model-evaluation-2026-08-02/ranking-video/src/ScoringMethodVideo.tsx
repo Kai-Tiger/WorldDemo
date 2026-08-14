@@ -197,7 +197,7 @@ export const ScoringMethodVideo: React.FC = () => {
             transform: `translateY(${(1 - subtitleProgress) * 14}px)`,
           }}
         >
-          七个计分候选 · 四个一级维度完全等权
+          八个计分候选 · 四个一级维度完全等权
         </div>
       </header>
 

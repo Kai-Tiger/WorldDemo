@@ -57,6 +57,17 @@ export const rankings: Ranking[] = [
   },
   {
     rank: 5,
+    model: "DeepSeek V4 Pro High + DeepSeek Harness",
+    instruction: 15.5,
+    code: 15.5,
+    visual: 8.75,
+    performance: 16,
+    total: 55.75,
+    color: "#a383e8",
+    note: "WASD 失效 · 植被/API 未交付",
+  },
+  {
+    rank: 6,
     model: "GPT 5.6 Luna Medium",
     instruction: 16.5,
     code: 11,
@@ -67,7 +78,7 @@ export const rankings: Ranking[] = [
     note: "轻量原型",
   },
   {
-    rank: 6,
+    rank: 7,
     model: "GLM 5.2 xhigh",
     instruction: 15,
     code: 14.5,
@@ -78,7 +89,7 @@ export const rankings: Ranking[] = [
     note: "运行时错误影响交付",
   },
   {
-    rank: 7,
+    rank: 8,
     model: "DeepSeek V4 pro 0813",
     instruction: 17.5,
     code: 14,

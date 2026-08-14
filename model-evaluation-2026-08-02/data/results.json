@@ -37,7 +37,7 @@
   "sourceAdditions": {
     "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium",
     "deepseekV4Pro": "DeepSeek V4 pro 0813; pro-0813@b920c68",
-    "dsHarness": "ds-harness@3763882; model identity not specified"
+    "dsHarness": "DeepSeek V4 Pro High + DeepSeek Harness; ds-harness@3763882"
   },
   "benchmark": {
     "source": "main",
@@ -286,7 +286,7 @@
       "source": "ds-harness",
       "service": "http://127.0.0.1:4192",
       "serverMode": "Vite production preview",
-      "model": "ds-harness",
+      "model": "DeepSeek V4 Pro High + DeepSeek Harness",
       "commit": "3763882",
       "snapshot": "2026-08-14 production preview",
       "instructionAdherence": 15.5,

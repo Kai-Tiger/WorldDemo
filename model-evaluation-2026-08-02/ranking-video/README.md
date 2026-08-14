@@ -1,6 +1,6 @@
 # Cold Mountain model ranking video
 
-15-second, 1920 × 1080 Remotion composition presenting the total ranking of the seven evaluated model implementations.
+15-second, 1920 × 1080 Remotion composition presenting the total ranking of the eight evaluated model implementations.
 
 ## Commands
 
