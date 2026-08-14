@@ -13,7 +13,8 @@
       "gpt55": "Vite development service on 5173",
       "gpt56Sol": "Vite production preview on 4174",
       "pro0813": "Vite production preview on 4191 during 2026-08-13 evaluation",
-      "dsHarness": "Vite production preview on 4192 during 2026-08-14 evaluation"
+      "dsHarness": "Vite production preview on 4192 during 2026-08-14 evaluation",
+      "deepseekCodex0814": "Vite production preview on 4193 during 2026-08-14 evaluation"
     }
   },
   "weights": {
@@ -37,7 +38,8 @@
   "sourceAdditions": {
     "lunaMax": "luna-max@ced157a; evaluated alongside retained gpt-luna / Luna medium",
     "deepseekV4Pro": "DeepSeek V4 pro 0813; pro-0813@b920c68",
-    "dsHarness": "DeepSeek V4 Pro High + DeepSeek Harness; ds-harness@3763882"
+    "dsHarness": "DeepSeek V4 Pro High + DeepSeek Harness; ds-harness@3763882",
+    "deepseekCodex0814": "DeepSeek V4 Pro 0814 + Codex; /Users/likai.lear/Desktop/my-example-codex-ds current uncommitted directory; source fingerprint a95d58d7442dca11d1f2344ba8d25f5502596f8828f009441e7e659543c72251"
   },
   "benchmark": {
     "source": "main",
@@ -342,6 +344,67 @@
     },
     {
       "rank": 6,
+      "source": "/Users/likai.lear/Desktop/my-example-codex-ds",
+      "service": "http://127.0.0.1:4193",
+      "serverMode": "Vite production preview",
+      "model": "DeepSeek V4 Pro 0814 + Codex",
+      "commit": null,
+      "sourceFingerprint": "a95d58d7442dca11d1f2344ba8d25f5502596f8828f009441e7e659543c72251",
+      "snapshot": "2026-08-14 current uncommitted directory and isolated production preview",
+      "instructionAdherence": 17.0,
+      "code": 16.0,
+      "visual": 4.75,
+      "performance": 15.5,
+      "total": 53.25,
+      "subscores": {
+        "instructionAdherence": {
+          "requiredAssets": 4.0,
+          "frozenLayoutHydrology": 5.5,
+          "thirdPerson": 1.0,
+          "fixedShotsApiMetrics": 3.5,
+          "prohibitions": 3.0
+        },
+        "code": {
+          "architecture": 6.5,
+          "dataAlgorithms": 6.0,
+          "runtimeCorrectness": 0.5,
+          "testsObservability": 3.0
+        },
+        "visual": {
+          "terrain": 1.5,
+          "water": 0.5,
+          "vegetation": 0.0,
+          "composition": 1.0,
+          "materialsLighting": 0.75,
+          "stability": 1.0
+        },
+        "performance": {
+          "steadyFps": 8.5,
+          "equivalentVisibleLoad": 1.5,
+          "tailStability": 4.0,
+          "metricsCredibility": 1.5
+        }
+      },
+      "productGate": "fail: canvas cannot receive keyboard focus so WASD does not move the player; spawn player is T-posed; stable forest and vista contain no visible grass or trees; terrain/material hierarchy is washed out; lakes, rivers and waterfall remain obvious geometric placeholders",
+      "instructionFindings": "uses the frozen SCENE_LAYOUT, both heightmaps, complete center/outer hydrology, six fixed shots, player FBX, tree_01-tree_04 plus tree_spawn, all VarA-VarF LOD0-2 grass GLBs and project textures; final delivery loses vegetation because the runtime reads probe.dominantLayer instead of probe.material.dominantLayer, and keyboard listeners target a non-focusable canvas",
+      "thirdPerson": "fail: the player is visible but T-posed; after clicking the canvas, activeElement remains BODY and twelve W key presses leave HUD position at x 335.0 / z -358.0",
+      "fps": 75.0,
+      "fpsMeanExact": 75.0,
+      "fpsRange": "75-75",
+      "fpsSamples": 15,
+      "frameMs": 13.33,
+      "drawCalls": null,
+      "triangles": null,
+      "metricsCaveat": "15 stable vista HUD samples all read 75 FPS, but stable final frames contain no grass or trees; the source defines v2 metrics, while the visible debug HUD cannot be toggled because canvas focus fails, so renderer load could not be read from the tested page",
+      "startup": "diagnostic only; waiting time is not scored",
+      "console": "0 application errors; repeated warning about multiple active KTX2 loaders",
+      "tests": "36/36, but pure logic tests mock getDominantLayer and do not catch the runtime probe path, canvas focus, T-pose or settled visual result",
+      "build": "pass",
+      "bundleKb": 931.53,
+      "npmAudit": "0 vulnerabilities"
+    },
+    {
+      "rank": 7,
       "source": "gpt-luna",
       "model": "GPT 5.6 Luna medium",
       "commit": "632e8da",
@@ -394,7 +457,7 @@
       "bundleKb": 770.73
     },
     {
-      "rank": 7,
+      "rank": 8,
       "source": "feat/GLM-5-2",
       "model": "GLM 5.2 xhigh",
       "commit": "51c3480",
@@ -448,7 +511,7 @@
       "bundleKb": 250.62
     },
     {
-      "rank": 8,
+      "rank": 9,
       "source": "pro-0813",
       "service": "http://127.0.0.1:4191",
       "serverMode": "Vite production preview",
