@@ -129,7 +129,7 @@ h1 {
 
 .ranking-row {
   position: relative;
-  height: 82px;
+  height: 75px;
   display: grid;
   grid-template-columns: 78px 570px 1fr 190px;
   align-items: center;

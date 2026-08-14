@@ -68,6 +68,17 @@ export const rankings: Ranking[] = [
   },
   {
     rank: 6,
+    model: "DeepSeek V4 Pro 0814 + Codex",
+    instruction: 17,
+    code: 16,
+    visual: 4.75,
+    performance: 15.5,
+    total: 53.25,
+    color: "#6fa8dc",
+    note: "WASD/T-pose · 植被为 0",
+  },
+  {
+    rank: 7,
     model: "GPT 5.6 Luna Medium",
     instruction: 16.5,
     code: 11,
@@ -78,7 +89,7 @@ export const rankings: Ranking[] = [
     note: "轻量原型",
   },
   {
-    rank: 7,
+    rank: 8,
     model: "GLM 5.2 xhigh",
     instruction: 15,
     code: 14.5,
@@ -89,7 +100,7 @@ export const rankings: Ranking[] = [
     note: "运行时错误影响交付",
   },
   {
-    rank: 8,
+    rank: 9,
     model: "DeepSeek V4 pro 0813",
     instruction: 17.5,
     code: 14,
